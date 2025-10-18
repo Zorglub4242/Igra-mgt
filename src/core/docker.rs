@@ -115,13 +115,32 @@ impl DockerManager {
             .map(|c| self.container_summary_to_info(c))
             .collect();
 
-        // Enrich with metrics by parsing logs
-        for container in &mut container_infos {
-            if container.state == ContainerState::Running {
-                // Fetch last 50 lines of logs for metrics parsing
-                if let Ok(logs) = self.get_logs(&container.name, Some(50)).await {
-                    container.metrics = parse_service_logs(&container.name, &logs);
-                }
+        // Enrich with metrics by parsing logs (in parallel for performance)
+        // Collect running container names
+        let running_names: Vec<String> = container_infos
+            .iter()
+            .filter(|c| c.state == ContainerState::Running)
+            .map(|c| c.name.clone())
+            .collect();
+
+        // Fetch logs in parallel (much faster than sequential)
+        use futures::future::join_all;
+        let log_futures = running_names.iter().map(|name| {
+            let name = name.clone();
+            async move {
+                // Fetch last 20 lines - enough for parsing, faster than 50
+                self.get_logs(&name, Some(20)).await.ok().map(|logs| (name.clone(), logs))
+            }
+        });
+
+        let metrics_results = join_all(log_futures).await;
+
+        // Parse logs and apply metrics to containers
+        for result in metrics_results.into_iter().flatten() {
+            let (name, logs) = result;
+            let metrics = parse_service_logs(&name, &logs);
+            if let Some(container) = container_infos.iter_mut().find(|c| c.name == name) {
+                container.metrics = metrics;
             }
         }
 

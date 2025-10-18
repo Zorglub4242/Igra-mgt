@@ -1,10 +1,16 @@
 [package]
 name = "igra-cli"
-version = "0.1.0"
+version = "0.2.1"
 edition = "2021"
 authors = ["Merlin"]
 description = "Terminal-based management CLI for IGRA Orchestra nodes"
 license = "MIT"
+repository = "https://github.com/Zorglub4242/Igra-mgt"
+homepage = "https://github.com/Zorglub4242/Igra-mgt"
+documentation = "https://github.com/Zorglub4242/Igra-mgt#readme"
+keywords = ["igra", "kaspa", "blockchain", "tui", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
 
 [[bin]]
 name = "igra-cli"
