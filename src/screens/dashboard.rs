@@ -294,7 +294,7 @@ impl Dashboard {
         frame.render_widget(summary, chunks[0]);
 
         // Services table
-        let header = Row::new(vec!["Service", "Status", "Health", "CPU", "Memory", "Net RX", "Net TX", "Image"])
+        let header = Row::new(vec!["Service", "Status", "Health", "Metrics", "CPU", "Memory", "Net RX", "Net TX", "Image"])
             .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
             .bottom_margin(1);
 
@@ -375,10 +375,28 @@ impl Dashboard {
                 .unwrap_or(&container.image)
                 .to_string();
 
+            // Format metrics from log parsing
+            let metrics_text = if let Some(ref status_text) = container.metrics.status_text {
+                let mut parts = vec![status_text.clone()];
+                if let Some(ref primary) = container.metrics.primary_metric {
+                    parts.push(primary.clone());
+                }
+                parts.join(" ")
+            } else {
+                "-".to_string()
+            };
+
+            let metrics_color = if container.metrics.is_healthy {
+                Color::Green
+            } else {
+                Color::Yellow
+            };
+
             let row = Row::new(vec![
                 Cell::from(name),
                 Cell::from(Span::styled(status, Style::default().fg(status_color))),
                 Cell::from(Span::styled(health, Style::default().fg(health_color))),
+                Cell::from(Span::styled(metrics_text, Style::default().fg(metrics_color))),
                 cpu_cell,
                 mem_cell,
                 Cell::from(net_rx_text),
@@ -399,8 +417,9 @@ impl Dashboard {
             rows,
             [
                 Constraint::Length(20),  // Service
-                Constraint::Length(16),  // Status
+                Constraint::Length(14),  // Status
                 Constraint::Length(9),   // Health
+                Constraint::Length(18),  // Metrics
                 Constraint::Length(7),   // CPU
                 Constraint::Length(9),   // Memory
                 Constraint::Length(9),   // Net RX

@@ -6,9 +6,11 @@ pub mod rpc;
 pub mod wallet;
 pub mod ssl;
 pub mod metrics;
+pub mod log_parser;
 
 pub use docker::DockerManager;
 pub use config::ConfigManager;
+pub use log_parser::{parse_service_logs, ServiceMetrics};
 
 // Re-exports for future use (currently unused)
 #[allow(unused_imports)]

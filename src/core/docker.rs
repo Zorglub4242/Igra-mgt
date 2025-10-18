@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::utils::{get_project_root, ContainerState};
+use crate::core::log_parser::{parse_service_logs, ServiceMetrics};
 
 #[derive(Debug, Clone)]
 pub struct ContainerInfo {
@@ -22,6 +23,7 @@ pub struct ContainerInfo {
     pub health: Option<String>,
     pub created: i64,
     pub ports: Vec<String>,
+    pub metrics: ServiceMetrics,
 }
 
 #[derive(Debug, Clone)]
@@ -108,10 +110,22 @@ impl DockerManager {
 
         let containers = self.docker.list_containers(options).await?;
 
-        Ok(containers
+        let mut container_infos: Vec<ContainerInfo> = containers
             .into_iter()
             .map(|c| self.container_summary_to_info(c))
-            .collect())
+            .collect();
+
+        // Enrich with metrics by parsing logs
+        for container in &mut container_infos {
+            if container.state == ContainerState::Running {
+                // Fetch last 50 lines of logs for metrics parsing
+                if let Ok(logs) = self.get_logs(&container.name, Some(50)).await {
+                    container.metrics = parse_service_logs(&container.name, &logs);
+                }
+            }
+        }
+
+        Ok(container_infos)
     }
 
     /// Get container info by name
@@ -372,6 +386,7 @@ impl DockerManager {
             health,
             created: summary.created.unwrap_or(0),
             ports,
+            metrics: ServiceMetrics::default(),
         }
     }
 }
