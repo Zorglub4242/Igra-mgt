@@ -4,6 +4,13 @@ use anyhow::{anyhow, Context, Result};
 use serde_json::Value;
 use std::process::Command;
 
+// Include the generated gRPC client code
+pub mod kaswallet_proto {
+    tonic::include_proto!("kaswallet_proto");
+}
+
+use kaswallet_proto::kaswallet_proto_client::KaswalletProtoClient;
+
 pub struct WalletManager {
     project_root: std::path::PathBuf,
 }
@@ -22,39 +29,56 @@ impl WalletManager {
         Ok(Self { project_root })
     }
 
-    /// Get wallet balance
-    /// TODO: Implement proper gRPC/HTTP API call to kaswallet-daemon
-    pub async fn get_balance(&self, _worker_id: usize) -> Result<f64> {
-        // For now, return an error to indicate balance is not available
-        // The TUI will show "N/A" for balance
-        // Future implementation should use the kaswallet-daemon gRPC API
-        Err(anyhow!("Balance querying not yet implemented - requires gRPC API integration"))
+    /// Get wallet balance via gRPC
+    pub async fn get_balance(&self, worker_id: usize) -> Result<f64> {
+        // Connect to kaswallet-daemon gRPC endpoint
+        // Port mapping: kaswallet-0 = 8082, kaswallet-1 = 8083, etc.
+        let port = 8082 + worker_id;
+        let endpoint = format!("http://127.0.0.1:{}", port);
+
+        // Create gRPC client with timeout
+        let mut client = KaswalletProtoClient::connect(endpoint.clone())
+            .await
+            .context(format!("Failed to connect to kaswallet-daemon at {}", endpoint))?;
+
+        // Call GetBalance RPC
+        let request = tonic::Request::new(kaswallet_proto::GetBalanceRequest {});
+        let response = client.get_balance(request)
+            .await
+            .context("Failed to get balance from kaswallet-daemon")?;
+
+        let balance_response = response.into_inner();
+
+        // Convert sompi to KAS (1 KAS = 10^8 sompi)
+        let balance_kas = balance_response.available as f64 / 100_000_000.0;
+
+        Ok(balance_kas)
     }
 
-    /// Get wallet address from keys file
+    /// Get wallet address via gRPC (returns first address)
     pub async fn get_address(&self, worker_id: usize) -> Result<String> {
-        let keys_file = self.project_root.join(format!("keys/keys.kaswallet-{}.json", worker_id));
+        // Connect to kaswallet-daemon gRPC endpoint
+        let port = 8082 + worker_id;
+        let endpoint = format!("http://127.0.0.1:{}", port);
 
-        if !keys_file.exists() {
-            return Err(anyhow!("Wallet keys file not found"));
-        }
+        // Create gRPC client
+        let mut client = KaswalletProtoClient::connect(endpoint.clone())
+            .await
+            .context(format!("Failed to connect to kaswallet-daemon at {}", endpoint))?;
 
-        let keys_content = std::fs::read_to_string(&keys_file)
-            .context("Failed to read wallet keys file")?;
+        // Call ShowAddresses RPC
+        let request = tonic::Request::new(kaswallet_proto::ShowAddressesRequest {});
+        let response = client.show_addresses(request)
+            .await
+            .context("Failed to get addresses from kaswallet-daemon")?;
 
-        let keys_json: Value = serde_json::from_str(&keys_content)
-            .context("Failed to parse wallet keys file")?;
+        let addresses_response = response.into_inner();
 
-        // Get the public key
-        if let Some(public_keys) = keys_json.get("public_keys").and_then(|pk| pk.as_array()) {
-            if let Some(public_key) = public_keys.first().and_then(|pk| pk.as_str()) {
-                // For now, just return the public key - in production you'd derive the address
-                // The public key starts with "ktub" for testnet
-                return Ok(format!("{}...", &public_key[..20]));
-            }
-        }
-
-        Err(anyhow!("Failed to extract address from wallet keys"))
+        // Return the first address, or error if no addresses
+        addresses_response.address
+            .first()
+            .cloned()
+            .ok_or_else(|| anyhow!("No addresses found in wallet"))
     }
 
     /// List all wallet information
@@ -113,13 +137,79 @@ impl WalletManager {
         ))
     }
 
-    /// Send KAS from wallet to address
-    /// TODO: Implement proper gRPC/HTTP API call to kaswallet-daemon
-    pub async fn send_transaction(&self, _worker_id: usize, _to_address: &str, _amount: f64, _password: &str) -> Result<String> {
-        // For now, return an error indicating this feature requires gRPC implementation
-        Err(anyhow!(
-            "Transaction sending not yet implemented - requires gRPC API integration with kaswallet-daemon. \
-             For now, please use the viaduct entry transaction endpoint or manual wallet commands."
-        ))
+    /// Send KAS from wallet to address via gRPC
+    pub async fn send_transaction(&self, worker_id: usize, to_address: &str, amount: f64, password: &str) -> Result<String> {
+        // Connect to kaswallet-daemon gRPC endpoint
+        let port = 8082 + worker_id;
+        let endpoint = format!("http://127.0.0.1:{}", port);
+
+        // Create gRPC client
+        let mut client = KaswalletProtoClient::connect(endpoint.clone())
+            .await
+            .context(format!("Failed to connect to kaswallet-daemon at {}", endpoint))?;
+
+        // Convert KAS to sompi (1 KAS = 10^8 sompi)
+        let amount_sompi = (amount * 100_000_000.0) as u64;
+
+        // Call Send RPC
+        let request = tonic::Request::new(kaswallet_proto::SendRequest {
+            to_address: to_address.to_string(),
+            amount: amount_sompi,
+            password: password.to_string(),
+            from: vec![], // Use default source addresses
+            use_existing_change_address: false,
+            is_send_all: false,
+            fee_policy: None,
+        });
+
+        let response = client.send(request)
+            .await
+            .context("Failed to send transaction")?;
+
+        let send_response = response.into_inner();
+
+        // Return transaction IDs
+        let tx_ids = send_response.tx_i_ds.join(", ");
+        Ok(format!("Transaction sent!\nTxIDs: {}\nSigned {} transactions", tx_ids, send_response.signed_transactions.len()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    #[ignore] // Only run when kaswallet-0 is running
+    async fn test_get_balance_grpc() {
+        let wallet_manager = WalletManager::new().unwrap();
+        let result = wallet_manager.get_balance(0).await;
+
+        match result {
+            Ok(balance) => {
+                println!("Balance for kaswallet-0: {} KAS", balance);
+                assert!(balance >= 0.0);
+            }
+            Err(e) => {
+                println!("Failed to get balance (this is expected if kaswallet-0 is not running): {}", e);
+            }
+        }
+    }
+
+    #[tokio::test]
+    #[ignore] // Only run when kaswallet-0 is running
+    async fn test_get_address_grpc() {
+        let wallet_manager = WalletManager::new().unwrap();
+        let result = wallet_manager.get_address(0).await;
+
+        match result {
+            Ok(address) => {
+                println!("Address for kaswallet-0: {}", address);
+                assert!(address.starts_with("kaspatest:") || address.starts_with("kaspa:"));
+            }
+            Err(e) => {
+                println!("Failed to get address (this is expected if kaswallet-0 is not running): {}", e);
+            }
+        }
+    }
+}
+

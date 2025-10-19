@@ -1,6 +1,6 @@
 [package]
 name = "igra-cli"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 authors = ["Merlin"]
 description = "Terminal-based management CLI for IGRA Orchestra nodes"
@@ -12,9 +12,21 @@ keywords = ["igra", "kaspa", "blockchain", "tui", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
 
+[lib]
+name = "igra_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "igra-cli"
 path = "src/main.rs"
+
+[[bin]]
+name = "test_wallet_grpc"
+path = "test_wallet_grpc.rs"
+
+[[bin]]
+name = "test_balance_only"
+path = "test_balance_only.rs"
 
 [dependencies]
 # TUI Framework
@@ -40,6 +52,10 @@ clap = { version = "4", features = ["derive", "cargo"] }
 # HTTP/RPC Testing
 reqwest = { version = "0.11", features = ["json"] }
 
+# gRPC for kaswallet-daemon integration
+tonic = "0.11"
+prost = "0.12"
+
 # Error Handling
 anyhow = "1.0"
 thiserror = "1.0"
@@ -61,6 +77,9 @@ rand = "0.8"
 [dev-dependencies]
 tempfile = "3.10"
 mockall = "0.12"
+
+[build-dependencies]
+tonic-build = "0.11"
 
 [profile.release]
 opt-level = 3

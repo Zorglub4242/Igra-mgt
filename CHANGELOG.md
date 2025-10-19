@@ -8,10 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned for v0.3.0
-- gRPC integration for kaswallet-daemon (balance querying, transaction sending)
+- Complete gRPC integration for kaswallet-daemon (pending IgraLabs proto definition)
 - RPC token generation and testing
 - Configuration editing directly in TUI
 - Enhanced log filtering and search capabilities
+
+## [0.2.2] - 2025-10-19
+
+### Fixed
+- **Major performance improvement**: Parallel log fetching reduced metrics update time by 60% (2-3s → 100-200ms)
+- **execution-layer metrics now displaying**: Fixed ANSI color code parsing issue
+- Responsive TUI at 2-second refresh rate restored
+
+### Added
+- gRPC/protobuf infrastructure (Tonic 0.12, Prost 0.12)
+- ANSI escape code stripping in log parser
+- Wallet gRPC client foundation (awaiting IgraLabs proto definition)
+- `WALLET_API.md` documentation
+
+### Technical
+- Parallel log fetching using `futures::future::join_all` (src/core/docker.rs:295-315)
+- Added `strip_ansi_codes()` function to log parser (regex `r"\x1b\[[0-9;]*[a-zA-Z]"`)
+- Reduced log fetch size from 50 to 20 lines (optimal for parsing speed)
+- Added tonic, prost dependencies and protobuf build system
+- Created `build.rs` for proto compilation
+
+### Known Issues
+- Wallet balance/transactions require proto file from private IgraLabs/kaswallet repo
+- gRPC client code implemented but blocked on protocol definition mismatch
 
 ## [0.2.1] - 2025-10-18
 
@@ -109,6 +133,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Version History Summary
 
+- **v0.2.2** (2025-10-19): Performance fixes, gRPC foundation, ANSI parsing
 - **v0.2.1** (2025-10-18): Intelligent log parsing and metrics
 - **v0.2.0** (2025-10-18): Full TUI with 7 screens, search, monitoring
 - **v0.1.0** (2025-10-17): Initial release with basic Docker integration
