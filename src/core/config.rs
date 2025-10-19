@@ -22,6 +22,13 @@ pub struct ConfigManager {
 }
 
 impl ConfigManager {
+    /// Load configuration from .env file in project root
+    pub fn load_from_project() -> Result<Self> {
+        let project_root = crate::utils::get_project_root()?;
+        let env_file = project_root.join(".env");
+        Self::load(env_file)
+    }
+
     /// Load configuration from .env file
     pub fn load<P: AsRef<Path>>(env_file: P) -> Result<Self> {
         let env_file = env_file.as_ref().to_path_buf();

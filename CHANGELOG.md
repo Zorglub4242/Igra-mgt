@@ -13,6 +13,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration editing directly in TUI
 - Enhanced log filtering and search capabilities
 
+## [0.2.3] - 2025-10-19
+
+### Fixed
+- **UI now always responsive**: Background task architecture eliminates all blocking during data refresh
+- **.env detection**: Automatically finds project root from any directory
+
+### Changed
+- **Non-blocking log parsing**: Moved to background tokio task with channel communication
+- Container metrics update every 2 seconds without blocking UI thread
+- `ConfigManager::load_from_project()` now auto-detects project root
+
+### Technical
+- Background task spawned in `App::new()` for continuous container data fetching
+- `tokio::sync::mpsc::unbounded_channel` for UI thread communication
+- `DockerManager` now implements `Clone` for background task usage
+- `refresh_data()` no longer blocks on container list - only refreshes screen-specific data
+- UI event loop uses `try_recv()` for non-blocking channel reads
+
+### Performance
+- **Zero UI blocking**: Log parsing happens entirely in background
+- Keypresses processed instantly even during metrics updates
+- Smooth 60fps terminal rendering maintained
+
 ## [0.2.2] - 2025-10-19
 
 ### Fixed
@@ -133,6 +156,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Version History Summary
 
+- **v0.2.3** (2025-10-19): Background tasks, zero blocking, project root detection
 - **v0.2.2** (2025-10-19): Performance fixes, gRPC foundation, ANSI parsing
 - **v0.2.1** (2025-10-18): Intelligent log parsing and metrics
 - **v0.2.0** (2025-10-18): Full TUI with 7 screens, search, monitoring

@@ -77,6 +77,8 @@ pub struct App {
     refresh_interval: Duration,
     status_message: Option<String>,
     show_help: bool,
+    // Background data refresh channel
+    container_data_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<crate::core::docker::ContainerInfo>>,
     // Cached data for actions
     containers: Vec<crate::core::docker::ContainerInfo>,
     container_stats: std::collections::HashMap<String, crate::core::docker::ContainerStats>,
@@ -113,7 +115,7 @@ pub struct App {
 impl App {
     pub fn new() -> Result<Self> {
         let docker = DockerManager::new_sync()?;
-        let config = ConfigManager::load(".env")?;
+        let config = ConfigManager::load_from_project()?;
         let wallet_manager = WalletManager::new()?;
         let ssl_manager = SslManager::new()?;
 
@@ -121,6 +123,24 @@ impl App {
         let ssl_domain = config.get("IGRA_ORCHESTRA_DOMAIN")
             .unwrap_or("N/A")
             .to_string();
+
+        // Create channel for background container data updates
+        let (container_data_tx, container_data_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        // Spawn background task to fetch container data
+        let docker_clone = docker.clone();
+        tokio::spawn(async move {
+            loop {
+                // Fetch container data with metrics (includes parallel log parsing)
+                if let Ok(containers) = docker_clone.list_containers().await {
+                    // Send to main thread (non-blocking send)
+                    let _ = container_data_tx.send(containers);
+                }
+
+                // Wait 2 seconds before next update
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+        });
 
         Ok(Self {
             dashboard: Dashboard::new(),
@@ -135,6 +155,7 @@ impl App {
             refresh_interval: Duration::from_secs(2),
             status_message: None,
             show_help: false,
+            container_data_rx,
             containers: Vec::new(),
             container_stats: std::collections::HashMap::new(),
             wallets: Vec::new(),
@@ -275,9 +296,8 @@ impl App {
     }
 
     async fn refresh_data(&mut self) -> Result<()> {
-        // Always refresh services, profiles, and system resources
-        self.containers = self.docker.list_containers().await?;
-        self.active_profiles = self.docker.get_active_profiles().await?;
+        // NOTE: Container list is now updated in background task
+        // Only refresh system resources and screen-specific data here
         self.system_resources = Self::collect_system_resources();
 
         // Collect container stats for running containers
@@ -286,6 +306,8 @@ impl App {
         // Update dashboard based on current screen
         match self.current_screen {
             Screen::Services => {
+                // Container data already updated by background task
+                // Just refresh stats
                 self.dashboard.update_services(
                     self.containers.clone(),
                     self.active_profiles.clone(),
@@ -293,6 +315,7 @@ impl App {
                 );
             }
             Screen::Profiles => {
+                // Profiles also updated by background task
                 self.dashboard.update_profiles(self.active_profiles.clone());
             }
             Screen::Wallets => {
@@ -361,7 +384,22 @@ impl App {
         terminal: &mut Terminal<B>,
     ) -> Result<()> {
         loop {
-            // Refresh data periodically
+            // Check for new container data from background task (non-blocking)
+            while let Ok(containers) = self.container_data_rx.try_recv() {
+                self.containers = containers;
+                self.active_profiles = self.docker.get_active_profiles().await?;
+
+                // Update dashboard with new container data
+                if self.current_screen == Screen::Services {
+                    self.dashboard.update_services(
+                        self.containers.clone(),
+                        self.active_profiles.clone(),
+                        self.container_stats.clone()
+                    );
+                }
+            }
+
+            // Refresh non-container data periodically
             if self.last_refresh.elapsed() >= self.refresh_interval {
                 if let Err(e) = self.refresh_data().await {
                     // Show error but don't crash
@@ -1111,7 +1149,7 @@ impl App {
                     Ok(_) => {
                         self.set_status(format!("✓ Generated {} tokens and saved to .env", tokens.len()));
                         // Reload config
-                        self.config = ConfigManager::load(".env")?;
+                        self.config = ConfigManager::load_from_project()?;
                         self.refresh_data().await?;
                     }
                     Err(e) => {
@@ -1341,7 +1379,7 @@ impl App {
                 self.edit_key = None;
 
                 // Reload config
-                self.config = ConfigManager::load(".env")?;
+                self.config = ConfigManager::load_from_project()?;
                 self.refresh_data().await?;
             }
             Err(e) => {

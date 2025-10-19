@@ -35,6 +35,7 @@ pub struct ContainerStats {
     pub network_tx: u64,
 }
 
+#[derive(Clone)]
 pub struct DockerManager {
     docker: Docker,
     project_root: PathBuf,
