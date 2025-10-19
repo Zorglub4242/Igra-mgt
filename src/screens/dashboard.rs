@@ -12,6 +12,7 @@ use crate::app::{Screen, SystemResources};
 use crate::core::docker::{ContainerInfo, ContainerStats};
 use crate::core::wallet::WalletInfo;
 use crate::core::ssl::CertificateInfo;
+use crate::core::reth_metrics::RethMetrics;
 use std::collections::HashMap;
 
 pub struct Dashboard {
@@ -79,10 +80,10 @@ impl Dashboard {
         self.ssl_cert_info = cert_info;
     }
 
-    pub fn render(&self, frame: &mut Frame, current_screen: Screen, selected_index: usize, status_message: Option<&str>, edit_mode: bool, edit_buffer: &str, detail_container: Option<&ContainerInfo>, detail_logs: &[String], system_resources: &SystemResources, show_help: bool, logs_selected_service: Option<&str>, logs_data: &[String], logs_follow_mode: bool, logs_filter: Option<&str>, logs_scroll_offset: usize, containers: &[ContainerInfo], search_mode: bool, search_buffer: &str, filtered_indices: &[usize], show_send_dialog: bool, send_amount: &str, send_address: &str, send_input_field: usize) {
+    pub fn render(&self, frame: &mut Frame, current_screen: Screen, selected_index: usize, status_message: Option<&str>, edit_mode: bool, edit_buffer: &str, detail_container: Option<&ContainerInfo>, detail_logs: &[String], system_resources: &SystemResources, show_help: bool, logs_selected_service: Option<&str>, logs_data: &[String], logs_follow_mode: bool, logs_filter: Option<&str>, logs_scroll_offset: usize, containers: &[ContainerInfo], search_mode: bool, search_buffer: &str, filtered_indices: &[usize], show_send_dialog: bool, send_amount: &str, send_address: &str, send_input_field: usize, reth_metrics: Option<&RethMetrics>) {
         // If showing detail view, render that instead
         if let Some(container) = detail_container {
-            self.render_service_detail(frame, container, detail_logs, status_message);
+            self.render_service_detail(frame, container, detail_logs, status_message, reth_metrics);
             // Still show help overlay if requested
             if show_help {
                 self.render_help(frame, current_screen);
@@ -943,15 +944,28 @@ impl Dashboard {
         }
     }
 
-    fn render_service_detail(&self, frame: &mut Frame, container: &ContainerInfo, logs: &[String], status_message: Option<&str>) {
+    fn render_service_detail(&self, frame: &mut Frame, container: &ContainerInfo, logs: &[String], status_message: Option<&str>, reth_metrics: Option<&RethMetrics>) {
+        // Determine if we should show metrics section
+        let show_metrics = container.name == "execution-layer" && reth_metrics.is_some();
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(3),  // Title
-                Constraint::Length(6),  // Info section
-                Constraint::Min(0),     // Logs
-                Constraint::Length(3),  // Footer
-            ])
+            .constraints(if show_metrics {
+                vec![
+                    Constraint::Length(3),   // Title
+                    Constraint::Length(6),   // Info section
+                    Constraint::Length(12),  // Metrics section (execution-layer only)
+                    Constraint::Min(0),      // Logs
+                    Constraint::Length(3),   // Footer
+                ]
+            } else {
+                vec![
+                    Constraint::Length(3),   // Title
+                    Constraint::Length(6),   // Info section
+                    Constraint::Min(0),      // Logs
+                    Constraint::Length(3),   // Footer
+                ]
+            })
             .split(frame.size());
 
         // Title
@@ -1007,6 +1021,161 @@ impl Dashboard {
 
         frame.render_widget(info, chunks[1]);
 
+        // Metrics section (execution-layer only)
+        let logs_chunk_idx = if show_metrics {
+            if let Some(metrics) = reth_metrics {
+                let mut metrics_lines = Vec::new();
+
+                // Helper function to format numbers with commas
+                let format_number = |n: u64| -> String {
+                    n.to_string()
+                        .as_bytes()
+                        .rchunks(3)
+                        .rev()
+                        .map(std::str::from_utf8)
+                        .collect::<Result<Vec<&str>, _>>()
+                        .unwrap()
+                        .join(",")
+                };
+
+                // Row 1: Blockchain metrics
+                metrics_lines.push(Line::from(vec![
+                    Span::styled("Block: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        metrics.blocks_processed.map(|v| format!("#{}", format_number(v))).unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                    ),
+                    Span::raw("  "),
+                    Span::styled("Canonical: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        metrics.canonical_chain_height.map(|v| format!("#{}", format_number(v))).unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::Cyan)
+                    ),
+                    Span::raw("  "),
+                    Span::styled("Headers: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        metrics.headers_synced.map(|v| format_number(v)).unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White)
+                    ),
+                ]));
+
+                // Row 2: Sync status
+                metrics_lines.push(Line::from(vec![
+                    Span::styled("Sync: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        metrics.sync_stage.as_deref().unwrap_or("N/A"),
+                        Style::default().fg(if metrics.sync_stage.as_deref() == Some("Synced") { Color::Green } else { Color::Yellow })
+                    ),
+                    Span::raw("  "),
+                    Span::styled("Checkpoint: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        metrics.sync_checkpoint.map(|v| format_number(v)).unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White)
+                    ),
+                ]));
+
+                // Row 3: Network metrics
+                metrics_lines.push(Line::from(vec![
+                    Span::styled("Peers: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format!("{} connected / {} tracked",
+                            metrics.peers_connected.unwrap_or(0),
+                            metrics.peers_tracked.unwrap_or(0)
+                        ),
+                        Style::default().fg(if metrics.peers_connected.unwrap_or(0) > 0 { Color::Green } else { Color::Yellow })
+                    ),
+                ]));
+
+                // Row 4: Transaction metrics
+                metrics_lines.push(Line::from(vec![
+                    Span::styled("Transactions: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        metrics.transactions_total.map(|v| format_number(v)).unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::Cyan)
+                    ),
+                    Span::raw("  "),
+                    Span::styled("Pending: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        metrics.transactions_pending.map(|v| v.to_string()).unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White)
+                    ),
+                    Span::raw("  "),
+                    Span::styled("Blob: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        metrics.transactions_blob.map(|v| v.to_string()).unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White)
+                    ),
+                ]));
+
+                // Row 5: TPS
+                metrics_lines.push(Line::from(vec![
+                    Span::styled("TPS: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        metrics.tps.map(|v| format!("{:.2} tx/s", v)).unwrap_or("Calculating...".to_string()),
+                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                    ),
+                    Span::raw("  "),
+                    Span::styled("Inserted: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        metrics.transactions_inserted.map(|v| format_number(v)).unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White)
+                    ),
+                ]));
+
+                // Row 6: Performance metrics
+                let memory_mb = metrics.memory_bytes.map(|b| b as f64 / 1024.0 / 1024.0);
+                let gas_billions = metrics.gas_processed.map(|g| g as f64 / 1_000_000_000.0);
+                metrics_lines.push(Line::from(vec![
+                    Span::styled("Memory: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        memory_mb.map(|m| format!("{:.1} MB", m)).unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White)
+                    ),
+                    Span::raw("  "),
+                    Span::styled("Gas: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        gas_billions.map(|g| format!("{:.2}B", g)).unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White)
+                    ),
+                    Span::raw("  "),
+                    Span::styled("Payloads: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        metrics.payloads_initiated.map(|v| v.to_string()).unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White)
+                    ),
+                ]));
+
+                // Row 7: Blockchain tree metrics
+                metrics_lines.push(Line::from(vec![
+                    Span::styled("In-mem blocks: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        metrics.in_mem_blocks.map(|v| v.to_string()).unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White)
+                    ),
+                    Span::raw("  "),
+                    Span::styled("Reorgs: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        metrics.reorgs_total.map(|v| v.to_string()).unwrap_or("N/A".to_string()),
+                        Style::default().fg(if metrics.reorgs_total.unwrap_or(0) > 0 { Color::Yellow } else { Color::Green })
+                    ),
+                    Span::raw("  "),
+                    Span::styled("Depth: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        metrics.reorg_depth.map(|v| v.to_string()).unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White)
+                    ),
+                ]));
+
+                let metrics_widget = Paragraph::new(metrics_lines)
+                    .block(Block::default().borders(Borders::ALL).title("Reth Metrics"));
+
+                frame.render_widget(metrics_widget, chunks[2]);
+            }
+            3  // Logs are in chunk 3 when metrics are shown
+        } else {
+            2  // Logs are in chunk 2 when no metrics
+        };
+
         // Logs section
         let log_lines: Vec<Line> = logs.iter().rev().take(100).rev().map(|log| {
             let style = if log.contains("ERROR") || log.contains("error") {
@@ -1023,9 +1192,10 @@ impl Dashboard {
             .block(Block::default().borders(Borders::ALL).title(format!("Recent Logs (last {} lines)", logs.len())))
             .wrap(Wrap { trim: false });
 
-        frame.render_widget(logs_widget, chunks[2]);
+        frame.render_widget(logs_widget, chunks[logs_chunk_idx]);
 
         // Footer
+        let footer_chunk_idx = logs_chunk_idx + 1;
         let footer_text = if let Some(status) = status_message {
             status.to_string()
         } else {
@@ -1041,7 +1211,7 @@ impl Dashboard {
             })
             .block(Block::default().borders(Borders::ALL));
 
-        frame.render_widget(footer, chunks[3]);
+        frame.render_widget(footer, chunks[footer_chunk_idx]);
     }
 
     fn render_help(&self, frame: &mut Frame, current_screen: Screen) {

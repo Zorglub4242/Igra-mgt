@@ -91,6 +91,8 @@ pub struct App {
     containers: Vec<crate::core::docker::ContainerInfo>,
     container_stats: std::collections::HashMap<String, crate::core::docker::ContainerStats>,
     image_versions: std::collections::HashMap<String, crate::core::versions::ImageVersion>,
+    reth_metrics: Option<crate::core::reth_metrics::RethMetrics>,
+    reth_metrics_timestamp: Option<Instant>,
     wallets: Vec<crate::core::wallet::WalletInfo>,
     config_data: Vec<(String, String)>,
     active_profiles: Vec<String>,
@@ -279,6 +281,8 @@ impl App {
             containers: Vec::new(),
             container_stats: std::collections::HashMap::new(),
             image_versions: std::collections::HashMap::new(),
+            reth_metrics: None,
+            reth_metrics_timestamp: None,
             wallets: Vec::new(),
             config_data: Vec::new(),
             active_profiles: Vec::new(),
@@ -518,6 +522,13 @@ impl App {
         // Only refresh system resources and screen-specific data here
         self.system_resources = Self::collect_system_resources();
 
+        // Update Reth metrics if viewing execution-layer detail
+        if let Some(ref service) = self.detail_view_service {
+            if service == "execution-layer" {
+                let _ = self.update_reth_metrics().await;
+            }
+        }
+
         // Update dashboard based on current screen
         match self.current_screen {
             Screen::Services => {
@@ -592,6 +603,31 @@ impl App {
         }
 
         self.last_refresh = Instant::now();
+        Ok(())
+    }
+
+    /// Fetch and update Reth metrics with TPS calculation
+    async fn update_reth_metrics(&mut self) -> Result<()> {
+        // Fetch current metrics
+        let mut current_metrics = crate::core::reth_metrics::fetch_reth_metrics().await?;
+
+        // Calculate TPS if we have previous metrics
+        if let (Some(ref prev_metrics), Some(prev_timestamp)) =
+            (&self.reth_metrics, self.reth_metrics_timestamp) {
+            let elapsed = prev_timestamp.elapsed().as_secs_f64();
+            if let Some(tps) = crate::core::reth_metrics::calculate_tps(
+                &current_metrics,
+                prev_metrics,
+                elapsed
+            ) {
+                current_metrics.tps = Some(tps);
+            }
+        }
+
+        // Store current metrics and timestamp for next calculation
+        self.reth_metrics_timestamp = Some(Instant::now());
+        self.reth_metrics = Some(current_metrics);
+
         Ok(())
     }
 
@@ -1822,6 +1858,7 @@ impl App {
             &self.send_amount,
             &self.send_address,
             self.send_input_field,
+            self.reth_metrics.as_ref(),
         );
     }
 }
