@@ -92,7 +92,7 @@ impl Dashboard {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),  // Title
+                Constraint::Length(5),  // Title (expanded for system info)
                 Constraint::Length(3),  // Menu
                 Constraint::Min(0),     // Content
                 Constraint::Length(3),  // Footer
@@ -138,6 +138,7 @@ impl Dashboard {
             Color::Gray
         };
 
+        // Line 1: Title + CPU/Mem/Disk usage
         let title_line = Line::from(vec![
             Span::styled(
                 &self.title,
@@ -169,7 +170,44 @@ impl Dashboard {
             ),
         ]);
 
-        let title = Paragraph::new(vec![title_line])
+        // Line 2: OS and System info
+        let os_line = Line::from(vec![
+            Span::styled("OS: ", Style::default().fg(Color::Gray)),
+            Span::styled(
+                format!("{} {}", system_resources.os_name, system_resources.os_version),
+                Style::default().fg(Color::White)
+            ),
+            Span::raw(" | "),
+            Span::styled("CPU: ", Style::default().fg(Color::Gray)),
+            Span::styled(
+                if system_resources.cpu_frequency_ghz > 0.0 {
+                    format!("{} Cores @{:.2} GHz", system_resources.cpu_cores, system_resources.cpu_frequency_ghz)
+                } else {
+                    format!("{} Cores", system_resources.cpu_cores)
+                },
+                Style::default().fg(Color::White)
+            ),
+            Span::raw("  "),
+            Span::styled(
+                &system_resources.cpu_model,
+                Style::default().fg(Color::DarkGray)
+            ),
+        ]);
+
+        // Line 3: Public IP
+        let ip_line = if let Some(ref ip) = system_resources.public_ip {
+            Line::from(vec![
+                Span::styled("Public IP: ", Style::default().fg(Color::Gray)),
+                Span::styled(ip, Style::default().fg(Color::Cyan)),
+            ])
+        } else {
+            Line::from(vec![
+                Span::styled("Public IP: ", Style::default().fg(Color::Gray)),
+                Span::styled("Fetching...", Style::default().fg(Color::DarkGray)),
+            ])
+        };
+
+        let title = Paragraph::new(vec![title_line, os_line, ip_line])
             .alignment(Alignment::Center)
             .block(Block::default().borders(Borders::ALL));
 

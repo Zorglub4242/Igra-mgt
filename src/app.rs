@@ -62,6 +62,12 @@ pub struct SystemResources {
     pub memory_total_gb: f32,
     pub disk_free_gb: f32,
     pub disk_total_gb: f32,
+    pub os_name: String,
+    pub os_version: String,
+    pub cpu_cores: usize,
+    pub cpu_frequency_ghz: f32,
+    pub cpu_model: String,
+    pub public_ip: Option<String>,
 }
 
 pub struct App {
@@ -194,9 +200,36 @@ impl App {
         // Spawn background task to check image versions (runs every 5 minutes)
         let docker_clone3 = docker.clone();
         tokio::spawn(async move {
+            // Initial immediate check
+            if let Ok(containers) = docker_clone3.list_containers().await {
+                use std::collections::HashMap;
+
+                let mut current_images = HashMap::new();
+                for container in &containers {
+                    // Extract image name and current tag
+                    let image_str = container.image
+                        .split('/')
+                        .last()
+                        .unwrap_or(&container.image);
+
+                    let (name, tag) = if let Some((n, t)) = image_str.split_once(':') {
+                        (n.to_string(), t.to_string())
+                    } else {
+                        (image_str.to_string(), "latest".to_string())
+                    };
+
+                    current_images.insert(name, tag);
+                }
+
+                // Check versions (async HTTP calls)
+                let versions = crate::core::versions::check_versions(current_images).await;
+                // Send to main thread
+                let _ = image_versions_tx.send(versions);
+            }
+
             loop {
-                // Wait 10 seconds before first check (let containers load)
-                tokio::time::sleep(Duration::from_secs(10)).await;
+                // Wait 5 minutes before next check
+                tokio::time::sleep(Duration::from_secs(300)).await;
 
                 // Fetch current containers and extract images
                 if let Ok(containers) = docker_clone3.list_containers().await {
@@ -224,9 +257,6 @@ impl App {
                     // Send to main thread
                     let _ = image_versions_tx.send(versions);
                 }
-
-                // Wait 5 minutes before next check
-                tokio::time::sleep(Duration::from_secs(300)).await;
             }
         });
 
@@ -260,6 +290,12 @@ impl App {
                 memory_total_gb: 0.0,
                 disk_free_gb: 0.0,
                 disk_total_gb: 0.0,
+                os_name: String::new(),
+                os_version: String::new(),
+                cpu_cores: 0,
+                cpu_frequency_ghz: 0.0,
+                cpu_model: String::new(),
+                public_ip: None,
             },
             edit_mode: false,
             edit_buffer: String::new(),
@@ -324,12 +360,78 @@ impl App {
             .and_then(|s| s.trim_end_matches('G').parse::<f32>().ok())
             .unwrap_or(0.0);
 
+        // Get OS info from /etc/os-release
+        let os_info = Command::new("sh")
+            .arg("-c")
+            .arg("grep -E '^(NAME|VERSION)=' /etc/os-release | head -2")
+            .output()
+            .ok()
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .unwrap_or_default();
+
+        let mut os_name = String::from("Linux");
+        let mut os_version = String::new();
+        for line in os_info.lines() {
+            if line.starts_with("NAME=") {
+                os_name = line.strip_prefix("NAME=").unwrap_or("Linux")
+                    .trim_matches('"').to_string();
+            } else if line.starts_with("VERSION=") {
+                os_version = line.strip_prefix("VERSION=").unwrap_or("")
+                    .trim_matches('"').to_string();
+            }
+        }
+
+        // Get CPU info from lscpu
+        let cpu_info = Command::new("lscpu")
+            .output()
+            .ok()
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .unwrap_or_default();
+
+        let mut cpu_cores = 0usize;
+        let mut cpu_frequency_ghz = 0.0f32;
+        let mut cpu_model = String::from("Unknown CPU");
+
+        for line in cpu_info.lines() {
+            if line.starts_with("CPU(s):") {
+                cpu_cores = line.split_whitespace()
+                    .nth(1)
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
+            } else if line.starts_with("CPU max MHz:") || line.starts_with("CPU MHz:") {
+                let mhz = line.split_whitespace()
+                    .nth(2)
+                    .and_then(|s| s.parse::<f32>().ok())
+                    .unwrap_or(0.0);
+                cpu_frequency_ghz = mhz / 1000.0;
+            } else if line.starts_with("Model name:") {
+                cpu_model = line.split(':')
+                    .nth(1)
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_else(|| "Unknown CPU".to_string());
+            }
+        }
+
+        // Get public IP (non-blocking, use cached value on failure)
+        let public_ip = Command::new("curl")
+            .args(&["-s", "--max-time", "2", "https://api.ipify.org"])
+            .output()
+            .ok()
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .filter(|ip| !ip.is_empty() && ip.len() < 50); // Sanity check
+
         SystemResources {
             cpu_percent,
             memory_used_gb,
             memory_total_gb,
             disk_free_gb,
             disk_total_gb,
+            os_name,
+            os_version,
+            cpu_cores,
+            cpu_frequency_ghz,
+            cpu_model,
+            public_ip,
         }
     }
 
