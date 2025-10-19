@@ -77,8 +77,9 @@ pub struct App {
     refresh_interval: Duration,
     status_message: Option<String>,
     show_help: bool,
-    // Background data refresh channel
+    // Background data refresh channels
     container_data_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<crate::core::docker::ContainerInfo>>,
+    container_stats_rx: tokio::sync::mpsc::UnboundedReceiver<std::collections::HashMap<String, crate::core::docker::ContainerStats>>,
     // Cached data for actions
     containers: Vec<crate::core::docker::ContainerInfo>,
     container_stats: std::collections::HashMap<String, crate::core::docker::ContainerStats>,
@@ -124,8 +125,9 @@ impl App {
             .unwrap_or("N/A")
             .to_string();
 
-        // Create channel for background container data updates
+        // Create channels for background updates
         let (container_data_tx, container_data_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (container_stats_tx, container_stats_rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Spawn background task to fetch container data
         let docker_clone = docker.clone();
@@ -135,6 +137,50 @@ impl App {
                 if let Ok(containers) = docker_clone.list_containers().await {
                     // Send to main thread (non-blocking send)
                     let _ = container_data_tx.send(containers);
+                }
+
+                // Wait 2 seconds before next update
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+        });
+
+        // Spawn background task to fetch container stats
+        let docker_clone2 = docker.clone();
+        tokio::spawn(async move {
+            loop {
+                // Small delay before first stats collection
+                tokio::time::sleep(Duration::from_millis(500)).await;
+
+                // Fetch current running containers from Docker
+                if let Ok(containers) = docker_clone2.list_containers().await {
+                    use std::collections::HashMap;
+                    use futures::future::join_all;
+
+                    let running_containers: Vec<String> = containers
+                        .iter()
+                        .filter(|c| c.state.is_running())
+                        .map(|c| c.name.clone())
+                        .collect();
+
+                    // Fetch stats in parallel
+                    let stats_futures = running_containers.iter().map(|name| {
+                        let docker = docker_clone2.clone();
+                        let name = name.clone();
+                        async move {
+                            docker.get_container_stats(&name).await.ok().flatten().map(|stats| (name, stats))
+                        }
+                    });
+
+                    let stats_results = join_all(stats_futures).await;
+
+                    // Build stats map
+                    let mut stats_map = HashMap::new();
+                    for result in stats_results.into_iter().flatten() {
+                        stats_map.insert(result.0, result.1);
+                    }
+
+                    // Send to main thread
+                    let _ = container_stats_tx.send(stats_map);
                 }
 
                 // Wait 2 seconds before next update
@@ -156,6 +202,7 @@ impl App {
             status_message: None,
             show_help: false,
             container_data_rx,
+            container_stats_rx,
             containers: Vec::new(),
             container_stats: std::collections::HashMap::new(),
             wallets: Vec::new(),
@@ -242,26 +289,6 @@ impl App {
         }
     }
 
-    async fn collect_container_stats(&mut self) {
-        use std::collections::HashMap;
-
-        let mut new_stats = HashMap::new();
-
-        // Collect stats for all running containers
-        for container in &self.containers {
-            // Only collect stats for running containers
-            if !container.state.is_running() {
-                continue;
-            }
-
-            if let Ok(Some(stats)) = self.docker.get_container_stats(&container.name).await {
-                new_stats.insert(container.name.clone(), stats);
-            }
-        }
-
-        self.container_stats = new_stats;
-    }
-
     /// Update dashboard with existing cached data (non-blocking, no async calls)
     fn update_dashboard_for_current_screen(&mut self) {
         match self.current_screen {
@@ -340,12 +367,9 @@ impl App {
     }
 
     async fn refresh_data(&mut self) -> Result<()> {
-        // NOTE: Container list is now updated in background task
+        // NOTE: Container list and stats are now updated in background tasks
         // Only refresh system resources and screen-specific data here
         self.system_resources = Self::collect_system_resources();
-
-        // Collect container stats for running containers
-        self.collect_container_stats().await;
 
         // Update dashboard based on current screen
         match self.current_screen {
@@ -435,6 +459,20 @@ impl App {
                 self.active_profiles = DockerManager::get_active_profiles_from_list(&self.containers);
 
                 // Update dashboard with new container data
+                if self.current_screen == Screen::Services {
+                    self.dashboard.update_services(
+                        self.containers.clone(),
+                        self.active_profiles.clone(),
+                        self.container_stats.clone()
+                    );
+                }
+            }
+
+            // Check for new container stats from background task (non-blocking)
+            while let Ok(stats) = self.container_stats_rx.try_recv() {
+                self.container_stats = stats;
+
+                // Update dashboard with new stats
                 if self.current_screen == Screen::Services {
                     self.dashboard.update_services(
                         self.containers.clone(),
