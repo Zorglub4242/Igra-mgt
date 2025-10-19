@@ -294,7 +294,7 @@ impl Dashboard {
         frame.render_widget(summary, chunks[0]);
 
         // Services table
-        let header = Row::new(vec!["Service", "Status", "Health", "Metrics", "CPU", "Memory", "Net RX", "Net TX", "Image"])
+        let header = Row::new(vec!["Service", "Status", "Metrics", "Ports", "CPU", "Memory", "Image:Tag"])
             .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
             .bottom_margin(1);
 
@@ -368,12 +368,24 @@ impl Dashboard {
                 )
             };
 
-            let image = container.image
+            // Extract image name and tag
+            let image_str = container.image
                 .split('/')
                 .last()
-                .and_then(|s| s.split(':').next())
-                .unwrap_or(&container.image)
-                .to_string();
+                .unwrap_or(&container.image);
+
+            let image = if image_str.contains(':') {
+                image_str.to_string()
+            } else {
+                format!("{}:latest", image_str)
+            };
+
+            // Format ports
+            let ports_text = if container.ports.is_empty() {
+                "-".to_string()
+            } else {
+                container.ports.join(", ")
+            };
 
             // Format metrics from log parsing
             let metrics_text = if let Some(ref status_text) = container.metrics.status_text {
@@ -395,12 +407,10 @@ impl Dashboard {
             let row = Row::new(vec![
                 Cell::from(name),
                 Cell::from(Span::styled(status, Style::default().fg(status_color))),
-                Cell::from(Span::styled(health, Style::default().fg(health_color))),
                 Cell::from(Span::styled(metrics_text, Style::default().fg(metrics_color))),
+                Cell::from(ports_text),
                 cpu_cell,
                 mem_cell,
-                Cell::from(net_rx_text),
-                Cell::from(net_tx_text),
                 Cell::from(image),
             ]);
 
@@ -416,15 +426,13 @@ impl Dashboard {
         let table = Table::new(
             rows,
             [
-                Constraint::Length(20),  // Service
-                Constraint::Length(14),  // Status
-                Constraint::Length(9),   // Health
-                Constraint::Length(18),  // Metrics
+                Constraint::Length(22),  // Service
+                Constraint::Length(12),  // Status
+                Constraint::Length(22),  // Metrics
+                Constraint::Length(16),  // Ports
                 Constraint::Length(7),   // CPU
-                Constraint::Length(9),   // Memory
-                Constraint::Length(9),   // Net RX
-                Constraint::Length(9),   // Net TX
-                Constraint::Min(12),     // Image
+                Constraint::Length(10),  // Memory
+                Constraint::Min(15),     // Image:Tag
             ],
         )
         .header(header)
