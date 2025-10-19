@@ -262,6 +262,50 @@ impl App {
         self.container_stats = new_stats;
     }
 
+    /// Update dashboard with existing cached data (non-blocking, no async calls)
+    fn update_dashboard_for_current_screen(&mut self) {
+        match self.current_screen {
+            Screen::Services => {
+                self.dashboard.update_services(
+                    self.containers.clone(),
+                    self.active_profiles.clone(),
+                    self.container_stats.clone()
+                );
+            }
+            Screen::Profiles => {
+                self.dashboard.update_profiles(self.active_profiles.clone());
+            }
+            Screen::Wallets => {
+                // Use cached wallet data - will be refreshed by periodic timer
+                self.dashboard.update_wallets(self.wallets.clone());
+            }
+            Screen::RpcTokens => {
+                let tokens = self.config.get_rpc_tokens();
+                let domain = self.config.get("IGRA_ORCHESTRA_DOMAIN")
+                    .unwrap_or("N/A")
+                    .to_string();
+                self.dashboard.update_rpc_tokens(tokens, domain);
+            }
+            Screen::Config => {
+                self.config_data = self.config.keys()
+                    .into_iter()
+                    .map(|k| {
+                        let val = self.config.get(&k).unwrap_or("");
+                        (k.clone(), val.to_string())
+                    })
+                    .collect();
+                self.dashboard.update_config(self.config_data.clone());
+            }
+            Screen::Ssl => {
+                // Use cached SSL data - will be refreshed by periodic timer
+                self.dashboard.update_ssl(self.ssl_cert_info.clone());
+            }
+            Screen::Logs => {
+                // Logs are handled separately
+            }
+        }
+    }
+
     fn set_status(&mut self, message: String) {
         self.status_message = Some(message);
     }
@@ -493,47 +537,47 @@ impl App {
             KeyCode::Tab | KeyCode::Right => {
                 self.next_screen();
                 self.selected_index = 0;
-                self.refresh_data().await?;
+                self.update_dashboard_for_current_screen();
             }
             KeyCode::BackTab | KeyCode::Left => {
                 self.prev_screen();
                 self.selected_index = 0;
-                self.refresh_data().await?;
+                self.update_dashboard_for_current_screen();
             }
             KeyCode::Char('1') => {
                 self.current_screen = Screen::Services;
                 self.selected_index = 0;
-                self.refresh_data().await?;
+                self.update_dashboard_for_current_screen();
             }
             KeyCode::Char('2') => {
                 self.current_screen = Screen::Profiles;
                 self.selected_index = 0;
-                self.refresh_data().await?;
+                self.update_dashboard_for_current_screen();
             }
             KeyCode::Char('3') => {
                 self.current_screen = Screen::Wallets;
                 self.selected_index = 0;
-                self.refresh_data().await?;
+                self.update_dashboard_for_current_screen();
             }
             KeyCode::Char('4') => {
                 self.current_screen = Screen::RpcTokens;
                 self.selected_index = 0;
-                self.refresh_data().await?;
+                self.update_dashboard_for_current_screen();
             }
             KeyCode::Char('5') => {
                 self.current_screen = Screen::Config;
                 self.selected_index = 0;
-                self.refresh_data().await?;
+                self.update_dashboard_for_current_screen();
             }
             KeyCode::Char('6') => {
                 self.current_screen = Screen::Ssl;
                 self.selected_index = 0;
-                self.refresh_data().await?;
+                self.update_dashboard_for_current_screen();
             }
             KeyCode::Char('7') => {
                 self.current_screen = Screen::Logs;
                 self.selected_index = 0;
-                self.refresh_data().await?;
+                self.update_dashboard_for_current_screen();
             }
             KeyCode::Up | KeyCode::Char('k') => {
                 // Scroll logs if in logs viewer, otherwise move selection
