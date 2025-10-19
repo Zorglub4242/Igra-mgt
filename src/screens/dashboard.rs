@@ -567,23 +567,30 @@ impl Dashboard {
         frame.render_widget(info, chunks[0]);
 
         // Tokens table
-        let header = Row::new(vec!["Token #", "Value (masked)", "Status"])
+        let header = Row::new(vec!["Token #", "Value", "Status"])
             .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
             .bottom_margin(1);
 
-        let rows: Vec<Row> = self.rpc_tokens.iter().take(20).map(|(i, token)| {
+        let rows: Vec<Row> = self.rpc_tokens.iter().enumerate().map(|(idx, (i, token))| {
+            let is_selected = idx == selected_index;
+
             let (value, status, color) = if let Some(t) = token {
-                let masked = format!("{}...{}", &t[..8], &t[t.len() - 8..]);
-                (masked, "✓ Set", Color::Green)
+                (t.clone(), "✓ Set", Color::Green)
             } else {
                 ("<not set>".to_string(), "✗ Missing", Color::Red)
             };
 
-            Row::new(vec![
+            let row = Row::new(vec![
                 Cell::from(format!("TOKEN_{:02}", i)),
                 Cell::from(value),
                 Cell::from(Span::styled(status, Style::default().fg(color))),
-            ])
+            ]);
+
+            if is_selected {
+                row.style(Style::default().bg(Color::DarkGray).fg(Color::White))
+            } else {
+                row
+            }
         }).collect();
 
         let table = Table::new(
@@ -595,7 +602,7 @@ impl Dashboard {
             ],
         )
         .header(header)
-        .block(Block::default().borders(Borders::ALL).title(format!("RPC Tokens (showing 1-20 of {})", self.rpc_tokens.len())));
+        .block(Block::default().borders(Borders::ALL).title(format!("RPC Tokens (Total: {})", self.rpc_tokens.len())));
 
         frame.render_widget(table, chunks[1]);
     }

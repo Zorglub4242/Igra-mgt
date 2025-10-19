@@ -387,7 +387,8 @@ impl App {
             // Check for new container data from background task (non-blocking)
             while let Ok(containers) = self.container_data_rx.try_recv() {
                 self.containers = containers;
-                self.active_profiles = self.docker.get_active_profiles().await?;
+                // Derive profiles synchronously from container list (no blocking!)
+                self.active_profiles = DockerManager::get_active_profiles_from_list(&self.containers);
 
                 // Update dashboard with new container data
                 if self.current_screen == Screen::Services {

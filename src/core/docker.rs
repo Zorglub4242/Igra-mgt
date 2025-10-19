@@ -299,9 +299,8 @@ impl DockerManager {
         Ok(())
     }
 
-    /// Get current profile(s) running
-    pub async fn get_active_profiles(&self) -> Result<Vec<String>> {
-        let containers = self.list_containers().await?;
+    /// Get active profiles from container list (synchronous, no Docker API calls)
+    pub fn get_active_profiles_from_list(containers: &[ContainerInfo]) -> Vec<String> {
         let mut profiles = Vec::new();
 
         // Determine profiles based on running services
@@ -329,12 +328,18 @@ impl DockerManager {
                 3 => "frontend-w3",
                 4 => "frontend-w4",
                 5 => "frontend-w5",
-                _ => "frontend",
+                _ => "frontend-w5",
             };
             profiles.push(profile.to_string());
         }
 
-        Ok(profiles)
+        profiles
+    }
+
+    /// Get current profile(s) running (async version that fetches containers)
+    pub async fn get_active_profiles(&self) -> Result<Vec<String>> {
+        let containers = self.list_containers().await?;
+        Ok(Self::get_active_profiles_from_list(&containers))
     }
 
     /// Check if Docker daemon is accessible
