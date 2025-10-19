@@ -1,6 +1,6 @@
 [package]
 name = "igra-cli"
-version = "0.2.5"
+version = "0.3.0"
 edition = "2021"
 authors = ["Merlin"]
 description = "Terminal-based management CLI for IGRA Orchestra nodes"
@@ -27,6 +27,14 @@ path = "test_wallet_grpc.rs"
 [[bin]]
 name = "test_balance_only"
 path = "test_balance_only.rs"
+
+[[bin]]
+name = "kaswallet-cli"
+path = "kaswallet_cli.rs"
+
+[[bin]]
+name = "test_utxo"
+path = "test_utxo.rs"
 
 [dependencies]
 # TUI Framework
@@ -55,6 +63,11 @@ reqwest = { version = "0.11", features = ["json"] }
 # gRPC for kaswallet-daemon integration
 tonic = "0.11"
 prost = "0.12"
+
+# Kaspad wRPC client for transaction history
+kaspa-wrpc-client = { path = "../../build/repos/rusty-kaspa/rpc/wrpc/client" }
+kaspa-rpc-core = { path = "../../build/repos/rusty-kaspa/rpc/core" }
+kaspa-addresses = { path = "../../build/repos/rusty-kaspa/crypto/addresses" }
 
 # Error Handling
 anyhow = "1.0"

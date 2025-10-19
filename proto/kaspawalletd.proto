@@ -2,13 +2,13 @@ syntax = "proto3";
 
 package kaswallet_proto;
 
-service kaswallet_proto {
+service Wallet {
   rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse) {}
   rpc GetExternalSpendableUTXOs(GetExternalSpendableUTXOsRequest)
       returns (GetExternalSpendableUTXOsResponse) {}
   rpc CreateUnsignedTransactions(CreateUnsignedTransactionsRequest)
       returns (CreateUnsignedTransactionsResponse) {}
-  rpc ShowAddresses(ShowAddressesRequest) returns (ShowAddressesResponse) {}
+  rpc GetAddresses(GetAddressesRequest) returns (GetAddressesResponse) {}
   rpc NewAddress(NewAddressRequest) returns (NewAddressResponse) {}
   rpc Shutdown(ShutdownRequest) returns (ShutdownResponse) {}
   rpc Broadcast(BroadcastRequest) returns (BroadcastResponse) {}
@@ -59,9 +59,9 @@ message CreateUnsignedTransactionsResponse {
   repeated bytes unsignedTransactions = 1;
 }
 
-message ShowAddressesRequest {}
+message GetAddressesRequest {}
 
-message ShowAddressesResponse { repeated string address = 1; }
+message GetAddressesResponse { repeated string address = 1; }
 
 message NewAddressRequest {}
 

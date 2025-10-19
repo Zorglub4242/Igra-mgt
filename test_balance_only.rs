@@ -1,5 +1,5 @@
 // Test only the GetBalance method
-use igra_cli::core::wallet::kaswallet_proto::kaswallet_proto_client::KaswalletProtoClient;
+use igra_cli::core::wallet::kaswallet_proto::wallet_client::WalletClient;
 use igra_cli::core::wallet::kaswallet_proto;
 
 #[tokio::main]
@@ -7,7 +7,7 @@ async fn main() -> anyhow::Result<()> {
     println!("Testing GetBalance RPC...\n");
 
     let endpoint = "http://127.0.0.1:8082";
-    let mut client = KaswalletProtoClient::connect(endpoint).await?;
+    let mut client = WalletClient::connect(endpoint).await?;
     println!("✓ Connected to {}", endpoint);
 
     // Call GetBalance

@@ -33,6 +33,8 @@ pub struct Dashboard {
     config_data: Vec<(String, String)>,
     // SSL data
     ssl_cert_info: Option<CertificateInfo>,
+    // Network name (testnet/mainnet) for proper currency labeling
+    network: String,
 }
 
 impl Dashboard {
@@ -49,6 +51,7 @@ impl Dashboard {
             rpc_domain: String::new(),
             config_data: Vec::new(),
             ssl_cert_info: None,
+            network: "testnet".to_string(),
         }
     }
 
@@ -80,8 +83,29 @@ impl Dashboard {
         self.ssl_cert_info = cert_info;
     }
 
-    pub fn render(&self, frame: &mut Frame, current_screen: Screen, selected_index: usize, status_message: Option<&str>, edit_mode: bool, edit_buffer: &str, detail_container: Option<&ContainerInfo>, detail_logs: &[String], system_resources: &SystemResources, show_help: bool, logs_selected_service: Option<&str>, logs_data: &[String], logs_follow_mode: bool, logs_filter: Option<&str>, logs_scroll_offset: usize, containers: &[ContainerInfo], search_mode: bool, search_buffer: &str, filtered_indices: &[usize], show_send_dialog: bool, send_amount: &str, send_address: &str, send_input_field: usize, reth_metrics: Option<&RethMetrics>) {
-        // If showing detail view, render that instead
+    pub fn update_network(&mut self, network: String) {
+        self.network = network;
+    }
+
+    pub fn render(&self, frame: &mut Frame, current_screen: Screen, selected_index: usize, status_message: Option<&str>, edit_mode: bool, edit_buffer: &str, detail_container: Option<&ContainerInfo>, detail_logs: &[String], system_resources: &SystemResources, show_help: bool, logs_selected_service: Option<&str>, logs_data: &[String], logs_follow_mode: bool, logs_filter: Option<&str>, logs_scroll_offset: usize, containers: &[ContainerInfo], search_mode: bool, search_buffer: &str, filtered_indices: &[usize], show_send_dialog: bool, send_amount: &str, send_address: &str, send_input_field: usize, reth_metrics: Option<&RethMetrics>, detail_wallet: Option<&WalletInfo>, detail_wallet_addresses: &[(String, f64, f64)], detail_wallet_utxos: &[crate::core::wallet::UtxoInfo], detail_wallet_scroll: usize, show_tx_detail: bool, selected_tx_index: Option<usize>, tx_search_mode: bool, tx_search_buffer: &str, filtered_tx_indices: &[usize]) {
+        // If showing wallet detail view, render that instead
+        if let Some(wallet) = detail_wallet {
+            self.render_wallet_detail(frame, wallet, detail_wallet_addresses, detail_wallet_utxos, status_message, detail_wallet_scroll, tx_search_mode, tx_search_buffer, filtered_tx_indices, selected_tx_index);
+            // Show transaction detail modal if requested
+            if show_tx_detail {
+                if let Some(tx_idx) = selected_tx_index {
+                    if tx_idx < detail_wallet_utxos.len() {
+                        self.render_transaction_detail_modal(frame, &detail_wallet_utxos[tx_idx]);
+                    }
+                }
+            }
+            if show_help {
+                self.render_help(frame, current_screen);
+            }
+            return;
+        }
+
+        // If showing service detail view, render that instead
         if let Some(container) = detail_container {
             self.render_service_detail(frame, container, detail_logs, status_message, reth_metrics);
             // Still show help overlay if requested
@@ -570,7 +594,10 @@ impl Dashboard {
     }
 
     fn render_wallets(&self, frame: &mut Frame, area: ratatui::layout::Rect, selected_index: usize, filtered_indices: &[usize]) {
-        let header = Row::new(vec!["Worker", "Status", "Address", "Balance"])
+        // Determine currency label based on network
+        let currency = if self.network == "mainnet" { "KAS" } else { "TKAS" };
+
+        let header = Row::new(vec!["Worker", "Status", "Address", "Balance", "Fees Spent"])
             .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
             .bottom_margin(1);
 
@@ -587,14 +614,29 @@ impl Dashboard {
             let address = wallet.address.as_deref().unwrap_or("Not generated");
             let balance = wallet
                 .balance
-                .map(|b| format!("{:.8} KAS", b))
+                .map(|b| format!("{:.8} {}", b, currency))
                 .unwrap_or_else(|| "N/A".to_string());
+
+            // Format fees spent with color coding
+            let (fees_text, fees_color) = if let Some(fees) = wallet.fees_spent {
+                let color = if fees == 0.0 {
+                    Color::Green
+                } else if fees < 5.0 {
+                    Color::Yellow
+                } else {
+                    Color::Red
+                };
+                (format!("{:.8} {}", fees, currency), color)
+            } else {
+                ("N/A".to_string(), Color::Gray)
+            };
 
             let row = Row::new(vec![
                 Cell::from(format!("Worker {}", wallet.worker_id)),
                 Cell::from(Span::styled(status.0, Style::default().fg(status.1))),
                 Cell::from(address),
                 Cell::from(balance),
+                Cell::from(Span::styled(fees_text, Style::default().fg(fees_color))),
             ]);
 
             if is_selected {
@@ -611,7 +653,8 @@ impl Dashboard {
             [
                 Constraint::Length(10),
                 Constraint::Length(10),
-                Constraint::Min(45),
+                Constraint::Min(30),
+                Constraint::Length(20),
                 Constraint::Length(20),
             ],
         )
@@ -1273,6 +1316,13 @@ impl Dashboard {
                 help_text.push(Line::from("  [g]            Generate new wallet for selected worker"));
                 help_text.push(Line::from("  [t]            Transfer/Send KAS transaction"));
                 help_text.push(Line::from("  [/]            Search/filter wallets"));
+                help_text.push(Line::from(""));
+                help_text.push(Line::from(Span::styled("Wallet Detail View:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+                help_text.push(Line::from("  [Enter]        View transaction details (modal)"));
+                help_text.push(Line::from("  [/]            Search transactions (by TxID, address, amount)"));
+                help_text.push(Line::from("  [↑↓] / [j/k]   Scroll through transactions"));
+                help_text.push(Line::from("  [Esc] / [q]    Return to wallet list"));
+                help_text.push(Line::from("  [r]            Refresh wallet data"));
             }
             Screen::RpcTokens => {
                 help_text.push(Line::from(Span::styled("RPC Tokens Screen:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
@@ -1413,5 +1463,453 @@ impl Dashboard {
             .wrap(Wrap { trim: true });
 
         frame.render_widget(dialog_widget, dialog_area);
+    }
+
+    fn render_wallet_detail(&self, frame: &mut Frame, wallet: &WalletInfo, addresses: &[(String, f64, f64)], utxos: &[crate::core::wallet::UtxoInfo], status_message: Option<&str>, scroll_offset: usize, tx_search_mode: bool, tx_search_buffer: &str, filtered_tx_indices: &[usize], selected_tx_index: Option<usize>) {
+        let currency = if self.network == "mainnet" { "KAS" } else { "TKAS" };
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),   // Title
+                Constraint::Length(8),   // Wallet info section
+                Constraint::Length((addresses.len().min(5) + 3) as u16),  // Address balances (limited height)
+                Constraint::Min(0),      // Activity (UTXOs)
+                Constraint::Length(3),   // Footer
+            ])
+            .split(frame.size());
+
+        // Title
+        let title = Paragraph::new(vec![Line::from(vec![Span::styled(
+            format!("Wallet Details: Worker {}", wallet.worker_id),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )])])
+        .alignment(Alignment::Center)
+        .block(Block::default().borders(Borders::ALL));
+
+        frame.render_widget(title, chunks[0]);
+
+        // Wallet info section
+        let status_color = if wallet.container_running {
+            Color::Green
+        } else {
+            Color::Red
+        };
+
+        let balance_text = wallet
+            .balance
+            .map(|b| format!("{:.8} {}", b, currency))
+            .unwrap_or_else(|| "N/A".to_string());
+
+        let (fees_text, fees_color) = if let Some(fees) = wallet.fees_spent {
+            let color = if fees == 0.0 {
+                Color::Green
+            } else if fees < 5.0 {
+                Color::Yellow
+            } else {
+                Color::Red
+            };
+            (format!("{:.8} {}", fees, currency), color)
+        } else {
+            ("N/A".to_string(), Color::Gray)
+        };
+
+        let initial_balance_text = wallet
+            .initial_balance
+            .map(|b| format!("{:.8} {}", b, currency))
+            .unwrap_or_else(|| "N/A".to_string());
+
+        let info_text = vec![
+            Line::from(vec![
+                Span::styled("Status: ", Style::default().fg(Color::White)),
+                Span::styled(
+                    if wallet.container_running { "Running" } else { "Stopped" },
+                    Style::default().fg(status_color).add_modifier(Modifier::BOLD)
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("Address: ", Style::default().fg(Color::White)),
+                Span::styled(
+                    wallet.address.as_deref().unwrap_or("Not generated"),
+                    Style::default().fg(Color::Cyan)
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("Total Balance: ", Style::default().fg(Color::White)),
+                Span::styled(balance_text, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(vec![
+                Span::styled("Initial Balance: ", Style::default().fg(Color::White)),
+                Span::styled(initial_balance_text, Style::default().fg(Color::Gray)),
+            ]),
+            Line::from(vec![
+                Span::styled("Fees Spent: ", Style::default().fg(Color::White)),
+                Span::styled(fees_text, Style::default().fg(fees_color).add_modifier(Modifier::BOLD)),
+            ]),
+        ];
+
+        let info = Paragraph::new(info_text)
+            .block(Block::default().borders(Borders::ALL).title("Wallet Information"));
+
+        frame.render_widget(info, chunks[1]);
+
+        // Address balances section
+        if addresses.is_empty() {
+            let empty_text = vec![
+                Line::from(Span::styled(
+                    "No address balances available",
+                    Style::default().fg(Color::Yellow),
+                )),
+            ];
+            let empty_widget = Paragraph::new(empty_text)
+                .block(Block::default().borders(Borders::ALL).title("Address Balances"))
+                .alignment(Alignment::Center);
+            frame.render_widget(empty_widget, chunks[2]);
+        } else {
+            let header = Row::new(vec!["Address", "Available", "Pending"])
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                .bottom_margin(1);
+
+            // Show all addresses (no limit)
+            let rows: Vec<Row> = addresses.iter().map(|(address, available, pending)| {
+                Row::new(vec![
+                    Cell::from(address.clone()),
+                    Cell::from(Span::styled(
+                        format!("{:.8} {}", available, currency),
+                        Style::default().fg(Color::Green)
+                    )),
+                    Cell::from(Span::styled(
+                        format!("{:.8} {}", pending, currency),
+                        if *pending > 0.0 { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) }
+                    )),
+                ])
+            }).collect();
+
+            let table = Table::new(
+                rows,
+                [
+                    Constraint::Min(30),
+                    Constraint::Length(20),
+                    Constraint::Length(20),
+                ],
+            )
+            .header(header)
+            .block(Block::default().borders(Borders::ALL).title(format!("Address Balances ({} addresses)", addresses.len())));
+
+            frame.render_widget(table, chunks[2]);
+        }
+
+        // Activity section (UTXOs) - Show detailed transaction information
+        if utxos.is_empty() {
+            let empty_text = vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    "No transaction history found",
+                    Style::default().fg(Color::Gray),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "This wallet has no incoming transactions (UTXOs)",
+                    Style::default().fg(Color::Gray),
+                )),
+            ];
+            let empty_widget = Paragraph::new(empty_text)
+                .block(Block::default().borders(Borders::ALL).title("Activity / Transaction History"))
+                .alignment(Alignment::Center);
+            frame.render_widget(empty_widget, chunks[3]);
+        } else {
+            // Determine which transactions to show
+            let (display_utxos, total_count): (Vec<&crate::core::wallet::UtxoInfo>, usize) = if !filtered_tx_indices.is_empty() {
+                // Show filtered transactions
+                let filtered: Vec<&crate::core::wallet::UtxoInfo> = filtered_tx_indices
+                    .iter()
+                    .filter_map(|&idx| utxos.get(idx))
+                    .collect();
+                let count = filtered.len();
+                (filtered, count)
+            } else {
+                // Show all transactions
+                (utxos.iter().collect(), utxos.len())
+            };
+
+            // Build header with search indicator
+            let title = if !filtered_tx_indices.is_empty() {
+                format!("Transaction History ({} of {} UTXOs - filtered by '{}')", display_utxos.len(), utxos.len(), tx_search_buffer)
+            } else {
+                format!("Transaction History ({} UTXOs)", total_count)
+            };
+
+            let mut tx_lines = vec![
+                Line::from(Span::styled(
+                    title,
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                )),
+                Line::from(""),
+            ];
+
+            for (display_idx, utxo) in display_utxos.iter().enumerate() {
+                let is_selected = selected_tx_index == Some(display_idx);
+                let utxo_type = if utxo.is_coinbase { "Coinbase" } else { "Transfer" };
+                let type_color = if utxo.is_coinbase { Color::Yellow } else { Color::Cyan };
+
+                // Format timestamp
+                let timestamp_str = if utxo.timestamp_ms > 0 {
+                    let secs = utxo.timestamp_ms / 1000;
+                    let dt = chrono::DateTime::from_timestamp(secs as i64, 0);
+                    if let Some(datetime) = dt {
+                        datetime.format("%Y-%m-%d %H:%M:%S UTC").to_string()
+                    } else {
+                        "Unknown".to_string()
+                    }
+                } else {
+                    "Unknown".to_string()
+                };
+
+                // Selection indicator prefix (arrow only, no background)
+                let prefix = if is_selected { "► " } else { "  " };
+
+                // Transaction header
+                tx_lines.push(Line::from(vec![
+                    Span::styled(format!("{}[{}] ", prefix, display_idx + 1), Style::default().fg(Color::Gray)),
+                    Span::styled(utxo_type, Style::default().fg(type_color).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        format!(" - {:.8} {}", utxo.amount_kas, currency),
+                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                    ),
+                ]));
+
+                // Date/Time
+                tx_lines.push(Line::from(vec![
+                    Span::styled(format!("{}  Date: ", prefix), Style::default().fg(Color::Gray)),
+                    Span::styled(timestamp_str, Style::default().fg(Color::Yellow)),
+                ]));
+
+                // Transaction ID (full)
+                tx_lines.push(Line::from(vec![
+                    Span::styled(format!("{}  TxID: ", prefix), Style::default().fg(Color::Gray)),
+                    Span::styled(&utxo.tx_id, Style::default().fg(Color::Cyan)),
+                ]));
+
+                // Block DAA Score
+                tx_lines.push(Line::from(vec![
+                    Span::styled(format!("{}  Block DAA: ", prefix), Style::default().fg(Color::Gray)),
+                    Span::styled(format!("{}", utxo.block_daa_score), Style::default().fg(Color::White)),
+                ]));
+
+                // Address
+                tx_lines.push(Line::from(vec![
+                    Span::styled(format!("{}  Address: ", prefix), Style::default().fg(Color::Gray)),
+                    Span::styled(&utxo.address, Style::default().fg(Color::Magenta)),
+                ]));
+
+                tx_lines.push(Line::from("")); // Blank line between transactions
+            }
+
+            // Add scroll indicator to title
+            let scroll_indicator = if utxos.len() > 1 {
+                format!(" (↑/↓ to scroll, showing from line {})", scroll_offset + 1)
+            } else {
+                String::new()
+            };
+
+            let tx_paragraph = Paragraph::new(tx_lines)
+                .block(Block::default().borders(Borders::ALL).title(format!("Activity / Transaction History{}", scroll_indicator)))
+                .wrap(ratatui::widgets::Wrap { trim: false })
+                .scroll((scroll_offset as u16, 0));
+
+            frame.render_widget(tx_paragraph, chunks[3]);
+        }
+
+        // Footer
+        let footer_text = if let Some(status) = status_message {
+            status.to_string()
+        } else {
+            "[Esc/q] back | [Enter] details | [/] search | [↑/↓] scroll | [r]efresh".to_string()
+        };
+
+        let footer = Paragraph::new(footer_text)
+            .alignment(Alignment::Center)
+            .style(if status_message.is_some() {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            })
+            .block(Block::default().borders(Borders::ALL));
+
+        frame.render_widget(footer, chunks[4]);
+    }
+
+    fn render_transaction_detail_modal(&self, frame: &mut Frame, utxo: &crate::core::wallet::UtxoInfo) {
+        let currency = if self.network == "mainnet" { "KAS" } else { "TKAS" };
+
+        // Create centered modal area (70% width, 80% height)
+        let area = frame.size();
+        let modal_width = (area.width * 70) / 100;
+        let modal_height = (area.height * 80) / 100;
+        let modal_x = (area.width - modal_width) / 2;
+        let modal_y = (area.height - modal_height) / 2;
+
+        let modal_area = ratatui::layout::Rect {
+            x: modal_x,
+            y: modal_y,
+            width: modal_width,
+            height: modal_height,
+        };
+
+        // Render opaque dark overlay over entire screen using Clear
+        use ratatui::widgets::Clear;
+        frame.render_widget(Clear, frame.size());
+
+        // Add dark background
+        let overlay = Block::default()
+            .style(Style::default().bg(Color::Black));
+        frame.render_widget(overlay, frame.size());
+
+        // Format timestamp and relative time
+        let (timestamp_str, relative_time) = if utxo.timestamp_ms > 0 {
+            let secs = utxo.timestamp_ms / 1000;
+            let dt = chrono::DateTime::from_timestamp(secs as i64, 0);
+            let timestamp = if let Some(datetime) = dt {
+                datetime.format("%Y-%m-%d %H:%M:%S UTC").to_string()
+            } else {
+                "Unknown".to_string()
+            };
+
+            // Calculate relative time
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let age_secs = now.saturating_sub(secs as u64);
+            let relative = if age_secs < 60 {
+                format!("{} seconds ago", age_secs)
+            } else if age_secs < 3600 {
+                format!("{} minutes ago", age_secs / 60)
+            } else if age_secs < 86400 {
+                format!("{} hours ago", age_secs / 3600)
+            } else {
+                format!("{} days ago", age_secs / 86400)
+            };
+            (timestamp, relative)
+        } else {
+            ("Unknown".to_string(), "Unknown".to_string())
+        };
+
+        let utxo_type = if utxo.is_coinbase { "Coinbase Reward" } else { "Transfer" };
+        let amount_sompi = (utxo.amount_kas * 100_000_000.0) as u64;
+
+        // Build modal content with more details
+        let mut lines = vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("━━━ TRANSACTION INFORMATION ━━━", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Type: ", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
+                Span::styled(utxo_type, Style::default().fg(if utxo.is_coinbase { Color::Yellow } else { Color::Cyan }).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Amount: ", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    format!("{:.8} {}", utxo.amount_kas, currency),
+                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("        ", Style::default()),
+                Span::styled(format!("({} sompi)", amount_sompi), Style::default().fg(Color::DarkGray)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("━━━ TIMING ━━━", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Date/Time: ", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
+                Span::styled(&timestamp_str, Style::default().fg(Color::Yellow)),
+            ]),
+            Line::from(vec![
+                Span::styled("Age:       ", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
+                Span::styled(relative_time, Style::default().fg(Color::Yellow)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("━━━ BLOCKCHAIN DATA ━━━", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled("Transaction ID:", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(&utxo.tx_id, Style::default().fg(Color::Cyan))),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Block DAA Score: ", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("{}", utxo.block_daa_score), Style::default().fg(Color::White)),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled("Destination Address (Your Wallet):", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(&utxo.address, Style::default().fg(Color::Magenta))),
+            Line::from(""),
+        ];
+
+        // Add source addresses for non-coinbase transactions
+        if !utxo.is_coinbase {
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("━━━ TRANSACTION SOURCE ━━━", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            ]));
+            lines.push(Line::from(""));
+
+            if !utxo.source_addresses.is_empty() {
+                lines.push(Line::from(vec![
+                    Span::styled("Source Address(es):", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
+                ]));
+                for (idx, source_addr) in utxo.source_addresses.iter().enumerate() {
+                    let prefix = if utxo.source_addresses.len() > 1 {
+                        format!("  [{}] ", idx + 1)
+                    } else {
+                        "  ".to_string()
+                    };
+                    lines.push(Line::from(vec![
+                        Span::styled(prefix, Style::default().fg(Color::DarkGray)),
+                        Span::styled(source_addr.clone(), Style::default().fg(Color::Magenta)),
+                    ]));
+                }
+            } else {
+                lines.push(Line::from(vec![
+                    Span::styled("Source Address: ", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
+                    Span::styled("Not available", Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("  (Transaction confirmed in block, source data archived)", Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)),
+                ]));
+            }
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+                "Press [Enter] or [Esc] to close",
+                Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)
+            )));
+
+        let modal_widget = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                    .border_type(ratatui::widgets::BorderType::Double)
+                    .title(Span::styled(
+                        " 📋 Transaction Details ",
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                    ))
+                    .style(Style::default().bg(Color::Black))
+            )
+            .alignment(Alignment::Left)
+            .wrap(ratatui::widgets::Wrap { trim: false });
+
+        // Render modal
+        frame.render_widget(modal_widget, modal_area);
     }
 }

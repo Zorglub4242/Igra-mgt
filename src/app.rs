@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    event::{self, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -106,6 +106,10 @@ pub struct App {
     // Service detail view state
     detail_view_service: Option<String>,
     detail_logs: Vec<String>,
+    // Wallet detail view state
+    detail_view_wallet: Option<usize>, // worker_id
+    detail_wallet_addresses: Vec<(String, f64, f64)>, // (address, available, pending)
+    detail_wallet_utxos: Vec<crate::core::wallet::UtxoInfo>, // UTXOs for activity view
     // Logs viewer state
     logs_selected_service: Option<String>,
     logs_data: Vec<String>,
@@ -121,6 +125,16 @@ pub struct App {
     send_amount: String,
     send_address: String,
     send_input_field: usize, // 0 = amount, 1 = address
+    // New feature states
+    detail_wallet_scroll: usize, // Scroll offset for transaction list
+    detail_addresses_scroll: usize, // Scroll offset for addresses
+    show_tx_detail: bool, // Transaction detail modal
+    selected_tx_index: Option<usize>, // Selected transaction for detail view
+    tx_search_mode: bool, // Transaction search/filter mode
+    tx_search_buffer: String, // Search query for transactions
+    filtered_tx_indices: Vec<usize>, // Filtered transaction indices
+    auto_refresh_enabled: bool, // Auto-refresh toggle
+    color_theme: String, // Color theme name
 }
 
 impl App {
@@ -262,8 +276,12 @@ impl App {
             }
         });
 
+        // Create dashboard and initialize with network info
+        let mut dashboard = Dashboard::new();
+        dashboard.update_network(docker.network().to_string());
+
         Ok(Self {
-            dashboard: Dashboard::new(),
+            dashboard,
             docker,
             config,
             wallet_manager,
@@ -306,6 +324,9 @@ impl App {
             edit_key: None,
             detail_view_service: None,
             detail_logs: Vec::new(),
+            detail_view_wallet: None,
+            detail_wallet_addresses: Vec::new(),
+            detail_wallet_utxos: Vec::new(),
             logs_selected_service: None,
             logs_data: Vec::new(),
             logs_follow_mode: false,
@@ -318,6 +339,16 @@ impl App {
             send_amount: String::new(),
             send_address: String::new(),
             send_input_field: 0,
+            // New feature initializations
+            detail_wallet_scroll: 0,
+            detail_addresses_scroll: 0,
+            show_tx_detail: false,
+            selected_tx_index: None,
+            tx_search_mode: false,
+            tx_search_buffer: String::new(),
+            filtered_tx_indices: Vec::new(),
+            auto_refresh_enabled: true,
+            color_theme: "dark".to_string(),
         })
     }
 
@@ -496,7 +527,7 @@ impl App {
         // Setup terminal
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        execute!(stdout, EnterAlternateScreen)?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
@@ -509,8 +540,7 @@ impl App {
         disable_raw_mode()?;
         execute!(
             terminal.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
+            LeaveAlternateScreen
         )?;
         terminal.show_cursor()?;
 
@@ -713,6 +743,11 @@ impl App {
             return self.handle_edit_key(key).await;
         }
 
+        // Handle transaction search mode separately
+        if self.tx_search_mode {
+            return self.handle_tx_search_key(key).await;
+        }
+
         // Handle search mode separately
         if self.search_mode {
             return self.handle_search_key(key).await;
@@ -724,7 +759,7 @@ impl App {
         }
 
         // Handle detail view separately
-        if self.detail_view_service.is_some() {
+        if self.detail_view_service.is_some() || self.detail_view_wallet.is_some() {
             return self.handle_detail_view_key(key).await;
         }
 
@@ -819,19 +854,42 @@ impl App {
                 self.update_dashboard_for_current_screen();
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                // Scroll logs if in logs viewer, otherwise move selection
-                if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
+                // Select transaction in wallet detail view
+                if self.detail_view_wallet.is_some() && !self.detail_wallet_utxos.is_empty() {
+                    let current_selection = self.selected_tx_index.unwrap_or(0);
+                    if current_selection > 0 {
+                        self.selected_tx_index = Some(current_selection - 1);
+                    }
+                }
+                // Scroll logs if in logs viewer
+                else if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
                     self.logs_scroll_offset = self.logs_scroll_offset.saturating_sub(1);
-                } else if self.selected_index > 0 {
+                }
+                // Move selection
+                else if self.selected_index > 0 {
                     self.selected_index -= 1;
                 }
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                // Scroll logs if in logs viewer, otherwise move selection
-                if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
+                // Select transaction in wallet detail view
+                if self.detail_view_wallet.is_some() && !self.detail_wallet_utxos.is_empty() {
+                    let tx_count = if self.tx_search_mode && !self.filtered_tx_indices.is_empty() {
+                        self.filtered_tx_indices.len()
+                    } else {
+                        self.detail_wallet_utxos.len()
+                    };
+                    let current_selection = self.selected_tx_index.unwrap_or(0);
+                    if current_selection < tx_count.saturating_sub(1) {
+                        self.selected_tx_index = Some(current_selection + 1);
+                    }
+                }
+                // Scroll logs if in logs viewer
+                else if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
                     let max_scroll = self.logs_data.len().saturating_sub(10);
                     self.logs_scroll_offset = (self.logs_scroll_offset + 1).min(max_scroll);
-                } else {
+                }
+                // Move selection
+                else {
                     let max = self.get_max_selection();
                     if self.selected_index < max {
                         self.selected_index += 1;
@@ -839,7 +897,22 @@ impl App {
                 }
             }
             KeyCode::Enter => {
-                self.handle_action().await?;
+                // In wallet detail view, Enter toggles transaction detail modal
+                if self.detail_view_wallet.is_some() && !self.detail_wallet_utxos.is_empty() {
+                    if self.show_tx_detail {
+                        // Close transaction detail modal
+                        self.show_tx_detail = false;
+                    } else {
+                        // Open transaction detail modal for selected transaction
+                        // Initialize selection to 0 if not set
+                        if self.selected_tx_index.is_none() {
+                            self.selected_tx_index = Some(0);
+                        }
+                        self.show_tx_detail = true;
+                    }
+                } else {
+                    self.handle_action().await?;
+                }
             }
             KeyCode::Char(' ') => {
                 // Space for toggle on Profiles only
@@ -954,8 +1027,14 @@ impl App {
                 self.handle_upgrade().await?;
             }
             KeyCode::Char('/') => {
-                // Enter search mode (on searchable screens)
-                if matches!(self.current_screen, Screen::Services | Screen::Config | Screen::Wallets) {
+                // Enter search mode (on searchable screens or wallet detail view)
+                if self.detail_view_wallet.is_some() {
+                    // Transaction search mode in wallet detail
+                    self.tx_search_mode = true;
+                    self.tx_search_buffer.clear();
+                    self.filtered_tx_indices.clear();
+                    self.set_status("Search transactions: (type TxID, address, or amount)".to_string());
+                } else if matches!(self.current_screen, Screen::Services | Screen::Config | Screen::Wallets) {
                     self.search_mode = true;
                     self.search_buffer.clear();
                     self.filtered_indices.clear();
@@ -1053,31 +1132,48 @@ impl App {
         }
 
         let wallet = &self.wallets[self.selected_index];
+        let worker_id = wallet.worker_id;
 
         if !wallet.container_running {
-            self.set_status(format!("Wallet {} container not running", wallet.worker_id));
+            self.set_status(format!("Wallet {} container not running", worker_id));
             return Ok(());
         }
 
-        // Show wallet info
-        let mut info = vec![
-            format!("Worker ID: {}", wallet.worker_id),
-            format!("Status: {}", if wallet.container_running { "Running" } else { "Stopped" }),
-        ];
+        self.set_status(format!("Loading wallet details for worker {}...", worker_id));
 
-        if let Some(addr) = &wallet.address {
-            info.push(format!("Address: {}", addr));
+        // Fetch detailed balance info with per-address breakdown
+        let address_balances = match self.wallet_manager.get_balance_detailed(worker_id).await {
+            Ok(balances) => balances,
+            Err(e) => {
+                self.set_status(format!("✗ Failed to load wallet details: {}", e));
+                self.detail_wallet_addresses = Vec::new();
+                self.detail_wallet_utxos = Vec::new();
+                return Ok(());
+            }
+        };
+
+        // Fetch UTXOs for activity history
+        let utxos = match self.wallet_manager.get_utxos(worker_id).await {
+            Ok(utxos) => utxos,
+            Err(e) => {
+                // UTXOs are optional, continue without them
+                eprintln!("Warning: Failed to load UTXOs: {}", e);
+                Vec::new()
+            }
+        };
+
+        self.detail_wallet_addresses = address_balances;
+        self.detail_wallet_utxos = utxos;
+        self.detail_view_wallet = Some(worker_id);
+        self.detail_wallet_scroll = 0; // Reset scroll when opening wallet detail
+        self.detail_addresses_scroll = 0;
+        // Initialize transaction selection to first transaction
+        self.selected_tx_index = if !self.detail_wallet_utxos.is_empty() {
+            Some(0)
         } else {
-            info.push("Address: Not generated".to_string());
-        }
-
-        if let Some(bal) = wallet.balance {
-            info.push(format!("Balance: {:.8} KAS", bal));
-        } else {
-            info.push("Balance: N/A".to_string());
-        }
-
-        self.set_status(info.join(" | "));
+            None
+        };
+        self.clear_status();
 
         Ok(())
     }
@@ -1517,10 +1613,37 @@ impl App {
 
     async fn handle_detail_view_key(&mut self, key: KeyCode) -> Result<()> {
         match key {
+            KeyCode::Enter => {
+                // In wallet detail view, Enter toggles transaction detail modal
+                if self.detail_view_wallet.is_some() && !self.detail_wallet_utxos.is_empty() {
+                    if self.show_tx_detail {
+                        // Close transaction detail modal
+                        self.show_tx_detail = false;
+                    } else {
+                        // Open transaction detail modal for selected transaction
+                        // Initialize selection to 0 if not set
+                        if self.selected_tx_index.is_none() {
+                            self.selected_tx_index = Some(0);
+                        }
+                        self.show_tx_detail = true;
+                    }
+                }
+            }
             KeyCode::Esc | KeyCode::Char('q') => {
-                // Exit detail view
-                self.detail_view_service = None;
-                self.detail_logs.clear();
+                // Close modal if showing, otherwise exit detail view
+                if self.show_tx_detail {
+                    self.show_tx_detail = false;
+                } else {
+                    // Exit detail view
+                    self.detail_view_service = None;
+                    self.detail_logs.clear();
+                    self.detail_view_wallet = None;
+                    self.detail_wallet_addresses.clear();
+                    self.detail_wallet_utxos.clear();
+                    self.detail_wallet_scroll = 0;
+                    self.detail_addresses_scroll = 0;
+                    self.selected_tx_index = None;
+                }
             }
             KeyCode::Char('s') => {
                 // Start service from detail view
@@ -1782,6 +1905,69 @@ impl App {
         Ok(())
     }
 
+    async fn handle_tx_search_key(&mut self, key: KeyCode) -> Result<()> {
+        match key {
+            KeyCode::Char(c) => {
+                self.tx_search_buffer.push(c);
+                // Apply filter in real-time
+                self.apply_tx_search_filter();
+                self.set_status(format!("Search: {} (Enter to apply, Esc to cancel)", self.tx_search_buffer));
+            }
+            KeyCode::Backspace => {
+                self.tx_search_buffer.pop();
+                self.apply_tx_search_filter();
+                self.set_status(format!("Search: {} (Enter to apply, Esc to cancel)", self.tx_search_buffer));
+            }
+            KeyCode::Enter => {
+                // Apply search and exit search mode
+                self.apply_tx_search_filter();
+                let count = self.filtered_tx_indices.len();
+                self.tx_search_mode = false;
+
+                if self.tx_search_buffer.is_empty() {
+                    self.set_status("Search cleared".to_string());
+                } else {
+                    self.set_status(format!("Found {} matching transactions for '{}'", count, self.tx_search_buffer));
+                    // Jump to first match if any
+                    if !self.filtered_tx_indices.is_empty() {
+                        self.detail_wallet_scroll = 0; // Reset scroll to show first match
+                    }
+                }
+            }
+            KeyCode::Esc => {
+                // Cancel search
+                self.tx_search_mode = false;
+                self.tx_search_buffer.clear();
+                self.filtered_tx_indices.clear();
+                self.set_status("Search cancelled".to_string());
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn apply_tx_search_filter(&mut self) {
+        self.filtered_tx_indices.clear();
+
+        if self.tx_search_buffer.is_empty() {
+            return;
+        }
+
+        let query = self.tx_search_buffer.to_lowercase();
+
+        // Filter transactions by TxID, address, or amount
+        for (idx, utxo) in self.detail_wallet_utxos.iter().enumerate() {
+            let tx_id_match = utxo.tx_id.to_lowercase().contains(&query);
+            let address_match = utxo.address.to_lowercase().contains(&query);
+            let amount_str = format!("{:.8}", utxo.amount_kas);
+            let amount_match = amount_str.contains(&query);
+
+            if tx_id_match || address_match || amount_match {
+                self.filtered_tx_indices.push(idx);
+            }
+        }
+    }
+
     fn apply_search_filter(&mut self) {
         self.filtered_indices.clear();
 
@@ -1834,6 +2020,11 @@ impl App {
             self.containers.iter().find(|c| &c.name == service_name)
         });
 
+        // Get wallet info for detail view
+        let detail_wallet = self.detail_view_wallet.and_then(|worker_id| {
+            self.wallets.iter().find(|w| w.worker_id == worker_id)
+        });
+
         self.dashboard.render(
             frame,
             self.current_screen,
@@ -1859,6 +2050,15 @@ impl App {
             &self.send_address,
             self.send_input_field,
             self.reth_metrics.as_ref(),
+            detail_wallet,
+            &self.detail_wallet_addresses,
+            &self.detail_wallet_utxos,
+            self.detail_wallet_scroll,
+            self.show_tx_detail,
+            self.selected_tx_index,
+            self.tx_search_mode,
+            &self.tx_search_buffer,
+            &self.filtered_tx_indices,
         );
     }
 }
