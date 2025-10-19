@@ -33,6 +33,8 @@ pub struct ContainerStats {
     pub memory_limit: u64,
     pub network_rx: u64,
     pub network_tx: u64,
+    pub container_size: u64,    // Container filesystem size in bytes
+    pub volume_size: u64,       // Total volume data size in bytes
 }
 
 #[derive(Clone)]
@@ -105,6 +107,7 @@ impl DockerManager {
 
         let options = Some(ListContainersOptions {
             all: true,
+            size: true,  // Enable size information
             filters,
             ..Default::default()
         });
@@ -211,16 +214,135 @@ impl DockerManager {
                 .map(|net| (net.rx_bytes, net.tx_bytes))
                 .unwrap_or((0, 0));
 
+            // Get container virtual size (image + container layers)
+            let container_size = if let Ok(output) = tokio::process::Command::new("docker")
+                .args(&["ps", "--size", "--filter", &format!("id={}", container_id), "--format", "{{.Size}}"])
+                .output()
+                .await
+            {
+                let size_str = String::from_utf8_lossy(&output.stdout);
+                // Format is like "408MB (virtual 558MB)" or "0B (virtual 923MB)"
+                // We want the virtual size (total image+container)
+                if let Some(virtual_part) = size_str.trim().split(" (virtual ").nth(1) {
+                    let virtual_str = virtual_part.trim_end_matches(')');
+                    Self::parse_size_string(virtual_str)
+                } else {
+                    0
+                }
+            } else {
+                0
+            };
+
+            // Get actual volume sizes by inspecting mounts and querying docker system df
+            let volume_size = self.get_container_volume_size(&container_id).await.unwrap_or(0);
+
             Ok(Some(ContainerStats {
                 cpu_percent,
                 memory_usage,
                 memory_limit,
                 network_rx,
                 network_tx,
+                container_size,
+                volume_size,
             }))
         } else {
             Ok(None)
         }
+    }
+
+    /// Parse Docker size string to bytes (e.g. "408MB", "6.15kB", "1.5GB")
+    fn parse_size_string(size_str: &str) -> u64 {
+        let size_str = size_str.trim();
+
+        // Extract number and unit
+        let mut num_str = String::new();
+        let mut unit_str = String::new();
+
+        for ch in size_str.chars() {
+            if ch.is_numeric() || ch == '.' {
+                num_str.push(ch);
+            } else if ch.is_alphabetic() {
+                unit_str.push(ch);
+            }
+        }
+
+        let num: f64 = num_str.parse().unwrap_or(0.0);
+        let unit = unit_str.to_uppercase();
+
+        let multiplier: u64 = match unit.as_str() {
+            "B" => 1,
+            "KB" => 1024,
+            "MB" => 1024 * 1024,
+            "GB" => 1024 * 1024 * 1024,
+            "TB" => 1024 * 1024 * 1024 * 1024,
+            _ => 1,
+        };
+
+        (num * multiplier as f64) as u64
+    }
+
+    /// Get total volume size for a container by inspecting its mounts
+    async fn get_container_volume_size(&self, container_id: &str) -> Result<u64> {
+        // Get container's volume mounts
+        let inspect = self.docker.inspect_container(container_id, None).await?;
+
+        let mut total_volume_size: u64 = 0;
+
+        // Get all volumes from mounts
+        if let Some(mounts) = inspect.mounts {
+            // Build a map of volume names to sizes using docker system df
+            let volume_sizes = self.get_all_volume_sizes().await?;
+
+            for mount in mounts {
+                if let Some(volume_name) = mount.name {
+                    if let Some(&size) = volume_sizes.get(&volume_name) {
+                        total_volume_size += size;
+                    }
+                }
+            }
+        }
+
+        Ok(total_volume_size)
+    }
+
+    /// Get all volume sizes using docker system df -v
+    async fn get_all_volume_sizes(&self) -> Result<HashMap<String, u64>> {
+        let output = tokio::process::Command::new("docker")
+            .args(&["system", "df", "-v"])
+            .output()
+            .await?;
+
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        let mut volume_sizes = HashMap::new();
+
+        // Parse output like:
+        // VOLUME NAME                                    LINKS     SIZE
+        // igra-orchestra-testnet_execution_layer_data    1         7.066GB
+        let mut in_volumes_section = false;
+        for line in output_str.lines() {
+            if line.contains("VOLUME NAME") {
+                in_volumes_section = true;
+                continue;
+            }
+
+            if in_volumes_section {
+                // Stop at next section
+                if line.is_empty() || line.starts_with("Build cache") {
+                    break;
+                }
+
+                // Parse volume line
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 3 {
+                    let volume_name = parts[0].to_string();
+                    let size_str = parts[2];
+                    let size = Self::parse_size_string(size_str);
+                    volume_sizes.insert(volume_name, size);
+                }
+            }
+        }
+
+        Ok(volume_sizes)
     }
 
     /// Execute docker-compose command

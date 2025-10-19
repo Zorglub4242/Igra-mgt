@@ -360,7 +360,7 @@ impl Dashboard {
         frame.render_widget(summary, chunks[0]);
 
         // Services table
-        let header = Row::new(vec!["Service", "Status", "Metrics", "Ports", "CPU", "Memory", "Image:Tag"])
+        let header = Row::new(vec!["Service", "Status", "Metrics", "Ports", "CPU", "Memory", "Storage", "Image:Tag"])
             .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
             .bottom_margin(1);
 
@@ -386,7 +386,7 @@ impl Dashboard {
             let health = container.health.as_deref().unwrap_or("N/A").to_string();
 
             // Get stats if available with color-coding
-            let (cpu_cell, mem_cell, net_rx_text, net_tx_text) = if let Some(stats) = self.container_stats.get(&container.name) {
+            let (cpu_cell, mem_cell, storage_cell, net_rx_text, net_tx_text) = if let Some(stats) = self.container_stats.get(&container.name) {
                 // CPU with color coding
                 let cpu_percent = stats.cpu_percent;
                 let cpu_color = if cpu_percent > 80.0 {
@@ -420,13 +420,35 @@ impl Dashboard {
                     Style::default().fg(mem_color)
                 ));
 
+                // Storage with color coding
+                let container_mb = stats.container_size / 1024 / 1024;
+                let volume_gb = stats.volume_size as f64 / 1024.0 / 1024.0 / 1024.0;
+
+                let storage_color = if volume_gb > 50.0 {
+                    Color::Red
+                } else if volume_gb > 20.0 {
+                    Color::Yellow
+                } else {
+                    Color::White
+                };
+
+                let storage_cell = Cell::from(Span::styled(
+                    if volume_gb > 0.0 {
+                        format!("{}M/{}G", container_mb, volume_gb as u64)
+                    } else {
+                        format!("{} MB", container_mb)
+                    },
+                    Style::default().fg(storage_color)
+                ));
+
                 // Format network I/O
                 let rx = Self::format_bytes(stats.network_rx);
                 let tx = Self::format_bytes(stats.network_tx);
 
-                (cpu_cell, mem_cell, rx, tx)
+                (cpu_cell, mem_cell, storage_cell, rx, tx)
             } else {
                 (
+                    Cell::from(Span::styled("N/A", Style::default().fg(Color::Gray))),
                     Cell::from(Span::styled("N/A", Style::default().fg(Color::Gray))),
                     Cell::from(Span::styled("N/A", Style::default().fg(Color::Gray))),
                     "N/A".to_string(),
@@ -495,6 +517,7 @@ impl Dashboard {
                 Cell::from(ports_text),
                 cpu_cell,
                 mem_cell,
+                storage_cell,
                 Cell::from(Span::styled(image_display, Style::default().fg(image_color))),
             ]);
 
@@ -516,6 +539,7 @@ impl Dashboard {
                 Constraint::Length(16),  // Ports
                 Constraint::Length(7),   // CPU
                 Constraint::Length(10),  // Memory
+                Constraint::Length(12),  // Storage
                 Constraint::Min(15),     // Image:Tag
             ],
         )
