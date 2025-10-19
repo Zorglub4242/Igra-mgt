@@ -80,9 +80,11 @@ pub struct App {
     // Background data refresh channels
     container_data_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<crate::core::docker::ContainerInfo>>,
     container_stats_rx: tokio::sync::mpsc::UnboundedReceiver<std::collections::HashMap<String, crate::core::docker::ContainerStats>>,
+    image_versions_rx: tokio::sync::mpsc::UnboundedReceiver<std::collections::HashMap<String, crate::core::versions::ImageVersion>>,
     // Cached data for actions
     containers: Vec<crate::core::docker::ContainerInfo>,
     container_stats: std::collections::HashMap<String, crate::core::docker::ContainerStats>,
+    image_versions: std::collections::HashMap<String, crate::core::versions::ImageVersion>,
     wallets: Vec<crate::core::wallet::WalletInfo>,
     config_data: Vec<(String, String)>,
     active_profiles: Vec<String>,
@@ -128,6 +130,7 @@ impl App {
         // Create channels for background updates
         let (container_data_tx, container_data_rx) = tokio::sync::mpsc::unbounded_channel();
         let (container_stats_tx, container_stats_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (image_versions_tx, image_versions_rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Spawn background task to fetch container data
         let docker_clone = docker.clone();
@@ -188,6 +191,45 @@ impl App {
             }
         });
 
+        // Spawn background task to check image versions (runs every 5 minutes)
+        let docker_clone3 = docker.clone();
+        tokio::spawn(async move {
+            loop {
+                // Wait 10 seconds before first check (let containers load)
+                tokio::time::sleep(Duration::from_secs(10)).await;
+
+                // Fetch current containers and extract images
+                if let Ok(containers) = docker_clone3.list_containers().await {
+                    use std::collections::HashMap;
+
+                    let mut current_images = HashMap::new();
+                    for container in &containers {
+                        // Extract image name and current tag
+                        let image_str = container.image
+                            .split('/')
+                            .last()
+                            .unwrap_or(&container.image);
+
+                        let (name, tag) = if let Some((n, t)) = image_str.split_once(':') {
+                            (n.to_string(), t.to_string())
+                        } else {
+                            (image_str.to_string(), "latest".to_string())
+                        };
+
+                        current_images.insert(name, tag);
+                    }
+
+                    // Check versions (async HTTP calls)
+                    let versions = crate::core::versions::check_versions(current_images).await;
+                    // Send to main thread
+                    let _ = image_versions_tx.send(versions);
+                }
+
+                // Wait 5 minutes before next check
+                tokio::time::sleep(Duration::from_secs(300)).await;
+            }
+        });
+
         Ok(Self {
             dashboard: Dashboard::new(),
             docker,
@@ -203,8 +245,10 @@ impl App {
             show_help: false,
             container_data_rx,
             container_stats_rx,
+            image_versions_rx,
             containers: Vec::new(),
             container_stats: std::collections::HashMap::new(),
+            image_versions: std::collections::HashMap::new(),
             wallets: Vec::new(),
             config_data: Vec::new(),
             active_profiles: Vec::new(),
@@ -296,7 +340,8 @@ impl App {
                 self.dashboard.update_services(
                     self.containers.clone(),
                     self.active_profiles.clone(),
-                    self.container_stats.clone()
+                    self.container_stats.clone(),
+                    self.image_versions.clone()
                 );
             }
             Screen::Profiles => {
@@ -379,7 +424,8 @@ impl App {
                 self.dashboard.update_services(
                     self.containers.clone(),
                     self.active_profiles.clone(),
-                    self.container_stats.clone()
+                    self.container_stats.clone(),
+                    self.image_versions.clone()
                 );
             }
             Screen::Profiles => {
@@ -463,7 +509,8 @@ impl App {
                     self.dashboard.update_services(
                         self.containers.clone(),
                         self.active_profiles.clone(),
-                        self.container_stats.clone()
+                        self.container_stats.clone(),
+                        self.image_versions.clone()
                     );
                 }
             }
@@ -477,7 +524,23 @@ impl App {
                     self.dashboard.update_services(
                         self.containers.clone(),
                         self.active_profiles.clone(),
-                        self.container_stats.clone()
+                        self.container_stats.clone(),
+                        self.image_versions.clone()
+                    );
+                }
+            }
+
+            // Check for new image versions from background task (non-blocking)
+            while let Ok(versions) = self.image_versions_rx.try_recv() {
+                self.image_versions = versions;
+
+                // Update dashboard with new version info
+                if self.current_screen == Screen::Services {
+                    self.dashboard.update_services(
+                        self.containers.clone(),
+                        self.active_profiles.clone(),
+                        self.container_stats.clone(),
+                        self.image_versions.clone()
                     );
                 }
             }

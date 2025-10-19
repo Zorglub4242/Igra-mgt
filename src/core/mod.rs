@@ -7,6 +7,8 @@ pub mod wallet;
 pub mod ssl;
 pub mod metrics;
 pub mod log_parser;
+pub mod versions;
+pub mod reth_metrics;
 
 pub use docker::DockerManager;
 pub use config::ConfigManager;

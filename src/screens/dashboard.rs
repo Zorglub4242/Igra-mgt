@@ -19,6 +19,7 @@ pub struct Dashboard {
     // Services data
     containers: Vec<ContainerInfo>,
     container_stats: HashMap<String, ContainerStats>,
+    image_versions: HashMap<String, crate::core::versions::ImageVersion>,
     profiles: Vec<String>,
     // Profiles data (active profiles)
     active_profiles: Vec<String>,
@@ -39,6 +40,7 @@ impl Dashboard {
             title: "IGRA Orchestra Dashboard".to_string(),
             containers: Vec::new(),
             container_stats: HashMap::new(),
+            image_versions: HashMap::new(),
             profiles: Vec::new(),
             active_profiles: Vec::new(),
             wallets: Vec::new(),
@@ -49,10 +51,11 @@ impl Dashboard {
         }
     }
 
-    pub fn update_services(&mut self, containers: Vec<ContainerInfo>, profiles: Vec<String>, stats: HashMap<String, ContainerStats>) {
+    pub fn update_services(&mut self, containers: Vec<ContainerInfo>, profiles: Vec<String>, stats: HashMap<String, ContainerStats>, versions: HashMap<String, crate::core::versions::ImageVersion>) {
         self.containers = containers;
         self.profiles = profiles;
         self.container_stats = stats;
+        self.image_versions = versions;
     }
 
     pub fn update_profiles(&mut self, active_profiles: Vec<String>) {
@@ -374,10 +377,28 @@ impl Dashboard {
                 .last()
                 .unwrap_or(&container.image);
 
-            let image = if image_str.contains(':') {
-                image_str.to_string()
+            let (image_name, current_tag) = if let Some((name, tag)) = image_str.split_once(':') {
+                (name, tag)
             } else {
-                format!("{}:latest", image_str)
+                (image_str, "latest")
+            };
+
+            // Check for version info and update availability
+            let (image_display, image_color) = if let Some(version_info) = self.image_versions.get(image_name) {
+                if version_info.update_available {
+                    if let Some(ref latest) = version_info.latest {
+                        (
+                            format!("{}:{} → {} 🔄", image_name, current_tag, latest),
+                            Color::Yellow
+                        )
+                    } else {
+                        (format!("{}:{}", image_name, current_tag), Color::White)
+                    }
+                } else {
+                    (format!("{}:{} ✓", image_name, current_tag), Color::Green)
+                }
+            } else {
+                (format!("{}:{}", image_name, current_tag), Color::White)
             };
 
             // Format ports
@@ -411,7 +432,7 @@ impl Dashboard {
                 Cell::from(ports_text),
                 cpu_cell,
                 mem_cell,
-                Cell::from(image),
+                Cell::from(Span::styled(image_display, Style::default().fg(image_color))),
             ]);
 
             if is_selected {

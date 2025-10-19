@@ -139,7 +139,25 @@ impl DockerManager {
         // Parse logs and apply metrics to containers
         for result in metrics_results.into_iter().flatten() {
             let (name, logs) = result;
-            let metrics = parse_service_logs(&name, &logs);
+            let mut metrics = parse_service_logs(&name, &logs);
+
+            // For execution-layer, also fetch Reth Prometheus metrics
+            if name == "execution-layer" {
+                if let Ok(reth_metrics) = crate::core::reth_metrics::fetch_reth_metrics().await {
+                    // Enhance metrics with Reth-specific data
+                    if let Some(blocks) = reth_metrics.blocks_processed {
+                        metrics.primary_metric = Some(format!("Block #{}", blocks));
+                    }
+                    if let Some(peers) = reth_metrics.peers_connected {
+                        metrics.secondary_metric = Some(format!("{} peers", peers));
+                    }
+                    if reth_metrics.blocks_processed.is_some() {
+                        metrics.status_text = Some("Synced".to_string());
+                        metrics.is_healthy = true;
+                    }
+                }
+            }
+
             if let Some(container) = container_infos.iter_mut().find(|c| c.name == name) {
                 container.metrics = metrics;
             }
