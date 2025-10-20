@@ -444,11 +444,12 @@ impl WalletManager {
             use_existing_change_address: false,
             is_send_all: false,
             fee_policy: None,
+            transaction_description: String::new(), // Empty description
         });
 
         let response = client.send(request)
             .await
-            .context("Failed to send transaction")?;
+            .map_err(|e| anyhow::anyhow!("Failed to send transaction: {} (status: {:?})", e.message(), e.code()))?;
 
         let send_response = response.into_inner();
 

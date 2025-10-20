@@ -87,7 +87,7 @@ impl Dashboard {
         self.network = network;
     }
 
-    pub fn render(&self, frame: &mut Frame, current_screen: Screen, selected_index: usize, status_message: Option<&str>, edit_mode: bool, edit_buffer: &str, detail_container: Option<&ContainerInfo>, detail_logs: &[String], system_resources: &SystemResources, show_help: bool, logs_selected_service: Option<&str>, logs_data: &[String], logs_follow_mode: bool, logs_filter: Option<&str>, logs_scroll_offset: usize, containers: &[ContainerInfo], search_mode: bool, search_buffer: &str, filtered_indices: &[usize], show_send_dialog: bool, send_amount: &str, send_address: &str, send_input_field: usize, reth_metrics: Option<&RethMetrics>, detail_wallet: Option<&WalletInfo>, detail_wallet_addresses: &[(String, f64, f64)], detail_wallet_utxos: &[crate::core::wallet::UtxoInfo], detail_wallet_scroll: usize, show_tx_detail: bool, selected_tx_index: Option<usize>, tx_search_mode: bool, tx_search_buffer: &str, filtered_tx_indices: &[usize]) {
+    pub fn render(&self, frame: &mut Frame, current_screen: Screen, selected_index: usize, status_message: Option<&str>, edit_mode: bool, edit_buffer: &str, detail_container: Option<&ContainerInfo>, detail_logs: &[String], system_resources: &SystemResources, show_help: bool, logs_selected_service: Option<&str>, logs_data: &[String], logs_follow_mode: bool, logs_filter: Option<&str>, logs_scroll_offset: usize, containers: &[ContainerInfo], search_mode: bool, search_buffer: &str, filtered_indices: &[usize], show_send_dialog: bool, send_amount: &str, send_address: &str, send_input_field: usize, send_use_wallet_selector: bool, send_selected_wallet_index: usize, send_source_address: &str, wallets: &[crate::core::wallet::WalletInfo], reth_metrics: Option<&RethMetrics>, detail_wallet: Option<&WalletInfo>, detail_wallet_addresses: &[(String, f64, f64)], detail_wallet_utxos: &[crate::core::wallet::UtxoInfo], detail_wallet_scroll: usize, show_tx_detail: bool, selected_tx_index: Option<usize>, tx_search_mode: bool, tx_search_buffer: &str, filtered_tx_indices: &[usize]) {
         // If showing wallet detail view, render that instead
         if let Some(wallet) = detail_wallet {
             self.render_wallet_detail(frame, wallet, detail_wallet_addresses, detail_wallet_utxos, status_message, detail_wallet_scroll, tx_search_mode, tx_search_buffer, filtered_tx_indices, selected_tx_index);
@@ -320,7 +320,7 @@ impl Dashboard {
 
         // Show send transaction dialog if requested
         if show_send_dialog {
-            self.render_send_dialog(frame, send_amount, send_address, send_input_field);
+            self.render_send_dialog(frame, send_amount, send_address, send_input_field, send_use_wallet_selector, send_selected_wallet_index, send_source_address, wallets);
         }
     }
 
@@ -1403,13 +1403,13 @@ impl Dashboard {
         frame.render_widget(help_widget, popup_area);
     }
 
-    fn render_send_dialog(&self, frame: &mut Frame, amount: &str, address: &str, active_field: usize) {
+    fn render_send_dialog(&self, frame: &mut Frame, amount: &str, address: &str, active_field: usize, use_wallet_selector: bool, selected_wallet_index: usize, source_address: &str, wallets: &[crate::core::wallet::WalletInfo]) {
         use ratatui::layout::Rect;
 
         // Create centered dialog
         let area = frame.size();
-        let dialog_width = area.width.min(70);
-        let dialog_height = 12;
+        let dialog_width = area.width.min(80);
+        let dialog_height = if use_wallet_selector { 20 } else { 15 };
         let dialog_x = (area.width.saturating_sub(dialog_width)) / 2;
         let dialog_y = (area.height.saturating_sub(dialog_height)) / 2;
 
@@ -1438,11 +1438,16 @@ impl Dashboard {
             Style::default().fg(Color::White)
         };
 
-        let dialog_text = vec![
+        let mut dialog_text = vec![
             Line::from(Span::styled(
                 "Send KAS Transaction",
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
             )),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("From: ", Style::default().fg(Color::Gray)),
+                Span::styled(source_address, Style::default().fg(Color::Green)),
+            ]),
             Line::from(""),
             Line::from(vec![
                 Span::styled("Amount (KAS): ", amount_field_style),
@@ -1456,10 +1461,39 @@ impl Dashboard {
                 ),
             ]),
             Line::from(""),
-            Line::from(vec![
+        ];
+
+        // Add destination section
+        if use_wallet_selector {
+            dialog_text.push(Line::from(vec![
+                Span::styled("Destination: ", address_field_style),
+                Span::styled("[Wallet Selector - Use ↑↓ to select]", Style::default().fg(Color::Cyan).add_modifier(Modifier::ITALIC)),
+            ]));
+            dialog_text.push(Line::from(""));
+
+            // Show wallet list (limit to 5 visible)
+            for (idx, wallet) in wallets.iter().enumerate().take(8) {
+                let is_selected = idx == selected_wallet_index && active_field == 1;
+                let wallet_text = format!(
+                    "  {} Worker {} - {}",
+                    if is_selected { "►" } else { " " },
+                    wallet.worker_id,
+                    wallet.address.as_deref().unwrap_or("(no address)")
+                );
+                dialog_text.push(Line::from(Span::styled(
+                    wallet_text,
+                    if is_selected {
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::Gray)
+                    }
+                )));
+            }
+        } else {
+            dialog_text.push(Line::from(vec![
                 Span::styled("Destination Address: ", address_field_style),
-            ]),
-            Line::from(vec![
+            ]));
+            dialog_text.push(Line::from(vec![
                 Span::styled(
                     if address.is_empty() { "_" } else { address },
                     if active_field == 1 {
@@ -1468,14 +1502,15 @@ impl Dashboard {
                         Style::default().fg(Color::Gray)
                     }
                 ),
-            ]),
-            Line::from(""),
-            Line::from(""),
-            Line::from(Span::styled(
-                "Tab: Switch field | Enter: Send | Esc: Cancel",
-                Style::default().fg(Color::Gray).add_modifier(Modifier::ITALIC),
-            )),
-        ];
+            ]));
+        }
+
+        dialog_text.push(Line::from(""));
+        dialog_text.push(Line::from(""));
+        dialog_text.push(Line::from(Span::styled(
+            "Tab: Switch | s: Toggle wallet/manual | Enter: Send | Esc: Cancel",
+            Style::default().fg(Color::Gray).add_modifier(Modifier::ITALIC),
+        )));
 
         let dialog_widget = Paragraph::new(dialog_text)
             .block(

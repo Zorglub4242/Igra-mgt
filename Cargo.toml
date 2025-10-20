@@ -1,6 +1,6 @@
 [package]
 name = "igra-cli"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 authors = ["Merlin"]
 description = "Terminal-based management CLI for IGRA Orchestra nodes"
@@ -11,6 +11,7 @@ documentation = "https://github.com/Zorglub4242/Igra-mgt#readme"
 keywords = ["igra", "kaspa", "blockchain", "tui", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
+build = "build.rs"
 
 [lib]
 name = "igra_cli"
@@ -60,6 +61,9 @@ clap = { version = "4", features = ["derive", "cargo"] }
 # HTTP/RPC Testing
 reqwest = { version = "0.11", features = ["json"] }
 
+# Ethereum RPC client for L2 monitoring
+ethers = { version = "2.0", features = ["ws", "rustls"] }
+
 # gRPC for kaswallet-daemon integration
 tonic = "0.11"
 prost = "0.12"
@@ -74,7 +78,7 @@ anyhow = "1.0"
 thiserror = "1.0"
 
 # Date/Time
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
 humantime = "2.1"
 
 # Additional Utilities
@@ -93,6 +97,7 @@ mockall = "0.12"
 
 [build-dependencies]
 tonic-build = "0.11"
+chrono = "0.4"
 
 [profile.release]
 opt-level = 3

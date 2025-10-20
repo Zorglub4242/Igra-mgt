@@ -7,11 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Planned for v0.3.0
-- Complete gRPC integration for kaswallet-daemon (pending IgraLabs proto definition)
-- RPC token generation and testing
-- Configuration editing directly in TUI
-- Enhanced log filtering and search capabilities
+### Planned for Future Releases
+- Complete L1 fee correlation logic for entry transactions
+- Enhanced transaction classification (detect contract deployments, specific contract interactions)
+- Export/import transaction history
+- Integration with block explorer for transaction links
+
+## [0.4.0] - 2025-10-21
+
+### Added
+- **`watch` command**: Real-time L2 transaction monitoring with full TUI interface
+  - Interactive scrollable transaction list showing all L2 activity
+  - Real-time statistics: block number, TPS, uptime, success/fail counts
+  - Full transaction details: from/to addresses (unmasked), value in iKAS, gas costs
+  - L1 fee tracking framework for entry transactions (per-transaction display)
+  - Transaction filtering by type: all, transfer, contract, entry (toggle with 'f' key)
+  - File recording support: text, JSON, CSV formats (`--record` flag)
+  - Color-coded transactions: green=success, red=failed, blue=entry
+  - Keyboard controls: ↑↓ scroll, f=filter, q=quit
+- **Metrics-based monitoring**: Uses Reth Prometheus endpoint (port 9001) for statistics
+- **HTTP RPC polling**: Fetches transaction details from execution-layer (port 9545)
+- **L1 UTXO tracking**: Framework for correlating L1 wallet transactions with L2 entry transactions
+
+### Technical
+- Added `ethers` v2.0 dependency for Ethereum RPC client
+- Created `src/core/l2_monitor.rs` module for transaction monitoring and statistics
+- Created `src/screens/watch.rs` with full ratatui TUI implementation
+- Updated chrono dependency to enable serde feature
+- Polls new blocks every 1 second, updates L1 data every 10 seconds
+- Async background tasks for data collection and file recording
+
+### Changed
+- Version bumped from 0.3.0 to 0.4.0
 
 ## [0.2.3] - 2025-10-19
 
@@ -156,6 +183,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Version History Summary
 
+- **v0.4.0** (2025-10-21): L2 transaction monitoring with `watch` command
 - **v0.2.3** (2025-10-19): Background tasks, zero blocking, project root detection
 - **v0.2.2** (2025-10-19): Performance fixes, gRPC foundation, ANSI parsing
 - **v0.2.1** (2025-10-18): Intelligent log parsing and metrics

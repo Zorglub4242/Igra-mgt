@@ -1,0 +1,21 @@
+[package]
+name = "wallet-grpc-client-example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# gRPC framework for Rust
+tonic = "0.12"
+
+# Protocol Buffers implementation
+prost = "0.13"
+
+# Async runtime
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+# Error handling
+anyhow = "1.0"
+
+[build-dependencies]
+# Build-time proto compilation
+tonic-build = "0.12"

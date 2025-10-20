@@ -116,6 +116,7 @@ message SendRequest {
   bool useExistingChangeAddress = 5;
   bool isSendAll = 6;
   FeePolicy feePolicy = 7;
+  string transactionDescription = 8;
 }
 
 message SendResponse {

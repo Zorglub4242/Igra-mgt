@@ -125,6 +125,9 @@ pub struct App {
     send_amount: String,
     send_address: String,
     send_input_field: usize, // 0 = amount, 1 = address
+    send_use_wallet_selector: bool, // Toggle between manual address entry and wallet selection
+    send_selected_wallet_index: usize, // Index of selected wallet for destination
+    send_source_address: String, // Source wallet address to display
     // New feature states
     detail_wallet_scroll: usize, // Scroll offset for transaction list
     detail_addresses_scroll: usize, // Scroll offset for addresses
@@ -339,6 +342,9 @@ impl App {
             send_amount: String::new(),
             send_address: String::new(),
             send_input_field: 0,
+            send_use_wallet_selector: false,
+            send_selected_wallet_index: 0,
+            send_source_address: String::new(),
             // New feature initializations
             detail_wallet_scroll: 0,
             detail_addresses_scroll: 0,
@@ -1234,32 +1240,66 @@ impl App {
             return;
         }
 
+        // Capture source address
+        self.send_source_address = wallet.address.clone().unwrap_or_default();
+
         // Open the send dialog
         self.show_send_dialog = true;
         self.send_amount.clear();
         self.send_address.clear();
         self.send_input_field = 0;
-        self.set_status("Enter transaction details (Tab to switch fields, Enter to send, Esc to cancel)".to_string());
+        self.send_use_wallet_selector = false;
+        self.send_selected_wallet_index = 0;
+        self.set_status("Enter transaction details | Tab: switch | s: select wallet | Enter: send | Esc: cancel".to_string());
     }
 
     async fn handle_send_dialog_key(&mut self, key: KeyCode) -> Result<()> {
         match key {
+            KeyCode::Char('s') | KeyCode::Char('S') => {
+                // Toggle wallet selector mode
+                if self.send_input_field == 1 {
+                    self.send_use_wallet_selector = !self.send_use_wallet_selector;
+                    if self.send_use_wallet_selector {
+                        // Clear manual address when switching to wallet selector
+                        self.send_address.clear();
+                        self.set_status("Use ↑↓ to select wallet | s: toggle manual entry | Tab: switch | Enter: send".to_string());
+                    } else {
+                        self.set_status("Enter address manually | s: toggle wallet selector | Tab: switch | Enter: send".to_string());
+                    }
+                }
+            }
             KeyCode::Char(c) => {
                 if self.send_input_field == 0 {
                     // Amount field - only allow numbers and decimal point
                     if c.is_ascii_digit() || c == '.' {
                         self.send_amount.push(c);
                     }
-                } else {
-                    // Address field
+                } else if !self.send_use_wallet_selector {
+                    // Address field (manual entry only)
                     self.send_address.push(c);
                 }
             }
             KeyCode::Backspace => {
                 if self.send_input_field == 0 {
                     self.send_amount.pop();
-                } else {
+                } else if !self.send_use_wallet_selector {
                     self.send_address.pop();
+                }
+            }
+            KeyCode::Up => {
+                // Navigate wallet selector
+                if self.send_input_field == 1 && self.send_use_wallet_selector {
+                    if self.send_selected_wallet_index > 0 {
+                        self.send_selected_wallet_index -= 1;
+                    }
+                }
+            }
+            KeyCode::Down => {
+                // Navigate wallet selector
+                if self.send_input_field == 1 && self.send_use_wallet_selector {
+                    if self.send_selected_wallet_index + 1 < self.wallets.len() {
+                        self.send_selected_wallet_index += 1;
+                    }
                 }
             }
             KeyCode::Tab => {
@@ -1289,10 +1329,27 @@ impl App {
             return Ok(());
         }
 
-        if self.send_address.is_empty() {
-            self.set_status("✗ Destination address is required".to_string());
-            return Ok(());
-        }
+        // Get destination address from either manual entry or wallet selector
+        let destination_address = if self.send_use_wallet_selector {
+            if self.send_selected_wallet_index >= self.wallets.len() {
+                self.set_status("✗ Invalid wallet selection".to_string());
+                return Ok(());
+            }
+            let selected_wallet = &self.wallets[self.send_selected_wallet_index];
+            match &selected_wallet.address {
+                Some(addr) => addr.clone(),
+                None => {
+                    self.set_status("✗ Selected wallet has no address".to_string());
+                    return Ok(());
+                }
+            }
+        } else {
+            if self.send_address.is_empty() {
+                self.set_status("✗ Destination address is required".to_string());
+                return Ok(());
+            }
+            self.send_address.clone()
+        };
 
         let amount: f64 = match self.send_amount.parse() {
             Ok(a) => a,
@@ -1322,14 +1379,14 @@ impl App {
             }
         }
 
-        self.set_status(format!("Sending {:.8} KAS to {}...", amount, self.send_address));
+        self.set_status(format!("Sending {:.8} KAS to {}...", amount, destination_address));
 
         // Get password from config
         let password = self.config.get(&format!("W{}_KASWALLET_PASSWORD", worker_id))
             .unwrap_or("password");
 
         // Send transaction
-        match self.wallet_manager.send_transaction(worker_id, &self.send_address, amount, password).await {
+        match self.wallet_manager.send_transaction(worker_id, &destination_address, amount, password).await {
             Ok(tx_id) => {
                 self.set_status(format!("✓ Transaction sent! ID: {}", tx_id));
                 self.show_send_dialog = false;
@@ -2049,6 +2106,10 @@ impl App {
             &self.send_amount,
             &self.send_address,
             self.send_input_field,
+            self.send_use_wallet_selector,
+            self.send_selected_wallet_index,
+            &self.send_source_address,
+            &self.wallets,
             self.reth_metrics.as_ref(),
             detail_wallet,
             &self.detail_wallet_addresses,

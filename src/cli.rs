@@ -2,9 +2,18 @@
 
 use clap::{Parser, Subcommand};
 
+// Build timestamp injected at compile time
+pub const BUILD_TIMESTAMP: &str = env!("BUILD_TIMESTAMP");
+pub const VERSION_WITH_BUILD: &str = concat!(env!("CARGO_PKG_VERSION"), " (built: ", env!("BUILD_TIMESTAMP"), ")");
+
+// Get version with timestamp
+pub fn get_version() -> &'static str {
+    VERSION_WITH_BUILD
+}
+
 #[derive(Parser)]
 #[command(name = "igra-cli")]
-#[command(author, version, about, long_about = None)]
+#[command(author, version = VERSION_WITH_BUILD, about, long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -109,6 +118,21 @@ pub enum Commands {
 
     /// Run setup wizard
     Setup,
+
+    /// Watch L2 transactions in real-time
+    Watch {
+        /// Filter by type (all, transfer, contract, entry)
+        #[arg(short, long, default_value = "all")]
+        filter: String,
+
+        /// Record transactions to file
+        #[arg(short, long)]
+        record: Option<String>,
+
+        /// Output format for recording (json, csv, text)
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
 }
 
 #[derive(Subcommand)]

@@ -1,4 +1,5 @@
 pub mod dashboard;
+pub mod watch;
 
 // All screens are implemented in dashboard.rs as a unified TUI interface:
 // - Screen 1: Services (container management)

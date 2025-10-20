@@ -169,6 +169,15 @@ igra-cli logs viaduct -n 100
 
 # View configuration
 igra-cli config view
+
+# Watch L2 transactions in real-time
+igra-cli watch
+
+# Watch with filtering
+igra-cli watch --filter entry
+
+# Record transactions to file
+igra-cli watch --record transactions.json --format json
 ```
 
 ## Usage Guide

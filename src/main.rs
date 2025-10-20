@@ -77,6 +77,9 @@ async fn main() -> Result<()> {
             println!("  2. .env file is configured (see .env.example)");
             println!("  3. Run: docker compose --profile <profile> up -d");
         }
+        Some(Commands::Watch { filter, record, format }) => {
+            handle_watch(filter, record, format).await?;
+        }
     }
 
     Ok(())
@@ -485,4 +488,20 @@ async fn handle_diagnostics(report: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+async fn handle_watch(filter: String, record: Option<String>, format: String) -> Result<()> {
+    use screens::watch::run_watch_tui;
+
+    println!("Starting L2 transaction monitor...");
+    println!("Connecting to execution layer at http://localhost:9545");
+
+    if let Some(ref path) = record {
+        println!("Recording transactions to: {}", path);
+        println!("Format: {}", format);
+    }
+
+    println!("\nPress 'q' to quit, '↑↓' to scroll, 'f' to toggle filter\n");
+
+    run_watch_tui(filter, record, format).await
 }
