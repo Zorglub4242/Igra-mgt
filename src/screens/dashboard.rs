@@ -1,7 +1,7 @@
 /// Main dashboard screen
 
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, Wrap},
@@ -161,7 +161,7 @@ impl Dashboard {
         self.network = network;
     }
 
-    pub fn render(&self, frame: &mut Frame, current_screen: Screen, services_view: crate::app::ServicesView, config_section: crate::app::ConfigSection, selected_index: usize, status_message: Option<&str>, edit_mode: bool, edit_buffer: &str, detail_container: Option<&ContainerInfo>, detail_logs: &[crate::core::ParsedLogLine], detail_logs_live_mode: bool, detail_logs_grouping: bool, detail_logs_filter: Option<&crate::core::LogLevel>, detail_logs_scroll_offset: usize, system_resources: &SystemResources, show_help: bool, search_mode: bool, search_buffer: &str, filtered_indices: &[usize], show_send_dialog: bool, send_amount: &str, send_address: &str, send_input_field: usize, send_use_wallet_selector: bool, send_selected_wallet_index: usize, send_source_address: &str, wallets: &[crate::core::wallet::WalletInfo], reth_metrics: Option<&RethMetrics>, detail_wallet: Option<&WalletInfo>, detail_wallet_addresses: &[(String, f64, f64)], detail_wallet_utxos: &[crate::core::wallet::UtxoInfo], detail_wallet_scroll: usize, show_tx_detail: bool, selected_tx_index: Option<usize>, tx_search_mode: bool, tx_search_buffer: &str, filtered_tx_indices: &[usize], watch_stats: Option<&Statistics>, watch_transactions: &[TransactionInfo], watch_filter: &TransactionFilter, watch_scroll_offset: usize) {
+    pub fn render(&self, frame: &mut Frame, current_screen: Screen, services_view: crate::app::ServicesView, config_section: crate::app::ConfigSection, selected_index: usize, status_message: Option<&str>, edit_mode: bool, edit_buffer: &str, detail_container: Option<&ContainerInfo>, detail_logs: &[crate::core::ParsedLogLine], detail_logs_live_mode: bool, detail_logs_grouping: bool, detail_logs_filter: Option<&crate::core::LogLevel>, detail_logs_scroll_offset: usize, system_resources: &SystemResources, show_help: bool, search_mode: bool, search_buffer: &str, filtered_indices: &[usize], show_send_dialog: bool, send_amount: &str, send_address: &str, send_input_field: usize, send_use_wallet_selector: bool, send_selected_wallet_index: usize, send_source_address: &str, wallets: &[crate::core::wallet::WalletInfo], reth_metrics: Option<&RethMetrics>, detail_wallet: Option<&WalletInfo>, detail_wallet_addresses: &[(String, f64, f64)], detail_wallet_utxos: &[crate::core::wallet::UtxoInfo], detail_wallet_scroll: usize, show_tx_detail: bool, selected_tx_index: Option<usize>, tx_search_mode: bool, tx_search_buffer: &str, filtered_tx_indices: &[usize], watch_stats: Option<&Statistics>, watch_transactions: &[TransactionInfo], watch_filter: &TransactionFilter, watch_scroll_offset: usize, storage_analysis: Option<&crate::core::storage::StorageAnalysis>, storage_scroll_offset: usize) {
         // If showing wallet detail view, render that instead
         if let Some(wallet) = detail_wallet {
             self.render_wallet_detail(frame, wallet, detail_wallet_addresses, detail_wallet_utxos, status_message, detail_wallet_scroll, tx_search_mode, tx_search_buffer, filtered_tx_indices, selected_tx_index);
@@ -344,8 +344,8 @@ impl Dashboard {
             Screen::Services => self.render_services(frame, chunks[2], services_view, selected_index, filtered_indices),
             Screen::Wallets => self.render_wallets(frame, chunks[2], selected_index, filtered_indices),
             Screen::Watch => self.render_watch(frame, chunks[2], watch_stats, watch_transactions, watch_filter, watch_scroll_offset),
-            // Screen::Logs removed
             Screen::Config => self.render_config(frame, chunks[2], config_section, selected_index, edit_mode, edit_buffer, filtered_indices),
+            Screen::Storage => self.render_storage(frame, chunks[2], storage_analysis, storage_scroll_offset),
         }
 
         // Footer with status message or help
@@ -361,6 +361,7 @@ impl Dashboard {
                 Screen::Wallets => "[← →] Next screen | [↑↓] Select | [Enter] Info | [g]enerate | [t]ransfer | [/] Search | [r]efresh | [?] Help | [q]uit".to_string(),
                 Screen::Watch => "[← →] Next screen | [↑↓] Scroll | [f] Filter | [r] Record | [?] Help | [q]uit".to_string(),
                 Screen::Config => "[Tab] Switch tab | [← →] Next screen | [↑↓] Select | [e]dit | [g]enerate | [c]heck | [n]ew cert | [q]uit".to_string(),
+                Screen::Storage => "[← →] Next screen | [r]efresh | [p]rune cache | [I]mages | [?] Help | [q]uit".to_string(),
             }
         };
 
@@ -1189,6 +1190,188 @@ impl Dashboard {
         frame.render_widget(paragraph, area);
     }
 
+    fn render_storage(&self, frame: &mut Frame, area: Rect, storage_analysis: Option<&crate::core::storage::StorageAnalysis>, scroll_offset: usize) {
+        use crate::core::storage::format_bytes;
+
+        // If no analysis yet, show loading
+        let Some(analysis) = storage_analysis else {
+            let paragraph = Paragraph::new("Analyzing storage... (requires sudo access for volume sizes)")
+                .block(Block::default().borders(Borders::ALL).title("Storage Analysis"))
+                .alignment(ratatui::layout::Alignment::Center);
+            frame.render_widget(paragraph, area);
+            return;
+        };
+
+        // Split into sections
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(5),  // System disk
+                Constraint::Length(6),  // Docker summary
+                Constraint::Min(10),    // Volumes list
+                Constraint::Length(4),  // Growth rate
+            ])
+            .split(area);
+
+        // System Disk Usage
+        let disk = &analysis.system_disk;
+        let disk_text = vec![
+            Line::from(vec![
+                Span::raw("Filesystem: "),
+                Span::styled(&disk.filesystem, Style::default().fg(Color::Cyan)),
+                Span::raw(format!(" ({})", disk.mount_point)),
+            ]),
+            Line::from(vec![
+                Span::raw("Total: "),
+                Span::styled(format_bytes(disk.total_bytes), Style::default().fg(Color::White)),
+                Span::raw("  |  Used: "),
+                Span::styled(format_bytes(disk.used_bytes), Style::default().fg(Color::Yellow)),
+                Span::raw(format!(" ({:.1}%)", disk.use_percent)),
+                Span::raw("  |  Available: "),
+                Span::styled(format_bytes(disk.available_bytes), Style::default().fg(Color::Green)),
+            ]),
+        ];
+
+        let disk_paragraph = Paragraph::new(disk_text)
+            .block(Block::default().borders(Borders::ALL).title("System Disk Usage"));
+        frame.render_widget(disk_paragraph, chunks[0]);
+
+        // Docker Summary
+        let docker_text = vec![
+            Line::from(vec![
+                Span::raw("Images: "),
+                Span::styled(format_bytes(analysis.docker_images.total_bytes), Style::default().fg(Color::Cyan)),
+                Span::raw(format!(" ({} total, {} active)", analysis.docker_images.total_count, analysis.docker_images.active_count)),
+                Span::raw("  |  Reclaimable: "),
+                Span::styled(format_bytes(analysis.docker_images.reclaimable_bytes), Style::default().fg(Color::Yellow)),
+            ]),
+            Line::from(vec![
+                Span::raw("Volumes: "),
+                Span::styled(format_bytes(analysis.docker_volumes.iter().map(|v| v.size_bytes).sum::<u64>()), Style::default().fg(Color::Cyan)),
+                Span::raw(format!(" ({} total)", analysis.docker_volumes.len())),
+            ]),
+            Line::from(vec![
+                Span::raw("Build Cache: "),
+                Span::styled(format_bytes(analysis.docker_build_cache.total_bytes), Style::default().fg(Color::Yellow)),
+                Span::raw(" (100% reclaimable - run 'docker builder prune')"),
+            ]),
+            Line::from(vec![
+                Span::raw("Total Reclaimable: "),
+                Span::styled(format_bytes(analysis.reclaimable_space), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            ]),
+        ];
+
+        let docker_paragraph = Paragraph::new(docker_text)
+            .block(Block::default().borders(Borders::ALL).title("Docker Storage"));
+        frame.render_widget(docker_paragraph, chunks[1]);
+
+        // Volumes List - show all volumes with scrolling
+        let mut volumes_text = vec![
+            Line::from(vec![
+                Span::styled("Volume Name", Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw("  |  "),
+                Span::styled("Size", Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw("  |  "),
+                Span::styled("Status", Style::default().add_modifier(Modifier::BOLD)),
+            ]),
+        ];
+
+        // Calculate visible area (subtract borders and header)
+        let visible_height = chunks[2].height.saturating_sub(3) as usize;
+        let total_volumes = analysis.docker_volumes.len();
+
+        // Apply scrolling - show window of volumes
+        let start_idx = scroll_offset.min(total_volumes.saturating_sub(1));
+        let end_idx = (start_idx + visible_height).min(total_volumes);
+
+        for vol in &analysis.docker_volumes[start_idx..end_idx] {
+            let status_color = if vol.critical {
+                Color::Red
+            } else if vol.in_use {
+                Color::Green
+            } else {
+                Color::Gray
+            };
+
+            let status_text = if vol.critical {
+                "CRITICAL"
+            } else if vol.in_use {
+                "In Use"
+            } else {
+                "Unused"
+            };
+
+            volumes_text.push(Line::from(vec![
+                Span::raw(if vol.name.len() > 40 {
+                    format!("{}...", &vol.name[..37])
+                } else {
+                    vol.name.clone()
+                }),
+                Span::raw("  |  "),
+                Span::styled(format!("{:>8}", format_bytes(vol.size_bytes)), Style::default().fg(Color::Cyan)),
+                Span::raw("  |  "),
+                Span::styled(status_text, Style::default().fg(status_color)),
+            ]));
+        }
+
+        // Show scroll indicator if there are more volumes
+        let title = if total_volumes > visible_height {
+            format!("Docker Volumes ({}/{} shown - ↑↓ to scroll)", end_idx - start_idx, total_volumes)
+        } else {
+            format!("Docker Volumes ({} total)", total_volumes)
+        };
+
+        let volumes_paragraph = Paragraph::new(volumes_text)
+            .block(Block::default().borders(Borders::ALL).title(title));
+        frame.render_widget(volumes_paragraph, chunks[2]);
+
+        // Growth Rate & Predictions
+        let growth_text = if let Some(growth) = &analysis.growth_rate {
+            let trend_color = match growth.trend {
+                crate::core::storage::GrowthTrend::Growing => Color::Yellow,
+                crate::core::storage::GrowthTrend::Stable => Color::Green,
+                crate::core::storage::GrowthTrend::Declining => Color::Blue,
+            };
+
+            let trend_text = format!("{:?}", growth.trend);
+
+            let mut lines = vec![
+                Line::from(vec![
+                    Span::raw("Growth Rate: "),
+                    Span::styled(
+                        format!("{}/day", format_bytes(growth.bytes_per_day.abs() as u64)),
+                        Style::default().fg(trend_color)
+                    ),
+                    Span::raw("  |  Trend: "),
+                    Span::styled(trend_text, Style::default().fg(trend_color)),
+                ]),
+            ];
+
+            if let Some(days) = growth.days_to_full {
+                let warning_color = if days < 30 {
+                    Color::Red
+                } else if days < 90 {
+                    Color::Yellow
+                } else {
+                    Color::Green
+                };
+
+                lines.push(Line::from(vec![
+                    Span::raw("Days to 90% full: "),
+                    Span::styled(format!("{} days", days), Style::default().fg(warning_color).add_modifier(Modifier::BOLD)),
+                ]));
+            }
+
+            lines
+        } else {
+            vec![Line::from("Collecting data... (growth prediction available after 2+ days)")]
+        };
+
+        let growth_paragraph = Paragraph::new(growth_text)
+            .block(Block::default().borders(Borders::ALL).title("Storage Growth Prediction"));
+        frame.render_widget(growth_paragraph, chunks[3]);
+    }
+
     fn render_service_detail(&self, frame: &mut Frame, container: &ContainerInfo, logs: &[crate::core::ParsedLogLine], live_mode: bool, grouping_enabled: bool, log_filter: Option<&crate::core::LogLevel>, scroll_offset: usize, status_message: Option<&str>, reth_metrics: Option<&RethMetrics>) {
         // Determine if we should show metrics section
         let show_metrics = container.name == "execution-layer" && reth_metrics.is_some();
@@ -1615,6 +1798,14 @@ impl Dashboard {
                 help_text.push(Line::from(Span::styled("SSL Certificates Tab:", Style::default().fg(Color::Cyan))));
                 help_text.push(Line::from("  [c]            Check certificate status"));
                 help_text.push(Line::from("  [n]            Force renewal (restart Traefik)"));
+            }
+            Screen::Storage => {
+                help_text.push(Line::from(Span::styled("Storage Screen:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+                help_text.push(Line::from("  [r]            Refresh storage analysis"));
+                help_text.push(Line::from("  [p]            Prune Docker build cache"));
+                help_text.push(Line::from("  [I]            Prune unused Docker images"));
+                help_text.push(Line::from(""));
+                help_text.push(Line::from("Note: Storage analysis requires sudo access for volume sizes"));
             }
         }
 

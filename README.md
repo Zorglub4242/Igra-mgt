@@ -2,7 +2,7 @@
 
 A comprehensive terminal-based management tool for IGRA Orchestra node operators. Built with Rust for performance, reliability, and single-binary distribution.
 
-![IGRA CLI Dashboard](https://img.shields.io/badge/version-0.7.0-blue) ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange) ![License](https://img.shields.io/badge/license-MIT-green)
+![IGRA CLI Dashboard](https://img.shields.io/badge/version-0.8.0-blue) ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Overview
 
@@ -13,7 +13,7 @@ The IGRA CLI is a powerful terminal user interface (TUI) that provides real-time
 ### ✅ Fully Implemented
 
 #### 🖥️ Interactive TUI Dashboard
-- **7 Full-Featured Screens**: Services, Profiles, Wallets, RPC Tokens, SSL Info, Config, Logs
+- **8 Full-Featured Screens**: Services, Wallets, Watch, Config, Storage, and more
 - **Real-time Updates**: 2-second refresh for live monitoring
 - **Keyboard Navigation**: Arrow keys, Tab, numbers for screen switching
 - **Help System**: Press `?` on any screen for context-sensitive help
@@ -59,6 +59,15 @@ The IGRA CLI is a powerful terminal user interface (TUI) that provides real-time
 - **Environment Variables**: View all .env configuration
 - **Validation**: Check for missing or invalid settings
 - **Search**: Find specific config keys quickly
+
+#### 💾 Storage Analysis (NEW in v0.8.0)
+- **Comprehensive Monitoring**: System disk, Docker images, volumes, containers, build cache
+- **Volume Details**: All Docker volumes with size, status, and critical marking
+- **Growth Prediction**: 90-day historical tracking with trend analysis
+- **Capacity Alerts**: Visual warnings for approaching disk limits
+- **Cleanup Tools**: One-key pruning of build cache and unused images
+- **Scrollable Lists**: Navigate through all volumes with arrow keys
+- **Space Reclamation**: Track and report freed space after cleanup
 
 #### 📈 System Monitoring
 - **Global Metrics**: System-wide CPU, Memory, Disk usage in header
@@ -417,6 +426,36 @@ Interactive real-time log viewer with auto-scroll and search
 ---
 
 ## Changelog
+
+### v0.8.0 (2025-10-21) - Storage Analyzer
+
+**New Feature: Storage Analysis Screen** 📊
+- 💾 **Comprehensive storage monitoring**: System disk, Docker images, volumes, containers, build cache
+- 📈 **Growth prediction**: Track storage usage trends with 90-day historical data
+- ⚠️ **Capacity alerts**: Visual warnings when approaching 90% disk usage
+- 🧹 **Cleanup tools**: One-key pruning of build cache (`[p]`) and unused images (`[I]`)
+- 📋 **Volume analysis**: All Docker volumes listed with size, status, and critical marking
+- ↕️ **Scrollable lists**: Navigate through all volumes with `↑↓` arrow keys
+- 💡 **Reclaimable space tracking**: See total space that can be freed
+
+**Storage Screen Features:**
+- System disk usage with progress visualization
+- Docker storage breakdown by category
+- Individual volume sizes (requires sudo)
+- Critical volume highlighting (viaduct_data)
+- Growth rate calculation (bytes/day)
+- Days-to-full prediction
+- Auto-refresh with 30-second cache
+- Space reclamation reporting after cleanup
+
+**Technical Implementation:**
+- New `core::storage` module with comprehensive analysis
+- JSON-based history tracking (`~/.config/igra-cli/storage_history.json`)
+- Docker system df integration
+- Volume size detection via sudo du
+- Linear trend analysis for predictions
+
+---
 
 ### v0.7.0 (2025-10-21) - Performance & UX Overhaul
 

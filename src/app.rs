@@ -29,6 +29,7 @@ pub enum Screen {
     Wallets,
     Watch,
     Config,
+    Storage,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,6 +52,7 @@ impl Screen {
             Screen::Wallets => "Wallets",
             Screen::Watch => "Watch",
             Screen::Config => "Configuration",
+            Screen::Storage => "Storage",
         }
     }
 
@@ -60,6 +62,7 @@ impl Screen {
             Screen::Wallets,
             Screen::Watch,
             Screen::Config,
+            Screen::Storage,
         ]
     }
 }
@@ -171,6 +174,10 @@ pub struct App {
     watch_scroll_offset: usize,
     watch_recording_file: Option<std::fs::File>,
     watch_recording_format: String,
+    // Storage screen state
+    storage_analysis: Option<crate::core::storage::StorageAnalysis>,
+    storage_last_update: Option<Instant>,
+    storage_scroll_offset: usize,
 }
 
 impl App {
@@ -408,6 +415,9 @@ impl App {
             watch_scroll_offset: 0,
             watch_recording_file: None,
             watch_recording_format: "text".to_string(),
+            storage_analysis: None,
+            storage_last_update: None,
+            storage_scroll_offset: 0,
             detail_logs_live_tx,
             detail_logs_live_rx,
             detail_logs_live_task_handle: None,
@@ -571,6 +581,9 @@ impl App {
 
                 self.dashboard.update_ssl(self.ssl_cert_info.clone());
             }
+            Screen::Storage => {
+                // Storage screen doesn't need separate update (handled in refresh_data)
+            }
         }
     }
 
@@ -669,6 +682,38 @@ impl App {
                     }
                 } else {
                     self.dashboard.update_ssl(None);
+                }
+            }
+            Screen::Storage => {
+                // Refresh storage analysis (with caching)
+                let should_refresh = self.storage_last_update
+                    .map(|last| last.elapsed() > std::time::Duration::from_secs(30))
+                    .unwrap_or(true);
+
+                if should_refresh {
+                    match crate::core::storage::analyze_storage().await {
+                        Ok(analysis) => {
+                            // Save measurement to history
+                            let mut history = crate::core::storage::StorageHistory::load()
+                                .unwrap_or_else(|_| crate::core::storage::StorageHistory::new());
+
+                            let measurement = crate::core::storage::StorageMeasurement {
+                                timestamp: chrono::Utc::now(),
+                                total_used_bytes: analysis.system_disk.used_bytes,
+                                docker_volumes_bytes: analysis.docker_volumes.iter().map(|v| v.size_bytes).sum(),
+                                docker_images_bytes: analysis.docker_images.total_bytes,
+                            };
+
+                            history.add_measurement(measurement);
+                            let _ = history.save();
+
+                            self.storage_analysis = Some(analysis);
+                            self.storage_last_update = Some(Instant::now());
+                        }
+                        Err(e) => {
+                            self.set_status(format!("Failed to analyze storage: {}", e));
+                        }
+                    }
                 }
             }
         }
@@ -1043,6 +1088,12 @@ impl App {
                         self.profile_selected_service -= 1;
                     }
                 }
+                // Scroll volumes in Storage screen
+                else if self.current_screen == Screen::Storage {
+                    if self.storage_scroll_offset > 0 {
+                        self.storage_scroll_offset -= 1;
+                    }
+                }
                 // Move selection
                 else if self.selected_index > 0 {
                     self.selected_index -= 1;
@@ -1081,6 +1132,15 @@ impl App {
                     let max_idx = self.profile_services.len().saturating_sub(1);
                     if self.profile_selected_service < max_idx {
                         self.profile_selected_service += 1;
+                    }
+                }
+                // Scroll volumes in Storage screen
+                else if self.current_screen == Screen::Storage {
+                    if let Some(ref analysis) = self.storage_analysis {
+                        let max_scroll = analysis.docker_volumes.len().saturating_sub(1);
+                        if self.storage_scroll_offset < max_scroll {
+                            self.storage_scroll_offset += 1;
+                        }
                     }
                 }
                 // Move selection
@@ -1215,6 +1275,18 @@ impl App {
                     self.handle_ssl_renew().await?;
                 }
             }
+            KeyCode::Char('p') => {
+                // Prune Docker build cache (Storage screen)
+                if self.current_screen == Screen::Storage {
+                    self.handle_storage_prune().await?;
+                }
+            }
+            KeyCode::Char('I') => {
+                // Prune unused Docker images (Storage screen - capital I)
+                if self.current_screen == Screen::Storage {
+                    self.handle_storage_prune_images().await?;
+                }
+            }
             KeyCode::Char('f') => {
                 // Toggle follow mode in logs viewer (or filter toggle in Watch screen)
             }
@@ -1312,6 +1384,7 @@ impl App {
                     ConfigSection::SslCerts => 0, // No selection in SSL section
                 }
             }
+            Screen::Storage => 0, // No selection in Storage screen
         }
     }
 
@@ -1944,6 +2017,76 @@ impl App {
         Ok(())
     }
 
+    async fn handle_storage_prune(&mut self) -> Result<()> {
+        self.set_status("Pruning Docker build cache...".to_string());
+
+        let output = std::process::Command::new("docker")
+            .args(&["builder", "prune", "-f"])
+            .output();
+
+        match output {
+            Ok(result) => {
+                if result.status.success() {
+                    let stdout = String::from_utf8_lossy(&result.stdout);
+                    // Parse reclaimed space from output
+                    if let Some(line) = stdout.lines().find(|l| l.contains("Total reclaimed space")) {
+                        self.set_status(format!("✓ Build cache pruned - {}", line.trim()));
+                    } else {
+                        self.set_status("✓ Build cache pruned successfully".to_string());
+                    }
+
+                    // Refresh storage analysis
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    self.storage_last_update = None; // Force refresh
+                    self.refresh_data().await?;
+                } else {
+                    let stderr = String::from_utf8_lossy(&result.stderr);
+                    self.set_status(format!("✗ Failed to prune cache: {}", stderr));
+                }
+            }
+            Err(e) => {
+                self.set_status(format!("✗ Failed to run docker command: {}", e));
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_storage_prune_images(&mut self) -> Result<()> {
+        self.set_status("Pruning unused Docker images...".to_string());
+
+        let output = std::process::Command::new("docker")
+            .args(&["image", "prune", "-f"])
+            .output();
+
+        match output {
+            Ok(result) => {
+                if result.status.success() {
+                    let stdout = String::from_utf8_lossy(&result.stdout);
+                    // Parse reclaimed space from output
+                    if let Some(line) = stdout.lines().find(|l| l.contains("Total reclaimed space")) {
+                        self.set_status(format!("✓ Images pruned - {}", line.trim()));
+                    } else {
+                        self.set_status("✓ Unused images pruned successfully".to_string());
+                    }
+
+                    // Refresh storage analysis
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    self.storage_last_update = None; // Force refresh
+                    self.refresh_data().await?;
+                } else {
+                    let stderr = String::from_utf8_lossy(&result.stderr);
+                    self.set_status(format!("✗ Failed to prune images: {}", stderr));
+                }
+            }
+            Err(e) => {
+                self.set_status(format!("✗ Failed to run docker command: {}", e));
+            }
+        }
+
+        Ok(())
+    }
+
     async fn handle_detail_view_key(&mut self, key: KeyCode, modifiers: event::KeyModifiers) -> Result<()> {
         match key {
             KeyCode::Up | KeyCode::Char('k') => {
@@ -2546,6 +2689,8 @@ impl App {
             &self.watch_transactions,
             &self.watch_filter,
             self.watch_scroll_offset,
+            self.storage_analysis.as_ref(),
+            self.storage_scroll_offset,
         );
     }
 
