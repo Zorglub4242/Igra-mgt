@@ -102,6 +102,36 @@ fn parse_docker_log_line(line: &str) -> ParsedLogLine {
         let rest_cleaned = strip_ansi_codes(rest_with_ansi);
         let rest = rest_cleaned.as_str();
 
+        // Try kaspad format: "YYYY-MM-DD HH:MM:SS.sss+TZ [LEVEL ] message"
+        let kaspad_regex = regex::Regex::new(
+            r"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2})?)\s+\[(ERROR|WARN|INFO|DEBUG|TRACE)\s*\]\s+(.*)$"
+        ).unwrap();
+
+        if let Some(caps) = kaspad_regex.captures(rest) {
+            let timestamp = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let level_str = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            let message = caps.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
+
+            let level = match level_str {
+                "ERROR" => LogLevel::Error,
+                "WARN" => LogLevel::Warn,
+                "INFO" => LogLevel::Info,
+                "DEBUG" => LogLevel::Debug,
+                "TRACE" => LogLevel::Trace,
+                _ => LogLevel::Unknown,
+            };
+
+            return ParsedLogLine {
+                timestamp,
+                service,
+                module_path: String::new(),
+                module_short: String::new(),
+                level,
+                message,
+                raw_line,
+            };
+        }
+
         // Try to match bracketed Rust log format: [timestamp LEVEL module::path] message
         let bracketed_regex = regex::Regex::new(
             r"^\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)\s+(ERROR|WARN|INFO|DEBUG|TRACE)\s+([^\]]+)\]\s*(.*)$"
@@ -292,7 +322,7 @@ fn parse_docker_log_line(line: &str) -> ParsedLogLine {
 
 /// Format timestamp for compact display (HH:MM:SS)
 fn format_timestamp_compact(timestamp: &str) -> String {
-    // Extract time portion from ISO 8601: "2025-10-21T10:28:44.123Z" -> "10:28:44"
+    // Handle ISO 8601 format: "2025-10-21T10:28:44.123Z" -> "10:28:44"
     if let Some(t_idx) = timestamp.find('T') {
         let time_part = &timestamp[t_idx + 1..];
         // Get HH:MM:SS, strip milliseconds and timezone
@@ -303,6 +333,20 @@ fn format_timestamp_compact(timestamp: &str) -> String {
         } else {
             // Take first 8 chars (HH:MM:SS)
             time_part.chars().take(8).collect()
+        }
+    } else if timestamp.contains(' ') {
+        // Handle kaspad format: "2025-10-21 10:55:19.338+00:00" -> "10:55:19"
+        let parts: Vec<&str> = timestamp.split_whitespace().collect();
+        if parts.len() >= 2 {
+            let time_part = parts[1];
+            // Strip milliseconds if present
+            if let Some(dot_idx) = time_part.find('.') {
+                time_part[..dot_idx].to_string()
+            } else {
+                time_part.chars().take(8).collect()
+            }
+        } else {
+            timestamp.to_string()
         }
     } else {
         timestamp.to_string()
@@ -1620,19 +1664,11 @@ impl Dashboard {
 
                         let level_color = log.level.color();
 
-                        // Truncate long messages to prevent wrapping
-                        const MAX_MESSAGE_LEN: usize = 120;
-                        let message = if log.message.len() > MAX_MESSAGE_LEN {
-                            format!("{}...", &log.message[..MAX_MESSAGE_LEN])
-                        } else {
-                            log.message.clone()
-                        };
-
                         visible_lines.push(Line::from(vec![
                             Span::styled(prefix, Style::default().fg(Color::DarkGray)),
                             Span::styled(time, Style::default().fg(Color::DarkGray)),
                             Span::raw(" "),
-                            Span::styled(message, Style::default().fg(level_color)),
+                            Span::styled(log.message.clone(), Style::default().fg(level_color)),
                         ]));
                         line_count += 1;
                     }
@@ -1656,14 +1692,6 @@ impl Dashboard {
                             String::new()
                         };
 
-                        // Truncate long messages to prevent wrapping
-                        const MAX_MESSAGE_LEN: usize = 120;
-                        let message = if log.message.len() > MAX_MESSAGE_LEN {
-                            format!("{}...", &log.message[..MAX_MESSAGE_LEN])
-                        } else {
-                            log.message.clone()
-                        };
-
                         visible_lines.push(Line::from(vec![
                             Span::styled(time, Style::default().fg(Color::DarkGray)),
                             Span::raw(" "),
@@ -1676,7 +1704,7 @@ impl Dashboard {
                             ),
                             Span::styled(module_text, Style::default().fg(Color::Gray)),
                             Span::raw(" "),
-                            Span::styled(message, Style::default().fg(level_color)),
+                            Span::styled(log.message.clone(), Style::default().fg(level_color)),
                         ]));
                     } else {
                         // Detailed: "YYYY-MM-DD HH:MM:SS [service] [module] [LEVEL] message"
@@ -1712,15 +1740,7 @@ impl Dashboard {
                                 .add_modifier(Modifier::BOLD)
                         ));
                         spans.push(Span::raw(" "));
-
-                        // Truncate long messages to prevent wrapping
-                        const MAX_MESSAGE_LEN: usize = 120;
-                        let message = if log.message.len() > MAX_MESSAGE_LEN {
-                            format!("{}...", &log.message[..MAX_MESSAGE_LEN])
-                        } else {
-                            log.message.clone()
-                        };
-                        spans.push(Span::styled(message, Style::default().fg(level_color)));
+                        spans.push(Span::styled(log.message.clone(), Style::default().fg(level_color)));
 
                         visible_lines.push(Line::from(spans));
                     }
@@ -2005,22 +2025,13 @@ impl Dashboard {
             for (idx, log) in group.logs.into_iter().enumerate() {
                 let prefix = if idx == logs_count - 1 { "  └─ " } else { "  ├─ " };
                 let time = format_timestamp_compact(&log.timestamp);
-
-                // Truncate long messages to prevent wrapping
-                const MAX_MESSAGE_LEN: usize = 120;
-                let message = if log.message.len() > MAX_MESSAGE_LEN {
-                    format!("{}...", &log.message[..MAX_MESSAGE_LEN])
-                } else {
-                    log.message.clone()
-                };
-
                 let level_color = log.level.color();
 
                 log_lines.push(Line::from(vec![
                     Span::styled(prefix, Style::default().fg(Color::DarkGray)),
                     Span::styled(time, Style::default().fg(Color::DarkGray)),
                     Span::raw(" "),
-                    Span::styled(message, Style::default().fg(level_color)),
+                    Span::styled(log.message.clone(), Style::default().fg(level_color)),
                 ]));
             }
         }

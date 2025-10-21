@@ -15,6 +15,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Line numbers toggle in log viewer
 - Jump to timestamp in logs
 
+## [0.6.6] - 2025-10-21
+
+### Added
+- **Kaspad log format support**: Added dedicated parser for kaspad log format
+  - Handles `YYYY-MM-DD HH:MM:SS.sss+TZ [LEVEL ] message` format
+  - Properly extracts timestamp, level, and message for kaspad logs
+  - Compact timestamp formatting for kaspad logs
+
+### Changed
+- **Full-width log display**: Removed message truncation to use full terminal width
+  - Messages now wrap naturally instead of being cut off at 120 characters
+  - Better readability for long structured messages (block-builder, execution-layer)
+  - Applies to all log views: Services detail, Logs grouped, Logs compact, Logs detailed
+
+### Technical
+- Added kaspad-specific regex parser for timestamp format with timezone
+- Enhanced `format_timestamp_compact()` to handle space-separated timestamp format
+- Removed all `MAX_MESSAGE_LEN` truncation logic from log rendering
+
 ## [0.6.5] - 2025-10-21
 
 ### Added
