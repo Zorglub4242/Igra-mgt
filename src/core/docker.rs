@@ -37,6 +37,45 @@ pub struct ContainerStats {
     pub volume_size: u64,       // Total volume data size in bytes
 }
 
+/// Service configuration from docker-compose.yml
+#[derive(Debug, Clone)]
+pub struct ComposeServiceConfig {
+    pub image: Option<String>,
+    pub environment: HashMap<String, String>,
+    pub volumes: Vec<String>,
+    pub ports: Vec<String>,
+    pub networks: Vec<String>,
+    pub profiles: Vec<String>,
+    pub restart: Option<String>,
+    pub command: Option<String>,
+    pub entrypoint: Option<String>,
+    pub depends_on: Vec<String>,
+}
+
+/// Running container configuration from Docker inspect
+#[derive(Debug, Clone)]
+pub struct RunningServiceConfig {
+    pub image: String,
+    pub env_vars: Vec<(String, String)>,
+    pub volumes: Vec<String>,
+    pub ports: Vec<String>,
+    pub networks: Vec<String>,
+    pub restart_policy: String,
+    pub command: Option<Vec<String>>,
+    pub entrypoint: Option<Vec<String>>,
+    pub status: String,
+    pub uptime: String,
+}
+
+/// Comparison between YAML config and running state
+#[derive(Debug, Clone)]
+pub struct ServiceConfigComparison {
+    pub service_name: String,
+    pub yaml_config: ComposeServiceConfig,
+    pub running_config: Option<RunningServiceConfig>,
+    pub config_drift: Vec<String>,  // Human-readable drift descriptions
+}
+
 #[derive(Clone)]
 pub struct DockerManager {
     docker: Docker,
@@ -417,6 +456,12 @@ impl DockerManager {
         self.compose_command(&args).await
     }
 
+    /// Get logs since a specific timestamp (RFC3339 format or relative time like "1s")
+    pub async fn get_logs_since(&self, service: &str, since: &str) -> Result<String> {
+        let args = vec!["logs", "--since", since, service];
+        self.compose_command(&args).await
+    }
+
     /// Stream logs for a service (returns async stream)
     pub async fn follow_logs(&self, service: &str) -> Result<tokio::process::Child> {
         let child = tokio::process::Command::new("docker")
@@ -511,12 +556,13 @@ impl DockerManager {
             .status
             .as_ref()
             .and_then(|s| {
-                if s.contains("healthy") {
-                    Some("healthy".to_string())
-                } else if s.contains("unhealthy") {
+                // Check unhealthy BEFORE healthy (unhealthy contains "healthy" as substring)
+                if s.contains("unhealthy") {
                     Some("unhealthy".to_string())
                 } else if s.contains("starting") {
                     Some("starting".to_string())
+                } else if s.contains("healthy") {
+                    Some("healthy".to_string())
                 } else {
                     None
                 }
@@ -553,6 +599,319 @@ impl DockerManager {
             ports,
             metrics: ServiceMetrics::default(),
         }
+    }
+
+    /// Parse docker-compose.yml and extract service configurations
+    pub fn parse_compose_file(&self) -> Result<HashMap<String, ComposeServiceConfig>> {
+        use serde_yaml::Value;
+
+        let compose_content = std::fs::read_to_string(&self.compose_file)
+            .context("Failed to read docker-compose.yml")?;
+
+        let yaml: Value = serde_yaml::from_str(&compose_content)
+            .context("Failed to parse docker-compose.yml")?;
+
+        let mut services = HashMap::new();
+
+        // Extract services section
+        if let Some(services_map) = yaml.get("services").and_then(|s| s.as_mapping()) {
+            for (service_name, service_config) in services_map {
+                let name = service_name.as_str().unwrap_or("unknown").to_string();
+
+                let image = service_config.get("image")
+                    .and_then(|i| i.as_str())
+                    .map(|s| s.to_string());
+
+                // Parse environment variables
+                let mut environment = HashMap::new();
+                if let Some(env) = service_config.get("environment") {
+                    if let Some(env_map) = env.as_mapping() {
+                        for (k, v) in env_map {
+                            if let (Some(key), Some(val)) = (k.as_str(), v.as_str()) {
+                                environment.insert(key.to_string(), val.to_string());
+                            }
+                        }
+                    } else if let Some(env_seq) = env.as_sequence() {
+                        for item in env_seq {
+                            if let Some(s) = item.as_str() {
+                                if let Some((k, v)) = s.split_once('=') {
+                                    environment.insert(k.to_string(), v.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Parse volumes
+                let volumes = service_config.get("volumes")
+                    .and_then(|v| v.as_sequence())
+                    .map(|seq| {
+                        seq.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                // Parse ports
+                let ports = service_config.get("ports")
+                    .and_then(|p| p.as_sequence())
+                    .map(|seq| {
+                        seq.iter()
+                            .filter_map(|p| {
+                                if let Some(s) = p.as_str() {
+                                    Some(s.to_string())
+                                } else if let Some(i) = p.as_i64() {
+                                    Some(i.to_string())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                // Parse networks
+                let networks = service_config.get("networks")
+                    .and_then(|n| n.as_sequence())
+                    .map(|seq| {
+                        seq.iter()
+                            .filter_map(|n| n.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                // Parse profiles
+                let profiles = service_config.get("profiles")
+                    .and_then(|p| p.as_sequence())
+                    .map(|seq| {
+                        seq.iter()
+                            .filter_map(|p| p.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                // Parse restart policy
+                let restart = service_config.get("restart")
+                    .and_then(|r| r.as_str())
+                    .map(|s| s.to_string());
+
+                // Parse command
+                let command = service_config.get("command")
+                    .and_then(|c| c.as_str())
+                    .map(|s| s.to_string());
+
+                // Parse entrypoint
+                let entrypoint = service_config.get("entrypoint")
+                    .and_then(|e| e.as_str())
+                    .map(|s| s.to_string());
+
+                // Parse depends_on
+                let depends_on = service_config.get("depends_on")
+                    .and_then(|d| d.as_sequence())
+                    .map(|seq| {
+                        seq.iter()
+                            .filter_map(|d| d.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                services.insert(name.clone(), ComposeServiceConfig {
+                    image,
+                    environment,
+                    volumes,
+                    ports,
+                    networks,
+                    profiles,
+                    restart,
+                    command,
+                    entrypoint,
+                    depends_on,
+                });
+            }
+        }
+
+        Ok(services)
+    }
+
+    /// Get service configuration comparison (YAML + Running state)
+    pub async fn get_service_config_comparison(&self, service_name: &str) -> Result<ServiceConfigComparison> {
+        // 1. Parse YAML config
+        let compose_configs = self.parse_compose_file()?;
+        let yaml_config = compose_configs.get(service_name)
+            .ok_or_else(|| anyhow!("Service '{}' not found in docker-compose.yml", service_name))?
+            .clone();
+
+        // 2. Try to inspect running container
+        let running_config = match self.docker.inspect_container(service_name, None).await {
+            Ok(inspect) => {
+                // Extract image
+                let image = inspect.config
+                    .as_ref()
+                    .and_then(|c| c.image.as_ref())
+                    .map(|s| s.clone())
+                    .unwrap_or_default();
+
+                // Extract and filter environment variables
+                let env_vars = inspect.config
+                    .as_ref()
+                    .and_then(|c| c.env.as_ref())
+                    .map(|env| Self::filter_sensitive_env(env.clone()))
+                    .unwrap_or_default();
+
+                // Extract volumes
+                let volumes = inspect.mounts
+                    .as_ref()
+                    .map(|mounts| {
+                        mounts.iter()
+                            .filter_map(|m| {
+                                if let (Some(src), Some(dst)) = (&m.source, &m.destination) {
+                                    Some(format!("{} -> {}", src, dst))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                // Extract ports
+                let ports = inspect.network_settings
+                    .as_ref()
+                    .and_then(|ns| ns.ports.as_ref())
+                    .map(|ports_map| {
+                        ports_map.iter()
+                            .filter_map(|(container_port, host_bindings)| {
+                                if let Some(bindings) = host_bindings {
+                                    bindings.iter()
+                                        .filter_map(|binding| {
+                                            if let (Some(ip), Some(port)) = (&binding.host_ip, &binding.host_port) {
+                                                Some(format!("{}:{} -> {}", ip, port, container_port))
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .next()
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                // Extract networks
+                let networks = inspect.network_settings
+                    .as_ref()
+                    .and_then(|ns| ns.networks.as_ref())
+                    .map(|nets| nets.keys().cloned().collect())
+                    .unwrap_or_default();
+
+                // Extract restart policy
+                let restart_policy = inspect.host_config
+                    .as_ref()
+                    .and_then(|hc| hc.restart_policy.as_ref())
+                    .and_then(|rp| rp.name.as_ref())
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| "no".to_string());
+
+                // Extract command
+                let command = inspect.config
+                    .as_ref()
+                    .and_then(|c| c.cmd.clone());
+
+                // Extract entrypoint
+                let entrypoint = inspect.config
+                    .as_ref()
+                    .and_then(|c| c.entrypoint.clone());
+
+                // Get status
+                let status = inspect.state
+                    .as_ref()
+                    .and_then(|s| s.status.as_ref())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                // Calculate uptime
+                let uptime = if let Some(state) = inspect.state.as_ref() {
+                    if let Some(started_at) = state.started_at.as_ref() {
+                        // Parse and calculate uptime
+                        "TODO".to_string() // We'll implement this properly later
+                    } else {
+                        "N/A".to_string()
+                    }
+                } else {
+                    "N/A".to_string()
+                };
+
+                Some(RunningServiceConfig {
+                    image,
+                    env_vars,
+                    volumes,
+                    ports,
+                    networks,
+                    restart_policy,
+                    command,
+                    entrypoint,
+                    status,
+                    uptime,
+                })
+            }
+            Err(_) => None, // Container not running
+        };
+
+        // 3. Detect drift
+        let config_drift = Self::detect_config_drift(&yaml_config, &running_config);
+
+        Ok(ServiceConfigComparison {
+            service_name: service_name.to_string(),
+            yaml_config,
+            running_config,
+            config_drift,
+        })
+    }
+
+    /// Filter sensitive environment variables
+    fn filter_sensitive_env(env: Vec<String>) -> Vec<(String, String)> {
+        env.into_iter()
+            .filter_map(|e| {
+                let parts: Vec<&str> = e.splitn(2, '=').collect();
+                if parts.len() == 2 {
+                    let key = parts[0];
+                    let value = parts[1];
+                    // Filter out sensitive keys
+                    if key.contains("PASSWORD") || key.contains("SECRET")
+                        || key.contains("KEY") || key.contains("TOKEN")
+                        || key.contains("API_KEY") {
+                        Some((key.to_string(), "***HIDDEN***".to_string()))
+                    } else {
+                        Some((key.to_string(), value.to_string()))
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Detect configuration drift between YAML and running state
+    fn detect_config_drift(yaml: &ComposeServiceConfig, running: &Option<RunningServiceConfig>) -> Vec<String> {
+        let mut drift = Vec::new();
+
+        if let Some(running) = running {
+            // Compare image
+            if let Some(yaml_image) = &yaml.image {
+                if yaml_image != &running.image {
+                    drift.push(format!("Image: YAML='{}' ≠ Running='{}'", yaml_image, running.image));
+                }
+            }
+
+            // Note: We won't compare all fields exhaustively for now
+            // Just the most important ones
+        } else {
+            drift.push("Container is not running".to_string());
+        }
+
+        drift
     }
 }
 

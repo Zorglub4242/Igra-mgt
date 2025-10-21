@@ -3,7 +3,6 @@
 /// Fetches metrics from Reth execution layer and parses key performance indicators
 
 use anyhow::Result;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default)]
 pub struct RethMetrics {

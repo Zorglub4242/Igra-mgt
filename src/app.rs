@@ -18,12 +18,16 @@ use crate::core::wallet::WalletManager;
 use crate::core::ssl::SslManager;
 use crate::screens::Dashboard;
 
+// Constants for log buffer management
+const MAX_LOG_LINES: usize = 10_000;  // Maximum lines to keep in memory
+const INITIAL_LOG_FETCH: usize = 1000;  // Lines to fetch on initial load
+const LIVE_LOG_FETCH: usize = 100;  // Lines to fetch in live mode updates
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
     Services,
     Wallets,
     Watch,
-    Logs,
     Config,
 }
 
@@ -46,7 +50,6 @@ impl Screen {
             Screen::Services => "Services",
             Screen::Wallets => "Wallets",
             Screen::Watch => "Watch",
-            Screen::Logs => "Logs",
             Screen::Config => "Configuration",
         }
     }
@@ -56,7 +59,6 @@ impl Screen {
             Screen::Services,
             Screen::Wallets,
             Screen::Watch,
-            Screen::Logs,
             Screen::Config,
         ]
     }
@@ -99,10 +101,10 @@ pub struct App {
     watch_transactions_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<crate::core::l2_monitor::TransactionInfo>>,
     watch_stats_tx: tokio::sync::mpsc::UnboundedSender<crate::core::l2_monitor::Statistics>,
     watch_stats_rx: tokio::sync::mpsc::UnboundedReceiver<crate::core::l2_monitor::Statistics>,
-    // Logs live mode channels
-    logs_live_tx: tokio::sync::mpsc::UnboundedSender<Vec<String>>,
-    logs_live_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<String>>,
-    logs_live_task_handle: Option<tokio::task::JoinHandle<()>>,
+    // Detail view live logs channels
+    detail_logs_live_tx: tokio::sync::mpsc::UnboundedSender<Vec<crate::core::ParsedLogLine>>,
+    detail_logs_live_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<crate::core::ParsedLogLine>>,
+    detail_logs_live_task_handle: Option<tokio::task::JoinHandle<()>>,
     // Cached data for actions
     containers: Vec<crate::core::docker::ContainerInfo>,
     container_stats: std::collections::HashMap<String, crate::core::docker::ContainerStats>,
@@ -121,17 +123,21 @@ pub struct App {
     edit_key: Option<String>,
     // Service detail view state
     detail_view_service: Option<String>,
-    detail_logs: Vec<String>,
+    detail_logs: Vec<crate::core::ParsedLogLine>,  // Pre-parsed logs for fast rendering
+    detail_logs_scroll_offset: usize,  // Scroll position (0 = bottom/auto-follow)
+    detail_logs_live_mode: bool,
+    detail_logs_grouping: bool,
+    detail_logs_filter: Option<crate::core::LogLevel>,  // None = show all
+    // Config comparison view state
+    detail_view_config: Option<crate::core::docker::ServiceConfigComparison>,
+    // Profile detail view state
+    detail_view_profile: Option<String>,
+    profile_services: Vec<crate::core::docker::ContainerInfo>,
+    profile_selected_service: usize,
     // Wallet detail view state
     detail_view_wallet: Option<usize>, // worker_id
     detail_wallet_addresses: Vec<(String, f64, f64)>, // (address, available, pending)
     detail_wallet_utxos: Vec<crate::core::wallet::UtxoInfo>, // UTXOs for activity view
-    // Logs viewer state
-    logs_selected_service: Option<String>,
-    logs_data: Vec<String>,
-    logs_follow_mode: bool,
-    logs_filter: Option<String>, // None, "ERROR", "WARN", "INFO"
-    logs_scroll_offset: usize,
     // Search/filter state
     search_mode: bool,
     search_buffer: String,
@@ -157,9 +163,6 @@ pub struct App {
     // New v0.5.0 dashboard reorganization states
     services_view: ServicesView, // Services/Profiles tab view
     config_section: ConfigSection, // Config multi-tab section
-    logs_live_mode: bool, // Live/realtime log streaming
-    logs_compact_mode: bool, // Compact vs detailed log view (default: true)
-    logs_grouping_enabled: bool, // Group logs by level/module (default: true)
     // Watch screen state
     watch_monitor: Option<std::sync::Arc<crate::core::l2_monitor::TransactionMonitor>>,
     watch_transactions: Vec<crate::core::l2_monitor::TransactionInfo>,
@@ -188,7 +191,7 @@ impl App {
         let (image_versions_tx, image_versions_rx) = tokio::sync::mpsc::unbounded_channel();
         let (watch_transactions_tx, watch_transactions_rx) = tokio::sync::mpsc::unbounded_channel();
         let (watch_stats_tx, watch_stats_rx) = tokio::sync::mpsc::unbounded_channel();
-        let (logs_live_tx, logs_live_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (detail_logs_live_tx, detail_logs_live_rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Spawn background task to fetch container data
         let docker_clone = docker.clone();
@@ -336,9 +339,6 @@ impl App {
             watch_transactions_rx,
             watch_stats_tx,
             watch_stats_rx,
-            logs_live_tx,
-            logs_live_rx,
-            logs_live_task_handle: None,
             containers: Vec::new(),
             container_stats: std::collections::HashMap::new(),
             image_versions: std::collections::HashMap::new(),
@@ -367,14 +367,17 @@ impl App {
             edit_key: None,
             detail_view_service: None,
             detail_logs: Vec::new(),
+            detail_logs_scroll_offset: 0,  // 0 = bottom/auto-follow
+            detail_logs_live_mode: false,
+            detail_logs_grouping: true,
+            detail_logs_filter: None,  // Show all logs by default
+            detail_view_config: None,
+            detail_view_profile: None,
+            profile_services: Vec::new(),
+            profile_selected_service: 0,
             detail_view_wallet: None,
             detail_wallet_addresses: Vec::new(),
             detail_wallet_utxos: Vec::new(),
-            logs_selected_service: None,
-            logs_data: Vec::new(),
-            logs_follow_mode: false,
-            logs_filter: None,
-            logs_scroll_offset: 0,
             search_mode: false,
             search_buffer: String::new(),
             filtered_indices: Vec::new(),
@@ -398,9 +401,6 @@ impl App {
             // New v0.5.0 dashboard reorganization initializations
             services_view: ServicesView::Services,
             config_section: ConfigSection::Environment,
-            logs_live_mode: false,
-            logs_compact_mode: true, // Default to compact view
-            logs_grouping_enabled: true, // Default to grouped view
             watch_monitor: None,
             watch_transactions: Vec::new(),
             watch_statistics: None,
@@ -408,6 +408,9 @@ impl App {
             watch_scroll_offset: 0,
             watch_recording_file: None,
             watch_recording_format: "text".to_string(),
+            detail_logs_live_tx,
+            detail_logs_live_rx,
+            detail_logs_live_task_handle: None,
         })
     }
 
@@ -549,9 +552,6 @@ impl App {
             Screen::Watch => {
                 // Watch screen handles its own updates via monitor
             }
-            Screen::Logs => {
-                // Logs are handled separately
-            }
             Screen::Config => {
                 // Update all config sections (environment, RPC tokens, SSL)
                 self.config_data = self.config.keys()
@@ -637,23 +637,6 @@ impl App {
             }
             Screen::Watch => {
                 // Watch screen updates handled by monitor
-            }
-            Screen::Logs => {
-                // Refresh logs if in follow mode or live mode
-                if self.logs_follow_mode || self.logs_live_mode {
-                    if let Some(service_name) = &self.logs_selected_service {
-                        match self.docker.get_logs(service_name, Some(500)).await {
-                            Ok(logs) => {
-                                self.logs_data = logs.lines().map(|s| s.to_string()).collect();
-                                // Auto-scroll to bottom in follow/live mode
-                                self.logs_scroll_offset = self.logs_data.len().saturating_sub(50);
-                            }
-                            Err(_) => {
-                                // Silently fail - don't interrupt user experience
-                            }
-                        }
-                    }
-                }
             }
             Screen::Config => {
                 // Update all config sections
@@ -797,11 +780,32 @@ impl App {
                 self.watch_statistics = Some(stats);
             }
 
-            // Check for new logs from live mode background task (non-blocking)
-            while let Ok(new_logs) = self.logs_live_rx.try_recv() {
-                self.logs_data = new_logs;
-                // Auto-scroll to bottom in live mode
-                self.logs_scroll_offset = self.logs_data.len().saturating_sub(50);
+            // Check for new detail logs from background task (non-blocking)
+            while let Ok(new_logs) = self.detail_logs_live_rx.try_recv() {
+                // Append new logs (deduplicate to avoid showing same lines)
+                // Simple dedup: only add lines that aren't already at the end
+                for new_log in new_logs {
+                    // Check if this line already exists at the end (last 100 lines)
+                    let check_range = self.detail_logs.len().saturating_sub(100);
+                    let already_exists = self.detail_logs[check_range..]
+                        .iter()
+                        .any(|existing| existing.raw_line == new_log.raw_line);
+
+                    if !already_exists {
+                        self.detail_logs.push(new_log);
+                    }
+                }
+
+                // Trim buffer if it exceeds max size (keep most recent lines)
+                if self.detail_logs.len() > MAX_LOG_LINES {
+                    let excess = self.detail_logs.len() - MAX_LOG_LINES;
+                    self.detail_logs.drain(0..excess);
+                    // Adjust scroll offset if needed
+                    self.detail_logs_scroll_offset = self.detail_logs_scroll_offset.saturating_sub(excess);
+                }
+
+                // If at bottom (scroll_offset == 0), stay at bottom (auto-follow)
+                // Otherwise keep current scroll position
             }
 
             // Refresh non-container data periodically
@@ -854,7 +858,7 @@ impl App {
 
         // Handle detail view separately
         if self.detail_view_service.is_some() || self.detail_view_wallet.is_some() {
-            return self.handle_detail_view_key(key).await;
+            return self.handle_detail_view_key(key, modifiers).await;
         }
 
         // Clear status message on any key (when not in edit mode, search mode, send dialog, or detail view)
@@ -865,18 +869,27 @@ impl App {
                 self.should_quit = true;
             }
             KeyCode::Esc => {
-                // Close help if it's showing, go back from logs viewer, or quit
+                // Close detail views, help, or quit (in priority order)
                 if self.show_help {
                     self.show_help = false;
-                } else if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
-                    // Go back to service list
-                    self.logs_selected_service = None;
-                    self.logs_data.clear();
-                    self.logs_filter = None;
-                    self.logs_follow_mode = false;
-                    self.logs_live_mode = false;
-                    self.stop_logs_live_mode(); // Stop live mode task
-                    self.logs_scroll_offset = 0;
+                } else if self.detail_view_service.is_some() {
+                    // Close service logs detail view
+                    self.detail_view_service = None;
+                    self.detail_logs.clear();
+                    self.stop_detail_logs_live_mode();
+                } else if self.detail_view_config.is_some() {
+                    // Close config comparison detail view
+                    self.detail_view_config = None;
+                } else if self.detail_view_profile.is_some() {
+                    // Close profile detail view
+                    self.detail_view_profile = None;
+                    self.profile_services.clear();
+                    self.profile_selected_service = 0;
+                } else if self.detail_view_wallet.is_some() {
+                    // Close wallet detail view
+                    self.detail_view_wallet = None;
+                    self.detail_wallet_utxos.clear();
+                    self.selected_tx_index = None;
                 } else {
                     self.should_quit = true;
                 }
@@ -885,24 +898,9 @@ impl App {
                 self.show_help = !self.show_help;
             }
             KeyCode::Char('r') => {
-                // Refresh logs if in logs viewer, otherwise refresh all data
-                if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
-                    let service_name = self.logs_selected_service.as_ref().unwrap().clone();
-                    self.set_status(format!("Refreshing logs for {}...", service_name));
-
-                    match self.docker.get_logs(&service_name, Some(500)).await {
-                        Ok(logs) => {
-                            self.logs_data = logs.lines().map(|s| s.to_string()).collect();
-                            self.clear_status();
-                        }
-                        Err(e) => {
-                            self.set_status(format!("✗ Failed to refresh logs: {}", e));
-                        }
-                    }
-                } else {
-                    self.set_status("Refreshing...".to_string());
-                    self.refresh_data().await?;
-                }
+                // Refresh all data
+                self.set_status("Refreshing...".to_string());
+                self.refresh_data().await?;
             }
             KeyCode::Right => {
                 // Right arrow: Navigate to next main screen
@@ -1014,11 +1012,6 @@ impl App {
                 }
             }
             KeyCode::Char('4') => {
-                self.current_screen = Screen::Logs;
-                self.selected_index = 0;
-                self.update_dashboard_for_current_screen();
-            }
-            KeyCode::Char('5') => {
                 self.current_screen = Screen::Config;
                 self.selected_index = 0;
                 self.update_dashboard_for_current_screen();
@@ -1044,17 +1037,10 @@ impl App {
                         self.selected_tx_index = Some(current_selection - 1);
                     }
                 }
-                // Scroll logs if in logs viewer
-                else if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
-                    if is_ctrl && is_shift {
-                        // Jump to top
-                        self.logs_scroll_offset = 0;
-                    } else if is_ctrl {
-                        // Fast scroll up (10 lines)
-                        self.logs_scroll_offset = self.logs_scroll_offset.saturating_sub(10);
-                    } else {
-                        // Normal scroll
-                        self.logs_scroll_offset = self.logs_scroll_offset.saturating_sub(1);
+                // Select service in profile detail view
+                else if self.detail_view_profile.is_some() && !self.profile_services.is_empty() {
+                    if self.profile_selected_service > 0 {
+                        self.profile_selected_service -= 1;
                     }
                 }
                 // Move selection
@@ -1090,19 +1076,11 @@ impl App {
                         self.selected_tx_index = Some(current_selection + 1);
                     }
                 }
-                // Scroll logs if in logs viewer
-                else if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
-                    let max_scroll = self.logs_data.len().saturating_sub(10);
-
-                    if is_ctrl && is_shift {
-                        // Jump to bottom
-                        self.logs_scroll_offset = max_scroll;
-                    } else if is_ctrl {
-                        // Fast scroll down (10 lines)
-                        self.logs_scroll_offset = (self.logs_scroll_offset + 10).min(max_scroll);
-                    } else {
-                        // Normal scroll
-                        self.logs_scroll_offset = (self.logs_scroll_offset + 1).min(max_scroll);
+                // Select service in profile detail view
+                else if self.detail_view_profile.is_some() && !self.profile_services.is_empty() {
+                    let max_idx = self.profile_services.len().saturating_sub(1);
+                    if self.profile_selected_service < max_idx {
+                        self.profile_selected_service += 1;
                     }
                 }
                 // Move selection
@@ -1127,7 +1105,30 @@ impl App {
                         }
                         self.show_tx_detail = true;
                     }
-                } else {
+                }
+                // In profile detail view, Enter shows config comparison for selected service
+                else if self.detail_view_profile.is_some() && !self.profile_services.is_empty() {
+                    if self.profile_selected_service < self.profile_services.len() {
+                        let service = &self.profile_services[self.profile_selected_service];
+                        let service_name = service.name.clone();
+                        // Close profile detail view
+                        self.detail_view_profile = None;
+                        self.profile_services.clear();
+                        self.profile_selected_service = 0;
+                        // Open config comparison for selected service
+                        self.set_status(format!("Loading config for {}...", service_name));
+                        match self.docker.get_service_config_comparison(&service_name).await {
+                            Ok(config) => {
+                                self.detail_view_config = Some(config);
+                                self.clear_status();
+                            }
+                            Err(e) => {
+                                self.set_status(format!("✗ Failed to load config: {}", e));
+                            }
+                        }
+                    }
+                }
+                else {
                     self.handle_action().await?;
                 }
             }
@@ -1169,6 +1170,12 @@ impl App {
                     self.handle_service_restart().await?;
                 }
             }
+            KeyCode::Char('d') => {
+                // Show config comparison for selected service
+                if self.current_screen == Screen::Services && self.services_view == ServicesView::Services {
+                    self.show_service_config().await?;
+                }
+            }
             KeyCode::Char('g') => {
                 // Generate tokens / wallets
                 match self.current_screen {
@@ -1188,22 +1195,15 @@ impl App {
                 }
             }
             KeyCode::Char('e') => {
-                // Edit config value or Filter ERROR in logs
+                // Edit config value
                 if self.current_screen == Screen::Config {
                     self.enter_edit_mode();
-                } else if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
-                    self.logs_filter = Some("ERROR".to_string());
-                    self.logs_scroll_offset = 0;
-                    self.set_status("Filtering: ERROR".to_string());
                 }
             }
             KeyCode::Char('c') => {
-                // Check certificate (SSL) or Clear filter (Logs) or Clear transactions (Watch)
+                // Check certificate (SSL) or Clear transactions (Watch)
                 if self.current_screen == Screen::Config && self.config_section == ConfigSection::SslCerts {
                     self.handle_ssl_check().await?;
-                } else if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
-                    self.logs_filter = None;
-                    self.set_status("Filter cleared".to_string());
                 } else if self.current_screen == Screen::Watch {
                     self.watch_transactions.clear();
                     self.set_status("Transaction history cleared".to_string());
@@ -1217,93 +1217,58 @@ impl App {
             }
             KeyCode::Char('f') => {
                 // Toggle follow mode in logs viewer (or filter toggle in Watch screen)
-                if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
-                    self.logs_follow_mode = !self.logs_follow_mode;
-                    let msg = if self.logs_follow_mode {
-                        "Follow mode enabled - logs will auto-refresh"
-                    } else {
-                        "Follow mode disabled"
-                    };
-                    self.set_status(msg.to_string());
-                } else if self.current_screen == Screen::Watch {
-                    // Toggle transaction filter in Watch screen
-                    use crate::screens::watch::TransactionFilter;
-                    self.watch_filter = match self.watch_filter {
-                        TransactionFilter::All => TransactionFilter::Transfer,
-                        TransactionFilter::Transfer => TransactionFilter::Contract,
-                        TransactionFilter::Contract => TransactionFilter::Entry,
-                        TransactionFilter::Entry => TransactionFilter::All,
-                    };
-                }
             }
             KeyCode::Char('l') => {
-                // Toggle live mode in logs viewer
-                if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
-                    self.logs_live_mode = !self.logs_live_mode;
-
-                    if self.logs_live_mode {
-                        // Start background polling task for logs
-                        self.start_logs_live_mode();
-                        self.set_status("🔴 LIVE mode enabled - logs updating every 1s".to_string());
-                    } else {
-                        // Stop background polling task
-                        self.stop_logs_live_mode();
-                        self.set_status("Live mode disabled".to_string());
+                // Show logs: from Services list OR from Profile detail view
+                if self.current_screen == Screen::Services && self.services_view == ServicesView::Services {
+                    if self.detail_view_service.is_none() {
+                        // Open logs view from services list
+                        self.show_service_details().await?;
+                    }
+                } else if self.detail_view_profile.is_some() && !self.profile_services.is_empty() {
+                    // Open logs from profile detail view
+                    if self.profile_selected_service < self.profile_services.len() {
+                        let service = &self.profile_services[self.profile_selected_service];
+                        let service_name = service.name.clone();
+                        // Close profile detail view
+                        self.detail_view_profile = None;
+                        self.profile_services.clear();
+                        self.profile_selected_service = 0;
+                        // Open logs for selected service
+                        self.set_status(format!("Loading logs for {}...", service_name));
+                        match self.docker.get_logs(&service_name, Some(INITIAL_LOG_FETCH)).await {
+                            Ok(logs) => {
+                                // Parse logs once on load
+                                self.detail_logs = logs.lines()
+                                    .map(|s| crate::core::parse_docker_log_line(s))
+                                    .collect();
+                                self.detail_view_service = Some(service_name);
+                                self.clear_status();
+                            }
+                            Err(e) => {
+                                self.set_status(format!("✗ Failed to fetch logs: {}", e));
+                            }
+                        }
                     }
                 }
             }
             KeyCode::Char('w') => {
                 // Filter WARN in logs
-                if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
-                    self.logs_filter = Some("WARN".to_string());
-                    self.logs_scroll_offset = 0;
-                    self.set_status("Filtering: WARN".to_string());
-                }
             }
             KeyCode::Char('i') => {
                 // Filter INFO in logs
-                if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
-                    self.logs_filter = Some("INFO".to_string());
-                    self.logs_scroll_offset = 0;
-                    self.set_status("Filtering: INFO".to_string());
-                }
             }
             KeyCode::Char('t') => {
                 // Toggle compact/detailed log view
-                if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
-                    self.logs_compact_mode = !self.logs_compact_mode;
-                    let msg = if self.logs_compact_mode {
-                        "Compact view enabled (time + level + message)"
-                    } else {
-                        "Detailed view enabled (full timestamp + service + level + message)"
-                    };
-                    self.set_status(msg.to_string());
-                }
             }
             KeyCode::Char('g') => {
                 // Toggle log grouping by level/module
-                if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
-                    self.logs_grouping_enabled = !self.logs_grouping_enabled;
-                    let msg = if self.logs_grouping_enabled {
-                        "Log grouping enabled (group by level/module)"
-                    } else {
-                        "Log grouping disabled (chronological view)"
-                    };
-                    self.set_status(msg.to_string());
-                }
             }
             KeyCode::PageUp => {
                 // Page up in logs
-                if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
-                    self.logs_scroll_offset = self.logs_scroll_offset.saturating_sub(20);
-                }
             }
             KeyCode::PageDown => {
                 // Page down in logs
-                if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
-                    let max_scroll = self.logs_data.len().saturating_sub(10);
-                    self.logs_scroll_offset = (self.logs_scroll_offset + 20).min(max_scroll);
-                }
             }
             KeyCode::Char('u') => {
                 // Upgrade (pull images)
@@ -1347,13 +1312,6 @@ impl App {
                     ConfigSection::SslCerts => 0, // No selection in SSL section
                 }
             }
-            Screen::Logs => {
-                if self.logs_selected_service.is_none() {
-                    self.containers.len().saturating_sub(1)
-                } else {
-                    0 // No selection when viewing logs
-                }
-            }
         }
     }
 
@@ -1361,8 +1319,8 @@ impl App {
         match self.current_screen {
             Screen::Services => {
                 match self.services_view {
-                    ServicesView::Services => self.show_service_details().await,
-                    ServicesView::Profiles => self.handle_profile_toggle().await,
+                    ServicesView::Services => self.show_service_details().await,  // Enter = show logs
+                    ServicesView::Profiles => self.show_profile_details().await,  // Enter = show profile details
                 }
             }
             Screen::Wallets => self.show_wallet_details().await,
@@ -1372,41 +1330,8 @@ impl App {
                     _ => Ok(()),
                 }
             }
-            Screen::Logs => self.handle_logs_action().await,
             _ => Ok(()),
         }
-    }
-
-    async fn handle_logs_action(&mut self) -> Result<()> {
-        if self.logs_selected_service.is_none() {
-            // Select service to view logs
-            if self.selected_index >= self.containers.len() {
-                return Ok(());
-            }
-
-            let service_name = self.containers[self.selected_index].name.clone();
-            self.set_status(format!("Loading logs for {}...", service_name));
-
-            // Stop live mode if switching services
-            if self.logs_live_mode {
-                self.logs_live_mode = false;
-                self.stop_logs_live_mode();
-            }
-
-            // Load initial logs (last 500 lines)
-            match self.docker.get_logs(&service_name, Some(500)).await {
-                Ok(logs) => {
-                    self.logs_data = logs.lines().map(|s| s.to_string()).collect();
-                    self.logs_selected_service = Some(service_name);
-                    self.logs_scroll_offset = self.logs_data.len().saturating_sub(50); // Start near bottom
-                    self.clear_status();
-                }
-                Err(e) => {
-                    self.set_status(format!("✗ Failed to load logs: {}", e));
-                }
-            }
-        }
-        Ok(())
     }
 
     async fn show_service_details(&mut self) -> Result<()> {
@@ -1417,18 +1342,68 @@ impl App {
         let service = self.containers[self.selected_index].name.clone();
         self.set_status(format!("Loading details for {}...", service));
 
-        // Load logs (last 50 lines)
-        match self.docker.get_logs(&service, Some(50)).await {
+        // Load logs (initial fetch) - parse once on load
+        match self.docker.get_logs(&service, Some(INITIAL_LOG_FETCH)).await {
             Ok(logs) => {
-                self.detail_logs = logs.lines().map(|s| s.to_string()).collect();
+                self.detail_logs = logs.lines()
+                    .map(|s| crate::core::parse_docker_log_line(s))
+                    .collect();
             }
             Err(_) => {
-                self.detail_logs = vec!["Failed to load logs".to_string()];
+                self.detail_logs = vec![crate::core::ParsedLogLine {
+                    timestamp: String::new(),
+                    service: service.clone(),
+                    module_path: String::new(),
+                    module_short: String::new(),
+                    level: crate::core::LogLevel::Error,
+                    message: "Failed to load logs".to_string(),
+                    raw_line: "Failed to load logs".to_string(),
+                }];
             }
         }
 
         self.detail_view_service = Some(service);
         self.clear_status();
+
+        Ok(())
+    }
+
+    async fn show_service_config(&mut self) -> Result<()> {
+        if self.selected_index >= self.containers.len() {
+            return Ok(());
+        }
+
+        let service = self.containers[self.selected_index].name.clone();
+        self.set_status(format!("Loading config for {}...", service));
+
+        match self.docker.get_service_config_comparison(&service).await {
+            Ok(config) => {
+                self.detail_view_config = Some(config);
+                self.clear_status();
+            }
+            Err(e) => {
+                self.set_status(format!("✗ Failed to load config: {}", e));
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn show_profile_details(&mut self) -> Result<()> {
+        let profile = match self.get_profile_name(self.selected_index) {
+            Some(p) => p,
+            None => return Ok(()),
+        };
+
+        let service_names = crate::utils::constants::get_profile_services(&profile);
+
+        self.profile_services = self.containers.iter()
+            .filter(|c| service_names.contains(&c.name.as_str()))
+            .cloned()
+            .collect();
+
+        self.detail_view_profile = Some(profile);
+        self.profile_selected_service = 0;
 
         Ok(())
     }
@@ -1969,8 +1944,58 @@ impl App {
         Ok(())
     }
 
-    async fn handle_detail_view_key(&mut self, key: KeyCode) -> Result<()> {
+    async fn handle_detail_view_key(&mut self, key: KeyCode, modifiers: event::KeyModifiers) -> Result<()> {
         match key {
+            KeyCode::Up | KeyCode::Char('k') => {
+                // Scroll up in logs (when in service detail view)
+                if self.detail_view_service.is_some() {
+                    let is_ctrl = modifiers.contains(event::KeyModifiers::CONTROL);
+                    let is_shift = modifiers.contains(event::KeyModifiers::SHIFT);
+
+                    if is_ctrl && is_shift {
+                        // Jump to top
+                        self.detail_logs_scroll_offset = self.detail_logs.len();
+                    } else if is_ctrl {
+                        // Fast scroll up (50 lines)
+                        self.detail_logs_scroll_offset = (self.detail_logs_scroll_offset + 50).min(self.detail_logs.len());
+                    } else {
+                        // Normal scroll up (5 lines)
+                        self.detail_logs_scroll_offset = (self.detail_logs_scroll_offset + 5).min(self.detail_logs.len());
+                    }
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                // Scroll down in logs (when in service detail view)
+                if self.detail_view_service.is_some() {
+                    let is_ctrl = modifiers.contains(event::KeyModifiers::CONTROL);
+                    let is_shift = modifiers.contains(event::KeyModifiers::SHIFT);
+
+                    if is_ctrl && is_shift {
+                        // Jump to bottom (auto-follow)
+                        self.detail_logs_scroll_offset = 0;
+                    } else if is_ctrl {
+                        // Fast scroll down (50 lines)
+                        self.detail_logs_scroll_offset = self.detail_logs_scroll_offset.saturating_sub(50);
+                    } else {
+                        // Normal scroll down (5 lines)
+                        self.detail_logs_scroll_offset = self.detail_logs_scroll_offset.saturating_sub(5);
+                    }
+                }
+            }
+            KeyCode::PageUp => {
+                // Page up in logs
+                if self.detail_view_service.is_some() {
+                    // Scroll by ~100 lines (full screen)
+                    self.detail_logs_scroll_offset = (self.detail_logs_scroll_offset + 100).min(self.detail_logs.len());
+                }
+            }
+            KeyCode::PageDown => {
+                // Page down in logs
+                if self.detail_view_service.is_some() {
+                    // Scroll by ~100 lines (full screen)
+                    self.detail_logs_scroll_offset = self.detail_logs_scroll_offset.saturating_sub(100);
+                }
+            }
             KeyCode::Enter => {
                 // In wallet detail view, Enter toggles transaction detail modal
                 if self.detail_view_wallet.is_some() && !self.detail_wallet_utxos.is_empty() {
@@ -1993,6 +2018,9 @@ impl App {
                     self.show_tx_detail = false;
                 } else {
                     // Exit detail view
+                    // Stop live mode task if running
+                    self.stop_detail_logs_live_mode();
+
                     self.detail_view_service = None;
                     self.detail_logs.clear();
                     self.detail_view_wallet = None;
@@ -2055,15 +2083,108 @@ impl App {
                 // Refresh logs
                 if let Some(service) = &self.detail_view_service {
                     let service = service.clone();
-                    match self.docker.get_logs(&service, Some(50)).await {
+                    match self.docker.get_logs(&service, Some(INITIAL_LOG_FETCH)).await {
                         Ok(logs) => {
-                            self.detail_logs = logs.lines().map(|s| s.to_string()).collect();
+                            self.detail_logs = logs.lines()
+                                .map(|s| crate::core::parse_docker_log_line(s))
+                                .collect();
                             self.set_status("✓ Refreshed logs".to_string());
                         }
                         Err(e) => {
                             self.set_status(format!("✗ Failed to refresh logs: {}", e));
                         }
                     }
+                }
+            }
+            KeyCode::Char('l') => {
+                // Toggle live mode for detail view logs
+                if self.detail_view_service.is_some() {
+                    if self.detail_logs_live_mode {
+                        self.stop_detail_logs_live_mode();
+                        self.set_status("✓ Live mode disabled".to_string());
+                    } else {
+                        self.start_detail_logs_live_mode();
+                        self.set_status("✓ Live mode enabled (250ms refresh)".to_string());
+                    }
+                }
+            }
+            KeyCode::Char('g') => {
+                // Toggle log grouping
+                if self.detail_view_service.is_some() {
+                    self.detail_logs_grouping = !self.detail_logs_grouping;
+                    let mode = if self.detail_logs_grouping { "grouped" } else { "chronological" };
+                    self.set_status(format!("✓ Log display: {}", mode));
+                }
+            }
+            KeyCode::Char('f') => {
+                // Cycle through log filters: All → Error → Warn → Info → Debug → Trace → All
+                if self.detail_view_service.is_some() {
+                    use crate::core::LogLevel;
+                    self.detail_logs_filter = match self.detail_logs_filter {
+                        None => Some(LogLevel::Error),
+                        Some(LogLevel::Error) => Some(LogLevel::Warn),
+                        Some(LogLevel::Warn) => Some(LogLevel::Info),
+                        Some(LogLevel::Info) => Some(LogLevel::Debug),
+                        Some(LogLevel::Debug) => Some(LogLevel::Trace),
+                        Some(LogLevel::Trace) | Some(LogLevel::Unknown) => None,
+                    };
+                    let filter_name = match self.detail_logs_filter {
+                        None => "ALL",
+                        Some(LogLevel::Error) => "ERROR",
+                        Some(LogLevel::Warn) => "WARN",
+                        Some(LogLevel::Info) => "INFO",
+                        Some(LogLevel::Debug) => "DEBUG",
+                        Some(LogLevel::Trace) => "TRACE",
+                        Some(LogLevel::Unknown) => "ALL",
+                    };
+                    self.set_status(format!("✓ Log filter: {}", filter_name));
+                }
+            }
+            KeyCode::Char('e') => {
+                // Filter ERROR only
+                if self.detail_view_service.is_some() {
+                    use crate::core::LogLevel;
+                    self.detail_logs_filter = Some(LogLevel::Error);
+                    self.set_status("✓ Log filter: ERROR".to_string());
+                }
+            }
+            KeyCode::Char('w') => {
+                // Filter WARN only
+                if self.detail_view_service.is_some() {
+                    use crate::core::LogLevel;
+                    self.detail_logs_filter = Some(LogLevel::Warn);
+                    self.set_status("✓ Log filter: WARN".to_string());
+                }
+            }
+            KeyCode::Char('i') => {
+                // Filter INFO only
+                if self.detail_view_service.is_some() {
+                    use crate::core::LogLevel;
+                    self.detail_logs_filter = Some(LogLevel::Info);
+                    self.set_status("✓ Log filter: INFO".to_string());
+                }
+            }
+            KeyCode::Char('d') => {
+                // Filter DEBUG in log view
+                if self.detail_view_service.is_some() {
+                    use crate::core::LogLevel;
+                    self.detail_logs_filter = Some(LogLevel::Debug);
+                    self.set_status("✓ Log filter: DEBUG".to_string());
+                }
+            }
+            KeyCode::Char('t') => {
+                // Filter TRACE only
+                if self.detail_view_service.is_some() {
+                    use crate::core::LogLevel;
+                    self.detail_logs_filter = Some(LogLevel::Trace);
+                    self.set_status("✓ Log filter: TRACE".to_string());
+                }
+            }
+            KeyCode::Char('a') => {
+                // Show ALL logs (clear filter)
+                if self.detail_view_service.is_some() {
+                    self.detail_logs_filter = None;
+                    self.set_status("✓ Log filter: ALL".to_string());
                 }
             }
             _ => {}
@@ -2394,17 +2515,12 @@ impl App {
             self.edit_buffer.as_str(),
             detail_container,
             &self.detail_logs,
+            self.detail_logs_live_mode,
+            self.detail_logs_grouping,
+            self.detail_logs_filter.as_ref(),
+            self.detail_logs_scroll_offset,
             &self.system_resources,
             self.show_help,
-            self.logs_selected_service.as_deref(),
-            &self.logs_data,
-            self.logs_follow_mode,
-            self.logs_compact_mode,
-            self.logs_live_mode,
-            self.logs_grouping_enabled,
-            self.logs_filter.as_deref(),
-            self.logs_scroll_offset,
-            &self.containers,
             self.search_mode,
             &self.search_buffer,
             &self.filtered_indices,
@@ -2431,44 +2547,6 @@ impl App {
             &self.watch_filter,
             self.watch_scroll_offset,
         );
-    }
-
-    /// Start background polling task for logs live mode
-    fn start_logs_live_mode(&mut self) {
-        // Stop any existing task first
-        self.stop_logs_live_mode();
-
-        if let Some(service_name) = self.logs_selected_service.clone() {
-            let docker = self.docker.clone();
-            let logs_tx = self.logs_live_tx.clone();
-
-            let handle = tokio::spawn(async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(1));
-
-                loop {
-                    interval.tick().await;
-
-                    // Fetch logs
-                    if let Ok(logs) = docker.get_logs(&service_name, Some(500)).await {
-                        let log_lines: Vec<String> = logs.lines().map(|s| s.to_string()).collect();
-                        // Send to main thread (non-blocking send)
-                        if logs_tx.send(log_lines).is_err() {
-                            // Channel closed, stop task
-                            break;
-                        }
-                    }
-                }
-            });
-
-            self.logs_live_task_handle = Some(handle);
-        }
-    }
-
-    /// Stop background polling task for logs live mode
-    fn stop_logs_live_mode(&mut self) {
-        if let Some(handle) = self.logs_live_task_handle.take() {
-            handle.abort();
-        }
     }
 
     /// Write a transaction to file in the specified format
@@ -2520,5 +2598,55 @@ impl App {
         }
 
         Ok(())
+    }
+
+    /// Start live mode background polling for detail view logs
+    fn start_detail_logs_live_mode(&mut self) {
+        // Stop any existing task first
+        self.stop_detail_logs_live_mode();
+
+        let service_name = match &self.detail_view_service {
+            Some(name) => name.clone(),
+            None => return, // No service selected, nothing to do
+        };
+
+        let docker = self.docker.clone();
+        let tx = self.detail_logs_live_tx.clone();
+
+        let handle = tokio::spawn(async move {
+            // Use 250ms polling interval for near real-time updates
+            // (docker compose --since doesn't work well with sub-second durations)
+            let mut interval = tokio::time::interval(Duration::from_millis(250));
+            loop {
+                interval.tick().await;
+
+                // Fetch last 50 lines - deduplication in app.rs handles overlap
+                match docker.get_logs(&service_name, Some(50)).await {
+                    Ok(logs) => {
+                        if !logs.is_empty() {
+                            // Parse and send through channel (ignore errors if receiver dropped)
+                            let log_lines: Vec<crate::core::ParsedLogLine> = logs.lines()
+                                .map(|s| crate::core::parse_docker_log_line(s))
+                                .collect();
+                            let _ = tx.send(log_lines);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to fetch logs for {}: {}", service_name, e);
+                    }
+                }
+            }
+        });
+
+        self.detail_logs_live_task_handle = Some(handle);
+        self.detail_logs_live_mode = true;
+    }
+
+    /// Stop live mode background polling for detail view logs
+    fn stop_detail_logs_live_mode(&mut self) {
+        if let Some(handle) = self.detail_logs_live_task_handle.take() {
+            handle.abort();
+        }
+        self.detail_logs_live_mode = false;
     }
 }

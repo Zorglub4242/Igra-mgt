@@ -17,308 +17,8 @@ use crate::core::l2_monitor::{Statistics, TransactionInfo, TransactionType};
 use crate::screens::watch::TransactionFilter;
 use std::collections::HashMap;
 
-/// Parsed Docker Compose log line components
-#[derive(Debug, Clone)]
-struct ParsedLogLine {
-    timestamp: String,      // Full timestamp: "2025-10-21T08:48:40Z"
-    service: String,        // Service name from Docker: "viaduct"
-    module_path: String,    // Rust module path: "viaduct::uni_storage"
-    module_short: String,   // Last segment: "uni_storage"
-    level: LogLevel,        // Detected log level
-    message: String,        // Clean message without bracketed prefix
-    raw_line: String,       // Original line for fallback
-}
-
-/// Log level enum for consistent handling
-#[derive(Debug, Clone, PartialEq)]
-enum LogLevel {
-    Error,
-    Warn,
-    Info,
-    Debug,
-    Trace,
-    Unknown,
-}
-
-impl LogLevel {
-    fn from_str(s: &str) -> Self {
-        let upper = s.to_uppercase();
-        if upper.contains("ERROR") {
-            LogLevel::Error
-        } else if upper.contains("WARN") {
-            LogLevel::Warn
-        } else if upper.contains("INFO") {
-            LogLevel::Info
-        } else if upper.contains("DEBUG") {
-            LogLevel::Debug
-        } else if upper.contains("TRACE") {
-            LogLevel::Trace
-        } else {
-            LogLevel::Unknown
-        }
-    }
-
-    fn to_string(&self) -> &str {
-        match self {
-            LogLevel::Error => "ERROR",
-            LogLevel::Warn => "WARN ",
-            LogLevel::Info => "INFO ",
-            LogLevel::Debug => "DEBUG",
-            LogLevel::Trace => "TRACE",
-            LogLevel::Unknown => "     ",
-        }
-    }
-
-    fn color(&self) -> Color {
-        match self {
-            LogLevel::Error => Color::Red,
-            LogLevel::Warn => Color::Yellow,
-            LogLevel::Info => Color::Cyan,
-            LogLevel::Debug => Color::Gray,
-            LogLevel::Trace => Color::DarkGray,
-            LogLevel::Unknown => Color::White,
-        }
-    }
-}
-
-/// Parse a Docker Compose log line into components
-/// Handles Rust env_logger format: "service | [YYYY-MM-DDTHH:MM:SSZ LEVEL module::path] message"
-/// Strip ANSI escape codes from a string
-fn strip_ansi_codes(s: &str) -> String {
-    // Match ANSI escape sequences: ESC [ ... m
-    let ansi_regex = regex::Regex::new(r"\x1b\[[0-9;]*m").unwrap();
-    ansi_regex.replace_all(s, "").to_string()
-}
-
-fn parse_docker_log_line(line: &str) -> ParsedLogLine {
-    let raw_line = line.to_string();
-
-    // Try to split on first pipe (service separator)
-    if let Some(pipe_idx) = line.find('|') {
-        let service = line[..pipe_idx].trim().to_string();
-        let rest_with_ansi = line[pipe_idx + 1..].trim();
-
-        // Strip ANSI color codes that docker adds
-        let rest_cleaned = strip_ansi_codes(rest_with_ansi);
-        let rest = rest_cleaned.as_str();
-
-        // Try kaspad format: "YYYY-MM-DD HH:MM:SS.sss+TZ [LEVEL ] message"
-        let kaspad_regex = regex::Regex::new(
-            r"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2})?)\s+\[(ERROR|WARN|INFO|DEBUG|TRACE)\s*\]\s+(.*)$"
-        ).unwrap();
-
-        if let Some(caps) = kaspad_regex.captures(rest) {
-            let timestamp = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let level_str = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-            let message = caps.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
-
-            let level = match level_str {
-                "ERROR" => LogLevel::Error,
-                "WARN" => LogLevel::Warn,
-                "INFO" => LogLevel::Info,
-                "DEBUG" => LogLevel::Debug,
-                "TRACE" => LogLevel::Trace,
-                _ => LogLevel::Unknown,
-            };
-
-            return ParsedLogLine {
-                timestamp,
-                service,
-                module_path: String::new(),
-                module_short: String::new(),
-                level,
-                message,
-                raw_line,
-            };
-        }
-
-        // Try to match bracketed Rust log format: [timestamp LEVEL module::path] message
-        let bracketed_regex = regex::Regex::new(
-            r"^\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)\s+(ERROR|WARN|INFO|DEBUG|TRACE)\s+([^\]]+)\]\s*(.*)$"
-        ).unwrap();
-
-        if let Some(caps) = bracketed_regex.captures(rest) {
-            let timestamp = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let level_str = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-            let mut module_path = caps.get(3).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
-            let mut message = caps.get(4).map(|m| m.as_str().to_string()).unwrap_or_default();
-
-            // Handle block-builder format: "module::path: src/file.rs:line"
-            // The file path is in the module_path capture, but the actual message is already in the message capture
-            // We just need to strip the file path from module_path
-            if let Some(colon_pos) = module_path.find(": ") {
-                // Check if what follows the colon looks like a file path
-                let after_colon = &module_path[colon_pos + 2..];
-                if after_colon.starts_with("src/") || after_colon.starts_with("/") {
-                    // Strip everything from the colon onwards (the file path annotation)
-                    module_path = module_path[..colon_pos].trim().to_string();
-                }
-            }
-
-            // Extract short module name (last segment after ::)
-            let module_short = module_path.split("::").last().unwrap_or(&module_path).to_string();
-
-            let level = match level_str {
-                "ERROR" => LogLevel::Error,
-                "WARN" => LogLevel::Warn,
-                "INFO" => LogLevel::Info,
-                "DEBUG" => LogLevel::Debug,
-                "TRACE" => LogLevel::Trace,
-                _ => LogLevel::Unknown,
-            };
-
-            return ParsedLogLine {
-                timestamp,
-                service,
-                module_path,
-                module_short,
-                level,
-                message,
-                raw_line,
-            };
-        }
-
-        // Try non-bracketed format: "HH:MM:SS LEVEL module::path: src/file.rs:line: message"
-        // This is what block-builder outputs
-        let nonbracketed_regex = regex::Regex::new(
-            r"^(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(ERROR|WARN|INFO|DEBUG|TRACE)\s+(.+)$"
-        ).unwrap();
-
-        if let Some(caps) = nonbracketed_regex.captures(rest) {
-            let time_only = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let level_str = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-            let remainder = caps.get(3).map(|m| m.as_str().trim()).unwrap_or("");
-
-            // Parse remainder: "module::path: src/file.rs:line: message"
-            let (module_path, message) = if let Some(colon_pos) = remainder.find(": ") {
-                let before_colon = &remainder[..colon_pos];
-                let after_colon = &remainder[colon_pos + 2..];
-
-                // Check if this looks like "module: src/file" pattern
-                if after_colon.starts_with("src/") || after_colon.starts_with("/") {
-                    // Find the next ": " which separates file path from message
-                    if let Some(msg_pos) = after_colon.find(": ") {
-                        (before_colon.to_string(), after_colon[msg_pos + 2..].to_string())
-                    } else {
-                        (before_colon.to_string(), String::new())
-                    }
-                } else {
-                    // It's "module: message" format
-                    (before_colon.to_string(), after_colon.to_string())
-                }
-            } else {
-                (String::new(), remainder.to_string())
-            };
-
-            let module_short = module_path.split("::").last().unwrap_or(&module_path).to_string();
-
-            let level = match level_str {
-                "ERROR" => LogLevel::Error,
-                "WARN" => LogLevel::Warn,
-                "INFO" => LogLevel::Info,
-                "DEBUG" => LogLevel::Debug,
-                "TRACE" => LogLevel::Trace,
-                _ => LogLevel::Unknown,
-            };
-
-            return ParsedLogLine {
-                timestamp: time_only,
-                service,
-                module_path,
-                module_short,
-                level,
-                message,
-                raw_line,
-            };
-        }
-
-        // Fallback: Try ISO timestamp + LEVEL + target: message format (execution-layer/reth logs)
-        // Example: "2025-10-21T10:37:06.342076Z  INFO reth_node_events::node: Canonical chain committed"
-        let iso_format_regex = regex::Regex::new(
-            r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)\s+(ERROR|WARN|INFO|DEBUG|TRACE)\s+(.+)$"
-        ).unwrap();
-
-        if let Some(caps) = iso_format_regex.captures(rest) {
-            let iso_timestamp = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let level_str = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-            let remainder = caps.get(3).map(|m| m.as_str().trim()).unwrap_or("");
-
-            // Parse remainder: "module::path: message"
-            // Note: We already captured the LEVEL, so remainder should be "module: message"
-            let (module_path, message) = if let Some(colon_pos) = remainder.find(": ") {
-                let before_colon = &remainder[..colon_pos];
-                let after_colon = &remainder[colon_pos + 2..];
-                (before_colon.to_string(), after_colon.to_string())
-            } else {
-                (String::new(), remainder.to_string())
-            };
-
-            let module_short = module_path.split("::").last().unwrap_or(&module_path).to_string();
-
-            let level = match level_str {
-                "ERROR" => LogLevel::Error,
-                "WARN" => LogLevel::Warn,
-                "INFO" => LogLevel::Info,
-                "DEBUG" => LogLevel::Debug,
-                "TRACE" => LogLevel::Trace,
-                _ => LogLevel::Unknown,
-            };
-
-            return ParsedLogLine {
-                timestamp: iso_timestamp,
-                service,
-                module_path,
-                module_short,
-                level,
-                message,
-                raw_line,
-            };
-        }
-
-        // Final fallback: Just extract timestamp if present
-        let simple_timestamp_regex = regex::Regex::new(
-            r"^(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)"
-        ).unwrap();
-
-        if let Some(ts_match) = simple_timestamp_regex.find(rest) {
-            let timestamp = ts_match.as_str().to_string();
-            let after_ts = rest[ts_match.end()..].trim();
-            let level = LogLevel::from_str(after_ts);
-
-            return ParsedLogLine {
-                timestamp,
-                service,
-                module_path: String::new(),
-                module_short: String::new(),
-                level,
-                message: after_ts.to_string(),
-                raw_line,
-            };
-        }
-
-        // No timestamp found, treat everything as message
-        ParsedLogLine {
-            timestamp: String::new(),
-            service,
-            module_path: String::new(),
-            module_short: String::new(),
-            level: LogLevel::from_str(rest),
-            message: rest.to_string(),
-            raw_line,
-        }
-    } else {
-        // No pipe separator, raw log line
-        ParsedLogLine {
-            timestamp: String::new(),
-            service: String::new(),
-            module_path: String::new(),
-            module_short: String::new(),
-            level: LogLevel::from_str(line),
-            message: line.to_string(),
-            raw_line,
-        }
-    }
-}
+// Use ParsedLogLine and LogLevel from core module
+// All parsing logic moved to core::log_parser
 
 /// Format timestamp for compact display (HH:MM:SS)
 fn format_timestamp_compact(timestamp: &str) -> String {
@@ -355,15 +55,15 @@ fn format_timestamp_compact(timestamp: &str) -> String {
 
 /// Log group for displaying consecutive logs with same level/module
 #[derive(Debug, Clone)]
-struct LogGroup {
-    level: LogLevel,
+struct LogGroup<'a> {
+    level: crate::core::LogLevel,
     module: String,        // Short module name
-    logs: Vec<ParsedLogLine>,
+    logs: Vec<&'a crate::core::ParsedLogLine>,
 }
 
 /// Group consecutive logs by level and module
-fn group_logs_by_level_module(logs: Vec<ParsedLogLine>) -> Vec<LogGroup> {
-    let mut groups: Vec<LogGroup> = Vec::new();
+fn group_logs_by_level_module<'a>(logs: Vec<&'a crate::core::ParsedLogLine>) -> Vec<LogGroup<'a>> {
+    let mut groups: Vec<LogGroup<'a>> = Vec::new();
 
     for log in logs {
         // Check if we can add to current group (same level and module)
@@ -379,7 +79,7 @@ fn group_logs_by_level_module(logs: Vec<ParsedLogLine>) -> Vec<LogGroup> {
         } else {
             // Start new group
             groups.push(LogGroup {
-                level: log.level.clone(),
+                level: log.level,
                 module: log.module_short.clone(),
                 logs: vec![log],
             });
@@ -461,7 +161,7 @@ impl Dashboard {
         self.network = network;
     }
 
-    pub fn render(&self, frame: &mut Frame, current_screen: Screen, services_view: crate::app::ServicesView, config_section: crate::app::ConfigSection, selected_index: usize, status_message: Option<&str>, edit_mode: bool, edit_buffer: &str, detail_container: Option<&ContainerInfo>, detail_logs: &[String], system_resources: &SystemResources, show_help: bool, logs_selected_service: Option<&str>, logs_data: &[String], logs_follow_mode: bool, logs_compact_mode: bool, logs_live_mode: bool, logs_grouping_enabled: bool, logs_filter: Option<&str>, logs_scroll_offset: usize, containers: &[ContainerInfo], search_mode: bool, search_buffer: &str, filtered_indices: &[usize], show_send_dialog: bool, send_amount: &str, send_address: &str, send_input_field: usize, send_use_wallet_selector: bool, send_selected_wallet_index: usize, send_source_address: &str, wallets: &[crate::core::wallet::WalletInfo], reth_metrics: Option<&RethMetrics>, detail_wallet: Option<&WalletInfo>, detail_wallet_addresses: &[(String, f64, f64)], detail_wallet_utxos: &[crate::core::wallet::UtxoInfo], detail_wallet_scroll: usize, show_tx_detail: bool, selected_tx_index: Option<usize>, tx_search_mode: bool, tx_search_buffer: &str, filtered_tx_indices: &[usize], watch_stats: Option<&Statistics>, watch_transactions: &[TransactionInfo], watch_filter: &TransactionFilter, watch_scroll_offset: usize) {
+    pub fn render(&self, frame: &mut Frame, current_screen: Screen, services_view: crate::app::ServicesView, config_section: crate::app::ConfigSection, selected_index: usize, status_message: Option<&str>, edit_mode: bool, edit_buffer: &str, detail_container: Option<&ContainerInfo>, detail_logs: &[crate::core::ParsedLogLine], detail_logs_live_mode: bool, detail_logs_grouping: bool, detail_logs_filter: Option<&crate::core::LogLevel>, detail_logs_scroll_offset: usize, system_resources: &SystemResources, show_help: bool, search_mode: bool, search_buffer: &str, filtered_indices: &[usize], show_send_dialog: bool, send_amount: &str, send_address: &str, send_input_field: usize, send_use_wallet_selector: bool, send_selected_wallet_index: usize, send_source_address: &str, wallets: &[crate::core::wallet::WalletInfo], reth_metrics: Option<&RethMetrics>, detail_wallet: Option<&WalletInfo>, detail_wallet_addresses: &[(String, f64, f64)], detail_wallet_utxos: &[crate::core::wallet::UtxoInfo], detail_wallet_scroll: usize, show_tx_detail: bool, selected_tx_index: Option<usize>, tx_search_mode: bool, tx_search_buffer: &str, filtered_tx_indices: &[usize], watch_stats: Option<&Statistics>, watch_transactions: &[TransactionInfo], watch_filter: &TransactionFilter, watch_scroll_offset: usize) {
         // If showing wallet detail view, render that instead
         if let Some(wallet) = detail_wallet {
             self.render_wallet_detail(frame, wallet, detail_wallet_addresses, detail_wallet_utxos, status_message, detail_wallet_scroll, tx_search_mode, tx_search_buffer, filtered_tx_indices, selected_tx_index);
@@ -481,7 +181,7 @@ impl Dashboard {
 
         // If showing service detail view, render that instead
         if let Some(container) = detail_container {
-            self.render_service_detail(frame, container, detail_logs, status_message, reth_metrics);
+            self.render_service_detail(frame, container, detail_logs, detail_logs_live_mode, detail_logs_grouping, detail_logs_filter, detail_logs_scroll_offset, status_message, reth_metrics);
             // Still show help overlay if requested
             if show_help {
                 self.render_help(frame, current_screen);
@@ -644,7 +344,7 @@ impl Dashboard {
             Screen::Services => self.render_services(frame, chunks[2], services_view, selected_index, filtered_indices),
             Screen::Wallets => self.render_wallets(frame, chunks[2], selected_index, filtered_indices),
             Screen::Watch => self.render_watch(frame, chunks[2], watch_stats, watch_transactions, watch_filter, watch_scroll_offset),
-            Screen::Logs => self.render_logs(frame, chunks[2], logs_selected_service, logs_data, logs_follow_mode, logs_compact_mode, logs_live_mode, logs_grouping_enabled, logs_filter, logs_scroll_offset, selected_index, containers),
+            // Screen::Logs removed
             Screen::Config => self.render_config(frame, chunks[2], config_section, selected_index, edit_mode, edit_buffer, filtered_indices),
         }
 
@@ -661,13 +361,6 @@ impl Dashboard {
                 Screen::Wallets => "[← →] Next screen | [↑↓] Select | [Enter] Info | [g]enerate | [t]ransfer | [/] Search | [r]efresh | [?] Help | [q]uit".to_string(),
                 Screen::Watch => "[← →] Next screen | [↑↓] Scroll | [f] Filter | [r] Record | [?] Help | [q]uit".to_string(),
                 Screen::Config => "[Tab] Switch tab | [← →] Next screen | [↑↓] Select | [e]dit | [g]enerate | [c]heck | [n]ew cert | [q]uit".to_string(),
-                Screen::Logs => {
-                    if logs_selected_service.is_some() {
-                        "[← →] Next screen | [↑↓/PgUp/PgDn] Scroll | [l]ive | [f]ollow | [e]rror [w]arn [i]nfo [c]lear | [Esc] back".to_string()
-                    } else {
-                        "[← →] Next screen | [↑↓] Select | [Enter] View logs | [?] Help | [q]uit".to_string()
-                    }
-                }
             }
         };
 
@@ -1496,274 +1189,7 @@ impl Dashboard {
         frame.render_widget(paragraph, area);
     }
 
-    fn render_logs(&self, frame: &mut Frame, area: ratatui::layout::Rect, selected_service: Option<&str>, logs_data: &[String], follow_mode: bool, compact_mode: bool, live_mode: bool, grouping_enabled: bool, filter: Option<&str>, scroll_offset: usize, selected_index: usize, containers: &[ContainerInfo]) {
-        // If no service selected, show service list
-        if selected_service.is_none() {
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Length(4), Constraint::Min(0)])
-                .split(area);
-
-            // Info
-            let info_text = vec![
-                Line::from(Span::styled("Interactive Log Viewer", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
-                Line::from("Select a service to view its logs"),
-            ];
-            let info = Paragraph::new(info_text)
-                .block(Block::default().borders(Borders::ALL).title("Info"));
-            frame.render_widget(info, chunks[0]);
-
-            // Service list
-            let header = Row::new(vec!["Service", "Status"])
-                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
-                .bottom_margin(1);
-
-            let rows: Vec<Row> = containers.iter().enumerate().map(|(idx, container)| {
-                let is_selected = idx == selected_index;
-                let status_color = if container.status.contains("Up") {
-                    Color::Green
-                } else {
-                    Color::Red
-                };
-
-                let row = Row::new(vec![
-                    Cell::from(container.name.clone()),
-                    Cell::from(Span::styled(&container.status, Style::default().fg(status_color))),
-                ]);
-
-                if is_selected {
-                    row.style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
-                } else {
-                    row
-                }
-            }).collect();
-
-            let table = Table::new(
-                rows,
-                [Constraint::Length(25), Constraint::Min(20)],
-            )
-            .header(header)
-            .block(Block::default().borders(Borders::ALL).title("Select Service"));
-
-            frame.render_widget(table, chunks[1]);
-        } else {
-            // Show logs for selected service
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Length(3), Constraint::Min(0)])
-                .split(area);
-
-            // Header with service name and controls
-            let filter_text = if let Some(f) = filter {
-                format!(" | Filter: {}", f)
-            } else {
-                String::new()
-            };
-            let follow_text = if follow_mode { " | FOLLOW" } else { "" };
-            let live_text = if live_mode { " | 🔴 LIVE" } else { "" };
-            let view_text = if compact_mode { " | Compact" } else { " | Detailed" };
-            let group_text = if grouping_enabled { " | Grouped" } else { "" };
-
-            let header_text = format!(
-                "Service: {} | Lines: {}{}{}{}{}{}",
-                selected_service.unwrap_or("N/A"),
-                logs_data.len(),
-                filter_text,
-                follow_text,
-                live_text,
-                view_text,
-                group_text
-            );
-
-            let header = Paragraph::new(header_text)
-                .style(Style::default().fg(Color::Cyan))
-                .block(Block::default().borders(Borders::ALL).title("Log Viewer"));
-            frame.render_widget(header, chunks[0]);
-
-            // Parse all logs first
-            let parsed_logs: Vec<ParsedLogLine> = logs_data
-                .iter()
-                .map(|line| parse_docker_log_line(line))
-                .collect();
-
-            // Filter logs if filter is set
-            let filtered_logs: Vec<ParsedLogLine> = if let Some(filter_level) = filter {
-                parsed_logs.into_iter().filter(|log| {
-                    log.raw_line.to_uppercase().contains(filter_level)
-                }).collect()
-            } else {
-                parsed_logs
-            };
-
-            // Group or render chronologically based on setting
-            let mut visible_lines: Vec<Line> = Vec::new();
-            let max_lines = chunks[1].height as usize - 2; // Account for borders
-            let total_logs = filtered_logs.len(); // Save count before move
-
-            if grouping_enabled {
-                // Group logs by level/module
-                let groups = group_logs_by_level_module(filtered_logs);
-
-                let mut line_count = 0;
-                let mut skip_count = scroll_offset;
-
-                for group in groups {
-                    if line_count >= max_lines {
-                        break;
-                    }
-
-                    let logs_count = group.logs.len();
-                    let level_text = group.level.to_string();
-                    let level_color = group.level.color();
-
-                    // Group header: [LEVEL] module:
-                    if skip_count == 0 {
-                        let module_text = if !group.module.is_empty() {
-                            format!(" {}:", group.module)
-                        } else {
-                            String::new()
-                        };
-
-                        visible_lines.push(Line::from(vec![
-                            Span::styled(
-                                format!("[{}]", level_text),
-                                Style::default()
-                                    .fg(Color::Black)
-                                    .bg(level_color)
-                                    .add_modifier(Modifier::BOLD)
-                            ),
-                            Span::styled(module_text, Style::default().fg(Color::Gray)),
-                        ]));
-                        line_count += 1;
-                    } else {
-                        skip_count -= 1;
-                    }
-
-                    // Group items
-                    for (idx, log) in group.logs.into_iter().enumerate() {
-                        if line_count >= max_lines {
-                            break;
-                        }
-
-                        if skip_count > 0 {
-                            skip_count -= 1;
-                            continue;
-                        }
-
-                        let time = if !log.timestamp.is_empty() {
-                            format_timestamp_compact(&log.timestamp)
-                        } else {
-                            "        ".to_string()
-                        };
-
-                        let prefix = if idx == logs_count - 1 {
-                            "  └─ "
-                        } else {
-                            "  ├─ "
-                        };
-
-                        let level_color = log.level.color();
-
-                        visible_lines.push(Line::from(vec![
-                            Span::styled(prefix, Style::default().fg(Color::DarkGray)),
-                            Span::styled(time, Style::default().fg(Color::DarkGray)),
-                            Span::raw(" "),
-                            Span::styled(log.message.clone(), Style::default().fg(level_color)),
-                        ]));
-                        line_count += 1;
-                    }
-                }
-            } else {
-                // Chronological view (no grouping)
-                for log in filtered_logs.iter().skip(scroll_offset).take(max_lines) {
-                    if compact_mode {
-                        // Compact: "HH:MM:SS [LEVEL] module: message"
-                        let time = if !log.timestamp.is_empty() {
-                            format_timestamp_compact(&log.timestamp)
-                        } else {
-                            "        ".to_string()
-                        };
-
-                        let level_text = log.level.to_string();
-                        let level_color = log.level.color();
-                        let module_text = if !log.module_short.is_empty() {
-                            format!(" {}:", log.module_short)
-                        } else {
-                            String::new()
-                        };
-
-                        visible_lines.push(Line::from(vec![
-                            Span::styled(time, Style::default().fg(Color::DarkGray)),
-                            Span::raw(" "),
-                            Span::styled(
-                                format!("[{}]", level_text),
-                                Style::default()
-                                    .fg(Color::Black)
-                                    .bg(level_color)
-                                    .add_modifier(Modifier::BOLD)
-                            ),
-                            Span::styled(module_text, Style::default().fg(Color::Gray)),
-                            Span::raw(" "),
-                            Span::styled(log.message.clone(), Style::default().fg(level_color)),
-                        ]));
-                    } else {
-                        // Detailed: "YYYY-MM-DD HH:MM:SS [service] [module] [LEVEL] message"
-                        let timestamp = if !log.timestamp.is_empty() {
-                            log.timestamp.clone()
-                        } else {
-                            "                           ".to_string()
-                        };
-
-                        let level_text = log.level.to_string();
-                        let level_color = log.level.color();
-
-                        let mut spans = vec![
-                            Span::styled(timestamp, Style::default().fg(Color::DarkGray)),
-                            Span::raw(" "),
-                        ];
-
-                        if !log.service.is_empty() {
-                            spans.push(Span::styled(format!("[{}]", log.service), Style::default().fg(Color::Blue)));
-                            spans.push(Span::raw(" "));
-                        }
-
-                        if !log.module_path.is_empty() {
-                            spans.push(Span::styled(format!("[{}]", log.module_path), Style::default().fg(Color::Cyan)));
-                            spans.push(Span::raw(" "));
-                        }
-
-                        spans.push(Span::styled(
-                            format!("[{}]", level_text),
-                            Style::default()
-                                .fg(Color::Black)
-                                .bg(level_color)
-                                .add_modifier(Modifier::BOLD)
-                        ));
-                        spans.push(Span::raw(" "));
-                        spans.push(Span::styled(log.message.clone(), Style::default().fg(level_color)));
-
-                        visible_lines.push(Line::from(spans));
-                    }
-                }
-            }
-
-            let logs_widget = Paragraph::new(visible_lines)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(format!("Logs (showing {}-{} of {}) | 't'=toggle view, 'l'=live, 'g'=group",
-                            scroll_offset.min(total_logs),
-                            (scroll_offset + max_lines).min(total_logs),
-                            total_logs
-                        ))
-                )
-                .wrap(Wrap { trim: false });
-
-            frame.render_widget(logs_widget, chunks[1]);
-        }
-    }
-
-    fn render_service_detail(&self, frame: &mut Frame, container: &ContainerInfo, logs: &[String], status_message: Option<&str>, reth_metrics: Option<&RethMetrics>) {
+    fn render_service_detail(&self, frame: &mut Frame, container: &ContainerInfo, logs: &[crate::core::ParsedLogLine], live_mode: bool, grouping_enabled: bool, log_filter: Option<&crate::core::LogLevel>, scroll_offset: usize, status_message: Option<&str>, reth_metrics: Option<&RethMetrics>) {
         // Determine if we should show metrics section
         let show_metrics = container.name == "execution-layer" && reth_metrics.is_some();
 
@@ -1771,35 +1197,21 @@ impl Dashboard {
             .direction(Direction::Vertical)
             .constraints(if show_metrics {
                 vec![
-                    Constraint::Length(3),   // Title
-                    Constraint::Length(6),   // Info section
-                    Constraint::Length(12),  // Metrics section (execution-layer only)
+                    Constraint::Length(3),   // Title (single line)
+                    Constraint::Length(9),   // Metrics section (7 rows + 2 for borders)
                     Constraint::Min(0),      // Logs
                     Constraint::Length(3),   // Footer
                 ]
             } else {
                 vec![
-                    Constraint::Length(3),   // Title
-                    Constraint::Length(6),   // Info section
+                    Constraint::Length(3),   // Title (single line)
                     Constraint::Min(0),      // Logs
                     Constraint::Length(3),   // Footer
                 ]
             })
             .split(frame.size());
 
-        // Title
-        let title = Paragraph::new(vec![Line::from(vec![Span::styled(
-            format!("Service Details: {}", container.name),
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )])])
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-
-        frame.render_widget(title, chunks[0]);
-
-        // Info section
+        // Title with embedded status/health info
         let status_color = if container.status.contains("Up") {
             Color::Green
         } else {
@@ -1813,32 +1225,21 @@ impl Dashboard {
             _ => Color::Gray,
         };
 
-        let info_text = vec![
+        let title_text = vec![
             Line::from(vec![
-                Span::styled("Status: ", Style::default().fg(Color::White)),
+                Span::styled(&container.name, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::raw("  |  "),
                 Span::styled(&container.status, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
                 Span::raw("  |  "),
-                Span::styled("Health: ", Style::default().fg(Color::White)),
-                Span::styled(
-                    container.health.as_deref().unwrap_or("N/A"),
-                    Style::default().fg(health_color).add_modifier(Modifier::BOLD)
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("Image: ", Style::default().fg(Color::White)),
-                Span::styled(&container.image, Style::default().fg(Color::Cyan)),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("Actions: ", Style::default().fg(Color::Yellow)),
-                Span::raw("[s]tart | [x]top | [R]estart | [r]efresh logs | [Esc/q] back"),
+                Span::styled(&container.image, Style::default().fg(Color::Gray)),
             ]),
         ];
 
-        let info = Paragraph::new(info_text)
-            .block(Block::default().borders(Borders::ALL).title("Information"));
+        let title = Paragraph::new(title_text)
+            .alignment(Alignment::Left)
+            .block(Block::default().borders(Borders::ALL));
 
-        frame.render_widget(info, chunks[1]);
+        frame.render_widget(title, chunks[0]);
 
         // Metrics section (execution-layer only)
         let logs_chunk_idx = if show_metrics {
@@ -1988,57 +1389,117 @@ impl Dashboard {
                 let metrics_widget = Paragraph::new(metrics_lines)
                     .block(Block::default().borders(Borders::ALL).title("Reth Metrics"));
 
-                frame.render_widget(metrics_widget, chunks[2]);
+                frame.render_widget(metrics_widget, chunks[1]);
             }
-            3  // Logs are in chunk 3 when metrics are shown
+            2  // Logs are in chunk 2 when metrics are shown (title=0, metrics=1, logs=2)
         } else {
-            2  // Logs are in chunk 2 when no metrics
+            1  // Logs are in chunk 1 when no metrics (title=0, logs=1)
         };
 
-        // Logs section - Parse and group logs
-        let parsed_logs: Vec<ParsedLogLine> = logs.iter()
-            .rev()
-            .take(100)
-            .rev()
-            .map(|log| parse_docker_log_line(log))
+        // Logs section - Filter and apply scroll windowing to pre-parsed logs
+        let filtered_logs: Vec<&crate::core::ParsedLogLine> = logs.iter()
+            .filter(|log| {
+                if let Some(filter_level) = log_filter {
+                    &log.level == filter_level
+                } else {
+                    true
+                }
+            })
             .collect();
 
-        let groups = group_logs_by_level_module(parsed_logs);
+        // Apply scroll offset windowing
+        // scroll_offset = 0 means show latest (bottom), higher values scroll back in time
+        let total_logs = filtered_logs.len();
+        let end_idx = total_logs.saturating_sub(scroll_offset);
+        let start_idx = 0; // Show all logs from beginning to end_idx
+        let windowed_logs: Vec<&crate::core::ParsedLogLine> = filtered_logs[start_idx..end_idx].to_vec();
+
         let mut log_lines: Vec<Line> = Vec::new();
 
-        for group in groups {
-            // Group header: [LEVEL] module:
-            let level_text = group.level.to_string();
-            let level_color = group.level.color();
-            let module_text = format!(" {}", group.module);
+        if grouping_enabled {
+            // Grouped mode: group by level and module
+            let groups = group_logs_by_level_module(windowed_logs.clone());
 
-            log_lines.push(Line::from(vec![
-                Span::styled(
-                    format!("[{}]", level_text),
-                    Style::default().fg(Color::Black).bg(level_color).add_modifier(Modifier::BOLD)
-                ),
-                Span::styled(module_text, Style::default().fg(Color::Gray)),
-            ]));
+            for group in groups {
+                // Group header: [LEVEL] module:
+                let level_text = group.level.to_string();
+                let level_color = group.level.color();
+                let module_text = format!(" {}", group.module);
 
-            // Group items with tree characters
-            let logs_count = group.logs.len();
-            for (idx, log) in group.logs.into_iter().enumerate() {
-                let prefix = if idx == logs_count - 1 { "  └─ " } else { "  ├─ " };
+                log_lines.push(Line::from(vec![
+                    Span::styled(
+                        format!("[{}]", level_text),
+                        Style::default().fg(Color::Black).bg(level_color).add_modifier(Modifier::BOLD)
+                    ),
+                    Span::styled(module_text, Style::default().fg(Color::Gray)),
+                ]));
+
+                // Group items with tree characters
+                let logs_count = group.logs.len();
+                for (idx, log) in group.logs.into_iter().enumerate() {
+                    let prefix = if idx == logs_count - 1 { "  └─ " } else { "  ├─ " };
+                    let time = format_timestamp_compact(&log.timestamp);
+                    let level_color = log.level.color();
+
+                    log_lines.push(Line::from(vec![
+                        Span::styled(prefix, Style::default().fg(Color::DarkGray)),
+                        Span::styled(time, Style::default().fg(Color::DarkGray)),
+                        Span::raw(" "),
+                        Span::styled(log.message.clone(), Style::default().fg(level_color)),
+                    ]));
+                }
+            }
+        } else {
+            // Chronological mode: show logs in order with timestamps
+            for log in windowed_logs {
                 let time = format_timestamp_compact(&log.timestamp);
+                let level_text = log.level.to_string();
                 let level_color = log.level.color();
 
                 log_lines.push(Line::from(vec![
-                    Span::styled(prefix, Style::default().fg(Color::DarkGray)),
                     Span::styled(time, Style::default().fg(Color::DarkGray)),
                     Span::raw(" "),
-                    Span::styled(log.message.clone(), Style::default().fg(level_color)),
+                    Span::styled(
+                        format!("[{}]", level_text),
+                        Style::default().fg(Color::Black).bg(level_color).add_modifier(Modifier::BOLD)
+                    ),
+                    Span::raw(" "),
+                    Span::styled(format!("{}: ", log.module_short), Style::default().fg(Color::Gray)),
+                    Span::styled(&log.message, Style::default().fg(level_color)),
                 ]));
             }
         }
 
+        // Build title with indicators
+        let mode_text = if grouping_enabled { " grouped" } else { " chronological" };
+        let live_indicator = if live_mode { "[LIVE]" } else { "" };
+        let scroll_indicator = if scroll_offset > 0 {
+            format!(" ↑{}", scroll_offset)
+        } else {
+            String::new()
+        };
+        let title = format!("Logs {}{} {}/{}{}",
+            live_indicator, scroll_indicator, end_idx, total_logs, mode_text);
+
+        // Calculate scroll position for Paragraph widget
+        // When scroll_offset = 0, show the bottom (latest logs)
+        // We need to calculate how many lines to skip from the top
+        let available_height = chunks[logs_chunk_idx].height.saturating_sub(2) as usize; // Subtract 2 for borders
+        let total_rendered_lines = log_lines.len();
+        let viewport_scroll = if scroll_offset == 0 {
+            // At bottom - show last N lines
+            total_rendered_lines.saturating_sub(available_height)
+        } else {
+            // Scrolled up - calculate position based on scroll_offset
+            // We want to show logs ending at (total - scroll_offset)
+            // But we need to account for the fact that we've already windowed the logs
+            total_rendered_lines.saturating_sub(available_height).saturating_sub(scroll_offset.min(total_rendered_lines))
+        };
+
         let logs_widget = Paragraph::new(log_lines)
-            .block(Block::default().borders(Borders::ALL).title(format!("Recent Logs (grouped, last {} lines)", logs.len())))
-            .wrap(Wrap { trim: false });
+            .block(Block::default().borders(Borders::ALL).title(title))
+            .wrap(Wrap { trim: false })
+            .scroll((viewport_scroll as u16, 0));
 
         frame.render_widget(logs_widget, chunks[logs_chunk_idx]);
 
@@ -2154,18 +1615,6 @@ impl Dashboard {
                 help_text.push(Line::from(Span::styled("SSL Certificates Tab:", Style::default().fg(Color::Cyan))));
                 help_text.push(Line::from("  [c]            Check certificate status"));
                 help_text.push(Line::from("  [n]            Force renewal (restart Traefik)"));
-            }
-            Screen::Logs => {
-                help_text.push(Line::from(Span::styled("Logs Screen:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
-                help_text.push(Line::from("  [Enter]        Select service and view logs"));
-                help_text.push(Line::from("  [Esc]          Go back to service list"));
-                help_text.push(Line::from("  [↑↓] / [PgUp/PgDn]  Scroll through logs"));
-                help_text.push(Line::from("  [e]            Filter ERROR messages"));
-                help_text.push(Line::from("  [w]            Filter WARN messages"));
-                help_text.push(Line::from("  [i]            Filter INFO messages"));
-                help_text.push(Line::from("  [c]            Clear filter"));
-                help_text.push(Line::from("  [f]            Toggle follow mode (auto-refresh)"));
-                help_text.push(Line::from("  [r]            Refresh logs"));
             }
         }
 

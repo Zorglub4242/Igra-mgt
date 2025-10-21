@@ -185,6 +185,25 @@ impl TransactionMonitor {
         })
     }
 
+    pub fn new_sync() -> Result<Self> {
+        let provider = Provider::<Http>::try_from(RPC_URL)
+            .context("Failed to create Ethereum RPC provider")?;
+
+        let http_client = Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()?;
+
+        let l1_tracker = L1FeeTracker::new()?;
+
+        Ok(Self {
+            provider,
+            http_client,
+            l1_tracker,
+            statistics: Arc::new(RwLock::new(Statistics::default())),
+            last_block: Arc::new(RwLock::new(0)),
+        })
+    }
+
     /// Fetch and parse Prometheus metrics
     pub async fn fetch_metrics(&self) -> Result<HashMap<String, String>> {
         let response = self.http_client

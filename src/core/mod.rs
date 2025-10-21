@@ -13,7 +13,7 @@ pub mod l2_monitor;
 
 pub use docker::DockerManager;
 pub use config::ConfigManager;
-pub use log_parser::{parse_service_logs, ServiceMetrics};
+pub use log_parser::{ParsedLogLine, LogLevel, parse_docker_log_line};
 
 // Re-exports for future use (currently unused)
 #[allow(unused_imports)]

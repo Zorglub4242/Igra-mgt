@@ -1,6 +1,6 @@
 /// RPC endpoint testing
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Result};
 use reqwest::Client;
 use serde_json::json;
 

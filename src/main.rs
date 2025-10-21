@@ -203,7 +203,7 @@ async fn handle_rpc(command: RpcCommands) -> Result<()> {
                         .ok_or_else(|| anyhow::anyhow!("IGRA_ORCHESTRA_DOMAIN not set in .env"))?;
 
                     let tokens = config.get_rpc_tokens();
-                    let (index, token_opt) = tokens.iter()
+                    let (_index, token_opt) = tokens.iter()
                         .find(|(i, _)| *i == token_number)
                         .ok_or_else(|| anyhow::anyhow!("Invalid token number"))?;
 

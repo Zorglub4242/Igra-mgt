@@ -6,9 +6,75 @@
 /// - Block heights and numbers
 /// - Transaction throughput
 /// - Health indicators
+/// - Individual log line parsing (timestamp, level, module, message)
 
 use regex::Regex;
 use std::sync::OnceLock;
+
+/// Parsed Docker Compose log line components
+#[derive(Debug, Clone)]
+pub struct ParsedLogLine {
+    pub timestamp: String,      // Full timestamp: "2025-10-21T08:48:40Z"
+    pub service: String,        // Service name from Docker: "viaduct"
+    pub module_path: String,    // Rust module path: "viaduct::uni_storage"
+    pub module_short: String,   // Last segment: "uni_storage"
+    pub level: LogLevel,        // Detected log level
+    pub message: String,        // Clean message without bracketed prefix
+    pub raw_line: String,       // Original line for fallback
+}
+
+/// Log level enum for consistent handling
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+    Unknown,
+}
+
+impl LogLevel {
+    pub fn from_str(s: &str) -> Self {
+        let upper = s.to_uppercase();
+        if upper.contains("ERROR") {
+            LogLevel::Error
+        } else if upper.contains("WARN") {
+            LogLevel::Warn
+        } else if upper.contains("INFO") {
+            LogLevel::Info
+        } else if upper.contains("DEBUG") {
+            LogLevel::Debug
+        } else if upper.contains("TRACE") {
+            LogLevel::Trace
+        } else {
+            LogLevel::Unknown
+        }
+    }
+
+    pub fn to_string(&self) -> &str {
+        match self {
+            LogLevel::Error => "ERROR",
+            LogLevel::Warn => "WARN ",
+            LogLevel::Info => "INFO ",
+            LogLevel::Debug => "DEBUG",
+            LogLevel::Trace => "TRACE",
+            LogLevel::Unknown => "     ",
+        }
+    }
+
+    pub fn color(&self) -> ratatui::style::Color {
+        use ratatui::style::Color;
+        match self {
+            LogLevel::Error => Color::Red,
+            LogLevel::Warn => Color::Yellow,
+            LogLevel::Info => Color::Cyan,
+            LogLevel::Debug => Color::Gray,
+            LogLevel::Trace => Color::DarkGray,
+            LogLevel::Unknown => Color::White,
+        }
+    }
+}
 
 /// Strip ANSI color codes from log strings
 fn strip_ansi_codes(text: &str) -> String {
@@ -459,5 +525,224 @@ mod tests {
     fn test_format_large_number() {
         assert_eq!(format_large_number(1234567), "1,234,567");
         assert_eq!(format_large_number(283910951), "283,910,951");
+    }
+}
+
+/// Parse a Docker Compose log line into components
+/// Handles multiple log formats from different services
+pub fn parse_docker_log_line(line: &str) -> ParsedLogLine {
+    let raw_line = line.to_string();
+
+    // Try to split on first pipe (service separator)
+    if let Some(pipe_idx) = line.find('|') {
+        let service = line[..pipe_idx].trim().to_string();
+        let rest_with_ansi = line[pipe_idx + 1..].trim();
+
+        // Strip ANSI color codes that docker adds
+        let rest_cleaned = strip_ansi_codes(rest_with_ansi);
+        let rest = rest_cleaned.as_str();
+
+        // Try kaspad format: "YYYY-MM-DD HH:MM:SS.sss+TZ [LEVEL ] message"
+        let kaspad_regex = Regex::new(
+            r"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2})?)\s+\[(ERROR|WARN|INFO|DEBUG|TRACE)\s*\]\s+(.*)$"
+        ).unwrap();
+
+        if let Some(caps) = kaspad_regex.captures(rest) {
+            let timestamp = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let level_str = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            let message = caps.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
+
+            let level = match level_str {
+                "ERROR" => LogLevel::Error,
+                "WARN" => LogLevel::Warn,
+                "INFO" => LogLevel::Info,
+                "DEBUG" => LogLevel::Debug,
+                "TRACE" => LogLevel::Trace,
+                _ => LogLevel::Unknown,
+            };
+
+            return ParsedLogLine {
+                timestamp,
+                service,
+                module_path: String::new(),
+                module_short: String::new(),
+                level,
+                message,
+                raw_line,
+            };
+        }
+
+        // Try to match bracketed Rust log format: [timestamp LEVEL module::path] message
+        let bracketed_regex = Regex::new(
+            r"^\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)\s+(ERROR|WARN|INFO|DEBUG|TRACE)\s+([^\]]+)\]\s*(.*)$"
+        ).unwrap();
+
+        if let Some(caps) = bracketed_regex.captures(rest) {
+            let timestamp = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let level_str = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            let mut module_path = caps.get(3).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+            let message = caps.get(4).map(|m| m.as_str().to_string()).unwrap_or_default();
+
+            // Handle block-builder format: "module::path: src/file.rs:line"
+            if let Some(colon_pos) = module_path.find(": ") {
+                let after_colon = &module_path[colon_pos + 2..];
+                if after_colon.starts_with("src/") || after_colon.starts_with("/") {
+                    module_path = module_path[..colon_pos].trim().to_string();
+                }
+            }
+
+            let module_short = module_path.split("::").last().unwrap_or(&module_path).to_string();
+
+            let level = match level_str {
+                "ERROR" => LogLevel::Error,
+                "WARN" => LogLevel::Warn,
+                "INFO" => LogLevel::Info,
+                "DEBUG" => LogLevel::Debug,
+                "TRACE" => LogLevel::Trace,
+                _ => LogLevel::Unknown,
+            };
+
+            return ParsedLogLine {
+                timestamp,
+                service,
+                module_path,
+                module_short,
+                level,
+                message,
+                raw_line,
+            };
+        }
+
+        // Try non-bracketed format: "HH:MM:SS LEVEL module::path: src/file.rs:line: message"
+        let nonbracketed_regex = Regex::new(
+            r"^(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(ERROR|WARN|INFO|DEBUG|TRACE)\s+(.+)$"
+        ).unwrap();
+
+        if let Some(caps) = nonbracketed_regex.captures(rest) {
+            let time_only = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let level_str = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            let remainder = caps.get(3).map(|m| m.as_str().trim()).unwrap_or("");
+
+            let (module_path, message) = if let Some(colon_pos) = remainder.find(": ") {
+                let before_colon = &remainder[..colon_pos];
+                let after_colon = &remainder[colon_pos + 2..];
+
+                if after_colon.starts_with("src/") || after_colon.starts_with("/") {
+                    if let Some(msg_pos) = after_colon.find(": ") {
+                        (before_colon.to_string(), after_colon[msg_pos + 2..].to_string())
+                    } else {
+                        (before_colon.to_string(), String::new())
+                    }
+                } else {
+                    (before_colon.to_string(), after_colon.to_string())
+                }
+            } else {
+                (String::new(), remainder.to_string())
+            };
+
+            let module_short = module_path.split("::").last().unwrap_or(&module_path).to_string();
+
+            let level = match level_str {
+                "ERROR" => LogLevel::Error,
+                "WARN" => LogLevel::Warn,
+                "INFO" => LogLevel::Info,
+                "DEBUG" => LogLevel::Debug,
+                "TRACE" => LogLevel::Trace,
+                _ => LogLevel::Unknown,
+            };
+
+            return ParsedLogLine {
+                timestamp: time_only,
+                service,
+                module_path,
+                module_short,
+                level,
+                message,
+                raw_line,
+            };
+        }
+
+        // Fallback: Try ISO timestamp + LEVEL + target: message format (execution-layer/reth logs)
+        let iso_format_regex = Regex::new(
+            r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)\s+(ERROR|WARN|INFO|DEBUG|TRACE)\s+(.+)$"
+        ).unwrap();
+
+        if let Some(caps) = iso_format_regex.captures(rest) {
+            let iso_timestamp = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let level_str = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            let remainder = caps.get(3).map(|m| m.as_str().trim()).unwrap_or("");
+
+            let (module_path, message) = if let Some(colon_pos) = remainder.find(": ") {
+                let before_colon = &remainder[..colon_pos];
+                let after_colon = &remainder[colon_pos + 2..];
+                (before_colon.to_string(), after_colon.to_string())
+            } else {
+                (String::new(), remainder.to_string())
+            };
+
+            let module_short = module_path.split("::").last().unwrap_or(&module_path).to_string();
+
+            let level = match level_str {
+                "ERROR" => LogLevel::Error,
+                "WARN" => LogLevel::Warn,
+                "INFO" => LogLevel::Info,
+                "DEBUG" => LogLevel::Debug,
+                "TRACE" => LogLevel::Trace,
+                _ => LogLevel::Unknown,
+            };
+
+            return ParsedLogLine {
+                timestamp: iso_timestamp,
+                service,
+                module_path,
+                module_short,
+                level,
+                message,
+                raw_line,
+            };
+        }
+
+        // Final fallback: Just extract timestamp if present
+        let simple_timestamp_regex = Regex::new(
+            r"^(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)"
+        ).unwrap();
+
+        if let Some(ts_match) = simple_timestamp_regex.find(rest) {
+            let timestamp = ts_match.as_str().to_string();
+            let after_ts = rest[ts_match.end()..].trim();
+            let level = LogLevel::from_str(after_ts);
+
+            return ParsedLogLine {
+                timestamp,
+                service,
+                module_path: String::new(),
+                module_short: String::new(),
+                level,
+                message: after_ts.to_string(),
+                raw_line,
+            };
+        }
+
+        // No timestamp found, treat everything as message
+        return ParsedLogLine {
+            timestamp: String::new(),
+            service,
+            module_path: String::new(),
+            module_short: String::new(),
+            level: LogLevel::from_str(rest),
+            message: rest.to_string(),
+            raw_line,
+        };
+    }
+
+    // No pipe separator found, treat whole line as unparsed
+    ParsedLogLine {
+        timestamp: String::new(),
+        service: String::new(),
+        module_path: String::new(),
+        module_short: String::new(),
+        level: LogLevel::Unknown,
+        message: line.to_string(),
+        raw_line,
     }
 }
