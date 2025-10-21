@@ -21,36 +21,43 @@ use crate::screens::Dashboard;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
     Services,
-    Profiles,
     Wallets,
-    RpcTokens,
-    Config,
-    Ssl,
+    Watch,
     Logs,
+    Config,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServicesView {
+    Services,
+    Profiles,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigSection {
+    Environment,
+    RpcTokens,
+    SslCerts,
 }
 
 impl Screen {
     pub fn title(&self) -> &'static str {
         match self {
             Screen::Services => "Services",
-            Screen::Profiles => "Profiles",
             Screen::Wallets => "Wallets",
-            Screen::RpcTokens => "RPC Tokens",
-            Screen::Config => "Configuration",
-            Screen::Ssl => "SSL Certificates",
+            Screen::Watch => "Watch",
             Screen::Logs => "Logs",
+            Screen::Config => "Configuration",
         }
     }
 
     pub fn all() -> &'static [Screen] {
         &[
             Screen::Services,
-            Screen::Profiles,
             Screen::Wallets,
-            Screen::RpcTokens,
-            Screen::Config,
-            Screen::Ssl,
+            Screen::Watch,
             Screen::Logs,
+            Screen::Config,
         ]
     }
 }
@@ -87,6 +94,15 @@ pub struct App {
     container_data_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<crate::core::docker::ContainerInfo>>,
     container_stats_rx: tokio::sync::mpsc::UnboundedReceiver<std::collections::HashMap<String, crate::core::docker::ContainerStats>>,
     image_versions_rx: tokio::sync::mpsc::UnboundedReceiver<std::collections::HashMap<String, crate::core::versions::ImageVersion>>,
+    // Watch screen channels
+    watch_transactions_tx: tokio::sync::mpsc::UnboundedSender<Vec<crate::core::l2_monitor::TransactionInfo>>,
+    watch_transactions_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<crate::core::l2_monitor::TransactionInfo>>,
+    watch_stats_tx: tokio::sync::mpsc::UnboundedSender<crate::core::l2_monitor::Statistics>,
+    watch_stats_rx: tokio::sync::mpsc::UnboundedReceiver<crate::core::l2_monitor::Statistics>,
+    // Logs live mode channels
+    logs_live_tx: tokio::sync::mpsc::UnboundedSender<Vec<String>>,
+    logs_live_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<String>>,
+    logs_live_task_handle: Option<tokio::task::JoinHandle<()>>,
     // Cached data for actions
     containers: Vec<crate::core::docker::ContainerInfo>,
     container_stats: std::collections::HashMap<String, crate::core::docker::ContainerStats>,
@@ -138,6 +154,20 @@ pub struct App {
     filtered_tx_indices: Vec<usize>, // Filtered transaction indices
     auto_refresh_enabled: bool, // Auto-refresh toggle
     color_theme: String, // Color theme name
+    // New v0.5.0 dashboard reorganization states
+    services_view: ServicesView, // Services/Profiles tab view
+    config_section: ConfigSection, // Config multi-tab section
+    logs_live_mode: bool, // Live/realtime log streaming
+    logs_compact_mode: bool, // Compact vs detailed log view (default: true)
+    logs_grouping_enabled: bool, // Group logs by level/module (default: true)
+    // Watch screen state
+    watch_monitor: Option<std::sync::Arc<crate::core::l2_monitor::TransactionMonitor>>,
+    watch_transactions: Vec<crate::core::l2_monitor::TransactionInfo>,
+    watch_statistics: Option<crate::core::l2_monitor::Statistics>,
+    watch_filter: crate::screens::watch::TransactionFilter,
+    watch_scroll_offset: usize,
+    watch_recording_file: Option<std::fs::File>,
+    watch_recording_format: String,
 }
 
 impl App {
@@ -156,6 +186,9 @@ impl App {
         let (container_data_tx, container_data_rx) = tokio::sync::mpsc::unbounded_channel();
         let (container_stats_tx, container_stats_rx) = tokio::sync::mpsc::unbounded_channel();
         let (image_versions_tx, image_versions_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (watch_transactions_tx, watch_transactions_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (watch_stats_tx, watch_stats_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (logs_live_tx, logs_live_rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Spawn background task to fetch container data
         let docker_clone = docker.clone();
@@ -299,6 +332,13 @@ impl App {
             container_data_rx,
             container_stats_rx,
             image_versions_rx,
+            watch_transactions_tx,
+            watch_transactions_rx,
+            watch_stats_tx,
+            watch_stats_rx,
+            logs_live_tx,
+            logs_live_rx,
+            logs_live_task_handle: None,
             containers: Vec::new(),
             container_stats: std::collections::HashMap::new(),
             image_versions: std::collections::HashMap::new(),
@@ -355,6 +395,19 @@ impl App {
             filtered_tx_indices: Vec::new(),
             auto_refresh_enabled: true,
             color_theme: "dark".to_string(),
+            // New v0.5.0 dashboard reorganization initializations
+            services_view: ServicesView::Services,
+            config_section: ConfigSection::Environment,
+            logs_live_mode: false,
+            logs_compact_mode: true, // Default to compact view
+            logs_grouping_enabled: true, // Default to grouped view
+            watch_monitor: None,
+            watch_transactions: Vec::new(),
+            watch_statistics: None,
+            watch_filter: crate::screens::watch::TransactionFilter::All,
+            watch_scroll_offset: 0,
+            watch_recording_file: None,
+            watch_recording_format: "text".to_string(),
         })
     }
 
@@ -480,28 +533,27 @@ impl App {
     fn update_dashboard_for_current_screen(&mut self) {
         match self.current_screen {
             Screen::Services => {
+                // Update both services and profiles (merged screen)
                 self.dashboard.update_services(
                     self.containers.clone(),
                     self.active_profiles.clone(),
                     self.container_stats.clone(),
                     self.image_versions.clone()
                 );
-            }
-            Screen::Profiles => {
                 self.dashboard.update_profiles(self.active_profiles.clone());
             }
             Screen::Wallets => {
                 // Use cached wallet data - will be refreshed by periodic timer
                 self.dashboard.update_wallets(self.wallets.clone());
             }
-            Screen::RpcTokens => {
-                let tokens = self.config.get_rpc_tokens();
-                let domain = self.config.get("IGRA_ORCHESTRA_DOMAIN")
-                    .unwrap_or("N/A")
-                    .to_string();
-                self.dashboard.update_rpc_tokens(tokens, domain);
+            Screen::Watch => {
+                // Watch screen handles its own updates via monitor
+            }
+            Screen::Logs => {
+                // Logs are handled separately
             }
             Screen::Config => {
+                // Update all config sections (environment, RPC tokens, SSL)
                 self.config_data = self.config.keys()
                     .into_iter()
                     .map(|k| {
@@ -510,13 +562,14 @@ impl App {
                     })
                     .collect();
                 self.dashboard.update_config(self.config_data.clone());
-            }
-            Screen::Ssl => {
-                // Use cached SSL data - will be refreshed by periodic timer
+
+                let tokens = self.config.get_rpc_tokens();
+                let domain = self.config.get("IGRA_ORCHESTRA_DOMAIN")
+                    .unwrap_or("N/A")
+                    .to_string();
+                self.dashboard.update_rpc_tokens(tokens, domain);
+
                 self.dashboard.update_ssl(self.ssl_cert_info.clone());
-            }
-            Screen::Logs => {
-                // Logs are handled separately
             }
         }
     }
@@ -569,30 +622,41 @@ impl App {
         match self.current_screen {
             Screen::Services => {
                 // Container data already updated by background task
-                // Just refresh stats
+                // Update both services and profiles views
                 self.dashboard.update_services(
                     self.containers.clone(),
                     self.active_profiles.clone(),
                     self.container_stats.clone(),
                     self.image_versions.clone()
                 );
-            }
-            Screen::Profiles => {
-                // Profiles also updated by background task
                 self.dashboard.update_profiles(self.active_profiles.clone());
             }
             Screen::Wallets => {
                 self.wallets = self.wallet_manager.list_wallets().await?;
                 self.dashboard.update_wallets(self.wallets.clone());
             }
-            Screen::RpcTokens => {
-                let tokens = self.config.get_rpc_tokens();
-                let domain = self.config.get("IGRA_ORCHESTRA_DOMAIN")
-                    .unwrap_or("N/A")
-                    .to_string();
-                self.dashboard.update_rpc_tokens(tokens, domain);
+            Screen::Watch => {
+                // Watch screen updates handled by monitor
+            }
+            Screen::Logs => {
+                // Refresh logs if in follow mode or live mode
+                if self.logs_follow_mode || self.logs_live_mode {
+                    if let Some(service_name) = &self.logs_selected_service {
+                        match self.docker.get_logs(service_name, Some(500)).await {
+                            Ok(logs) => {
+                                self.logs_data = logs.lines().map(|s| s.to_string()).collect();
+                                // Auto-scroll to bottom in follow/live mode
+                                self.logs_scroll_offset = self.logs_data.len().saturating_sub(50);
+                            }
+                            Err(_) => {
+                                // Silently fail - don't interrupt user experience
+                            }
+                        }
+                    }
+                }
             }
             Screen::Config => {
+                // Update all config sections
                 self.config_data = self.config.keys()
                     .into_iter()
                     .map(|k| {
@@ -601,8 +665,13 @@ impl App {
                     })
                     .collect();
                 self.dashboard.update_config(self.config_data.clone());
-            }
-            Screen::Ssl => {
+
+                let tokens = self.config.get_rpc_tokens();
+                let domain = self.config.get("IGRA_ORCHESTRA_DOMAIN")
+                    .unwrap_or("N/A")
+                    .to_string();
+                self.dashboard.update_rpc_tokens(tokens, domain);
+
                 // Load SSL certificate info
                 if self.ssl_domain != "N/A" {
                     match self.ssl_manager.get_certificate_info(&self.ssl_domain).await {
@@ -617,23 +686,6 @@ impl App {
                     }
                 } else {
                     self.dashboard.update_ssl(None);
-                }
-            }
-            Screen::Logs => {
-                // Refresh logs if in follow mode
-                if self.logs_follow_mode {
-                    if let Some(service_name) = &self.logs_selected_service {
-                        match self.docker.get_logs(service_name, Some(500)).await {
-                            Ok(logs) => {
-                                self.logs_data = logs.lines().map(|s| s.to_string()).collect();
-                                // Auto-scroll to bottom in follow mode
-                                self.logs_scroll_offset = self.logs_data.len().saturating_sub(50);
-                            }
-                            Err(_) => {
-                                // Silently fail - don't interrupt user experience
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -719,6 +771,39 @@ impl App {
                 }
             }
 
+            // Check for new watch transactions from background task (non-blocking)
+            while let Ok(new_txs) = self.watch_transactions_rx.try_recv() {
+                let tx_count = new_txs.len(); // Save count before moving
+
+                // Add new transactions to the beginning (newest first)
+                for tx in new_txs.into_iter().rev() {
+                    self.watch_transactions.insert(0, tx);
+                }
+                // Keep only last 100 transactions
+                if self.watch_transactions.len() > 100 {
+                    self.watch_transactions.truncate(100);
+                }
+
+                // Record transactions to file if enabled
+                if let Some(ref mut file) = self.watch_recording_file {
+                    for tx in &self.watch_transactions[0..self.watch_transactions.len().min(tx_count)] {
+                        let _ = Self::write_transaction_to_file(file, tx, &self.watch_recording_format);
+                    }
+                }
+            }
+
+            // Check for new watch statistics from background task (non-blocking)
+            while let Ok(stats) = self.watch_stats_rx.try_recv() {
+                self.watch_statistics = Some(stats);
+            }
+
+            // Check for new logs from live mode background task (non-blocking)
+            while let Ok(new_logs) = self.logs_live_rx.try_recv() {
+                self.logs_data = new_logs;
+                // Auto-scroll to bottom in live mode
+                self.logs_scroll_offset = self.logs_data.len().saturating_sub(50);
+            }
+
             // Refresh non-container data periodically
             if self.last_refresh.elapsed() >= self.refresh_interval {
                 if let Err(e) = self.refresh_data().await {
@@ -730,8 +815,8 @@ impl App {
             terminal.draw(|f| self.render(f))?;
 
             if event::poll(Duration::from_millis(100))? {
-                if let Event::Key(key) = event::read()? {
-                    self.handle_key(key.code).await?;
+                if let Event::Key(key_event) = event::read()? {
+                    self.handle_key(key_event).await?;
                 }
             }
 
@@ -743,7 +828,10 @@ impl App {
         Ok(())
     }
 
-    async fn handle_key(&mut self, key: KeyCode) -> Result<()> {
+    async fn handle_key(&mut self, key_event: event::KeyEvent) -> Result<()> {
+        let key = key_event.code;
+        let modifiers = key_event.modifiers;
+
         // Handle edit mode separately
         if self.edit_mode {
             return self.handle_edit_key(key).await;
@@ -786,6 +874,8 @@ impl App {
                     self.logs_data.clear();
                     self.logs_filter = None;
                     self.logs_follow_mode = false;
+                    self.logs_live_mode = false;
+                    self.stop_logs_live_mode(); // Stop live mode task
                     self.logs_scroll_offset = 0;
                 } else {
                     self.should_quit = true;
@@ -814,15 +904,63 @@ impl App {
                     self.refresh_data().await?;
                 }
             }
-            KeyCode::Tab | KeyCode::Right => {
+            KeyCode::Right => {
+                // Right arrow: Navigate to next main screen
                 self.next_screen();
                 self.selected_index = 0;
                 self.update_dashboard_for_current_screen();
             }
-            KeyCode::BackTab | KeyCode::Left => {
+            KeyCode::Left => {
+                // Left arrow: Navigate to previous main screen
                 self.prev_screen();
                 self.selected_index = 0;
                 self.update_dashboard_for_current_screen();
+            }
+            KeyCode::Tab => {
+                // Tab: Navigate to next sub-view within Services or Config screens only
+                match self.current_screen {
+                    Screen::Services => {
+                        self.services_view = match self.services_view {
+                            ServicesView::Services => ServicesView::Profiles,
+                            ServicesView::Profiles => ServicesView::Services,
+                        };
+                        self.selected_index = 0;
+                    }
+                    Screen::Config => {
+                        self.config_section = match self.config_section {
+                            ConfigSection::Environment => ConfigSection::RpcTokens,
+                            ConfigSection::RpcTokens => ConfigSection::SslCerts,
+                            ConfigSection::SslCerts => ConfigSection::Environment,
+                        };
+                        self.selected_index = 0;
+                    }
+                    _ => {
+                        // On other screens, Tab does nothing
+                    }
+                }
+            }
+            KeyCode::BackTab => {
+                // Shift+Tab: Navigate to previous sub-view within Services or Config screens only
+                match self.current_screen {
+                    Screen::Services => {
+                        self.services_view = match self.services_view {
+                            ServicesView::Services => ServicesView::Profiles,
+                            ServicesView::Profiles => ServicesView::Services,
+                        };
+                        self.selected_index = 0;
+                    }
+                    Screen::Config => {
+                        self.config_section = match self.config_section {
+                            ConfigSection::Environment => ConfigSection::SslCerts,
+                            ConfigSection::RpcTokens => ConfigSection::Environment,
+                            ConfigSection::SslCerts => ConfigSection::RpcTokens,
+                        };
+                        self.selected_index = 0;
+                    }
+                    _ => {
+                        // On other screens, Shift+Tab does nothing
+                    }
+                }
             }
             KeyCode::Char('1') => {
                 self.current_screen = Screen::Services;
@@ -830,17 +968,53 @@ impl App {
                 self.update_dashboard_for_current_screen();
             }
             KeyCode::Char('2') => {
-                self.current_screen = Screen::Profiles;
-                self.selected_index = 0;
-                self.update_dashboard_for_current_screen();
-            }
-            KeyCode::Char('3') => {
                 self.current_screen = Screen::Wallets;
                 self.selected_index = 0;
                 self.update_dashboard_for_current_screen();
             }
+            KeyCode::Char('3') => {
+                self.current_screen = Screen::Watch;
+                self.selected_index = 0;
+                self.update_dashboard_for_current_screen();
+                // Initialize watch monitor and start background polling if not already initialized
+                if self.watch_monitor.is_none() {
+                    if let Ok(monitor) = crate::core::l2_monitor::TransactionMonitor::new_sync() {
+                        let monitor_arc = std::sync::Arc::new(monitor);
+                        self.watch_monitor = Some(monitor_arc.clone());
+
+                        // Spawn background polling task for Watch screen
+                        let watch_tx_tx = self.watch_transactions_tx.clone();
+                        let watch_stats_tx = self.watch_stats_tx.clone();
+                        tokio::spawn(async move {
+                            let mut poll_interval = tokio::time::interval(Duration::from_secs(1));
+                            let mut l1_interval = tokio::time::interval(Duration::from_secs(10));
+
+                            loop {
+                                tokio::select! {
+                                    _ = poll_interval.tick() => {
+                                        // Poll for new transactions
+                                        if let Ok(new_txs) = monitor_arc.poll_new_transactions().await {
+                                            if !new_txs.is_empty() {
+                                                let _ = watch_tx_tx.send(new_txs);
+                                            }
+                                        }
+
+                                        // Get current statistics
+                                        let stats = monitor_arc.get_statistics().await;
+                                        let _ = watch_stats_tx.send(stats);
+                                    }
+                                    _ = l1_interval.tick() => {
+                                        // Update L1 data periodically
+                                        let _ = monitor_arc.update_l1_data().await;
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }
+            }
             KeyCode::Char('4') => {
-                self.current_screen = Screen::RpcTokens;
+                self.current_screen = Screen::Logs;
                 self.selected_index = 0;
                 self.update_dashboard_for_current_screen();
             }
@@ -849,27 +1023,39 @@ impl App {
                 self.selected_index = 0;
                 self.update_dashboard_for_current_screen();
             }
-            KeyCode::Char('6') => {
-                self.current_screen = Screen::Ssl;
-                self.selected_index = 0;
-                self.update_dashboard_for_current_screen();
-            }
-            KeyCode::Char('7') => {
-                self.current_screen = Screen::Logs;
-                self.selected_index = 0;
-                self.update_dashboard_for_current_screen();
-            }
             KeyCode::Up | KeyCode::Char('k') => {
+                use event::KeyModifiers;
+
+                // Determine scroll amount based on modifiers
+                let is_ctrl = modifiers.contains(KeyModifiers::CONTROL);
+                let is_shift = modifiers.contains(KeyModifiers::SHIFT);
+
                 // Select transaction in wallet detail view
                 if self.detail_view_wallet.is_some() && !self.detail_wallet_utxos.is_empty() {
                     let current_selection = self.selected_tx_index.unwrap_or(0);
-                    if current_selection > 0 {
+                    if is_ctrl && is_shift {
+                        // Jump to beginning
+                        self.selected_tx_index = Some(0);
+                    } else if is_ctrl {
+                        // Fast scroll up (10 items)
+                        self.selected_tx_index = Some(current_selection.saturating_sub(10));
+                    } else if current_selection > 0 {
+                        // Normal scroll
                         self.selected_tx_index = Some(current_selection - 1);
                     }
                 }
                 // Scroll logs if in logs viewer
                 else if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
-                    self.logs_scroll_offset = self.logs_scroll_offset.saturating_sub(1);
+                    if is_ctrl && is_shift {
+                        // Jump to top
+                        self.logs_scroll_offset = 0;
+                    } else if is_ctrl {
+                        // Fast scroll up (10 lines)
+                        self.logs_scroll_offset = self.logs_scroll_offset.saturating_sub(10);
+                    } else {
+                        // Normal scroll
+                        self.logs_scroll_offset = self.logs_scroll_offset.saturating_sub(1);
+                    }
                 }
                 // Move selection
                 else if self.selected_index > 0 {
@@ -877,6 +1063,12 @@ impl App {
                 }
             }
             KeyCode::Down | KeyCode::Char('j') => {
+                use event::KeyModifiers;
+
+                // Determine scroll amount based on modifiers
+                let is_ctrl = modifiers.contains(KeyModifiers::CONTROL);
+                let is_shift = modifiers.contains(KeyModifiers::SHIFT);
+
                 // Select transaction in wallet detail view
                 if self.detail_view_wallet.is_some() && !self.detail_wallet_utxos.is_empty() {
                     let tx_count = if self.tx_search_mode && !self.filtered_tx_indices.is_empty() {
@@ -885,14 +1077,33 @@ impl App {
                         self.detail_wallet_utxos.len()
                     };
                     let current_selection = self.selected_tx_index.unwrap_or(0);
-                    if current_selection < tx_count.saturating_sub(1) {
+                    let max_idx = tx_count.saturating_sub(1);
+
+                    if is_ctrl && is_shift {
+                        // Jump to end
+                        self.selected_tx_index = Some(max_idx);
+                    } else if is_ctrl {
+                        // Fast scroll down (10 items)
+                        self.selected_tx_index = Some((current_selection + 10).min(max_idx));
+                    } else if current_selection < max_idx {
+                        // Normal scroll
                         self.selected_tx_index = Some(current_selection + 1);
                     }
                 }
                 // Scroll logs if in logs viewer
                 else if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
                     let max_scroll = self.logs_data.len().saturating_sub(10);
-                    self.logs_scroll_offset = (self.logs_scroll_offset + 1).min(max_scroll);
+
+                    if is_ctrl && is_shift {
+                        // Jump to bottom
+                        self.logs_scroll_offset = max_scroll;
+                    } else if is_ctrl {
+                        // Fast scroll down (10 lines)
+                        self.logs_scroll_offset = (self.logs_scroll_offset + 10).min(max_scroll);
+                    } else {
+                        // Normal scroll
+                        self.logs_scroll_offset = (self.logs_scroll_offset + 1).min(max_scroll);
+                    }
                 }
                 // Move selection
                 else {
@@ -921,24 +1132,34 @@ impl App {
                 }
             }
             KeyCode::Char(' ') => {
-                // Space for toggle on Profiles only
-                if self.current_screen == Screen::Profiles {
+                // Space for toggle on Services/Profiles view
+                if self.current_screen == Screen::Services && self.services_view == ServicesView::Profiles {
                     self.handle_action().await?;
                 }
             }
             KeyCode::Char('s') => {
                 // Quick action: Start
                 match self.current_screen {
-                    Screen::Services => self.handle_service_start().await?,
-                    Screen::Profiles => self.handle_profile_start().await?,
+                    Screen::Services => {
+                        if self.services_view == ServicesView::Services {
+                            self.handle_service_start().await?;
+                        } else {
+                            self.handle_profile_start().await?;
+                        }
+                    }
                     _ => {}
                 }
             }
             KeyCode::Char('x') => {
                 // Quick action: Stop
                 match self.current_screen {
-                    Screen::Services => self.handle_service_stop().await?,
-                    Screen::Profiles => self.handle_profile_stop().await?,
+                    Screen::Services => {
+                        if self.services_view == ServicesView::Services {
+                            self.handle_service_stop().await?;
+                        } else {
+                            self.handle_profile_stop().await?;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -951,7 +1172,11 @@ impl App {
             KeyCode::Char('g') => {
                 // Generate tokens / wallets
                 match self.current_screen {
-                    Screen::RpcTokens => self.handle_generate_tokens().await?,
+                    Screen::Config => {
+                        if self.config_section == ConfigSection::RpcTokens {
+                            self.handle_generate_tokens().await?;
+                        }
+                    }
                     Screen::Wallets => self.handle_generate_wallet().await?,
                     _ => {}
                 }
@@ -973,22 +1198,25 @@ impl App {
                 }
             }
             KeyCode::Char('c') => {
-                // Check certificate (SSL) or Clear filter (Logs)
-                if self.current_screen == Screen::Ssl {
+                // Check certificate (SSL) or Clear filter (Logs) or Clear transactions (Watch)
+                if self.current_screen == Screen::Config && self.config_section == ConfigSection::SslCerts {
                     self.handle_ssl_check().await?;
                 } else if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
                     self.logs_filter = None;
                     self.set_status("Filter cleared".to_string());
+                } else if self.current_screen == Screen::Watch {
+                    self.watch_transactions.clear();
+                    self.set_status("Transaction history cleared".to_string());
                 }
             }
             KeyCode::Char('n') => {
                 // Force renewal (reNew)
-                if self.current_screen == Screen::Ssl {
+                if self.current_screen == Screen::Config && self.config_section == ConfigSection::SslCerts {
                     self.handle_ssl_renew().await?;
                 }
             }
             KeyCode::Char('f') => {
-                // Toggle follow mode in logs viewer
+                // Toggle follow mode in logs viewer (or filter toggle in Watch screen)
                 if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
                     self.logs_follow_mode = !self.logs_follow_mode;
                     let msg = if self.logs_follow_mode {
@@ -997,6 +1225,31 @@ impl App {
                         "Follow mode disabled"
                     };
                     self.set_status(msg.to_string());
+                } else if self.current_screen == Screen::Watch {
+                    // Toggle transaction filter in Watch screen
+                    use crate::screens::watch::TransactionFilter;
+                    self.watch_filter = match self.watch_filter {
+                        TransactionFilter::All => TransactionFilter::Transfer,
+                        TransactionFilter::Transfer => TransactionFilter::Contract,
+                        TransactionFilter::Contract => TransactionFilter::Entry,
+                        TransactionFilter::Entry => TransactionFilter::All,
+                    };
+                }
+            }
+            KeyCode::Char('l') => {
+                // Toggle live mode in logs viewer
+                if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
+                    self.logs_live_mode = !self.logs_live_mode;
+
+                    if self.logs_live_mode {
+                        // Start background polling task for logs
+                        self.start_logs_live_mode();
+                        self.set_status("🔴 LIVE mode enabled - logs updating every 1s".to_string());
+                    } else {
+                        // Stop background polling task
+                        self.stop_logs_live_mode();
+                        self.set_status("Live mode disabled".to_string());
+                    }
                 }
             }
             KeyCode::Char('w') => {
@@ -1013,6 +1266,30 @@ impl App {
                     self.logs_filter = Some("INFO".to_string());
                     self.logs_scroll_offset = 0;
                     self.set_status("Filtering: INFO".to_string());
+                }
+            }
+            KeyCode::Char('t') => {
+                // Toggle compact/detailed log view
+                if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
+                    self.logs_compact_mode = !self.logs_compact_mode;
+                    let msg = if self.logs_compact_mode {
+                        "Compact view enabled (time + level + message)"
+                    } else {
+                        "Detailed view enabled (full timestamp + service + level + message)"
+                    };
+                    self.set_status(msg.to_string());
+                }
+            }
+            KeyCode::Char('g') => {
+                // Toggle log grouping by level/module
+                if self.current_screen == Screen::Logs && self.logs_selected_service.is_some() {
+                    self.logs_grouping_enabled = !self.logs_grouping_enabled;
+                    let msg = if self.logs_grouping_enabled {
+                        "Log grouping enabled (group by level/module)"
+                    } else {
+                        "Log grouping disabled (chronological view)"
+                    };
+                    self.set_status(msg.to_string());
                 }
             }
             KeyCode::PageUp => {
@@ -1055,11 +1332,21 @@ impl App {
 
     fn get_max_selection(&self) -> usize {
         match self.current_screen {
-            Screen::Services => self.containers.len().saturating_sub(1),
-            Screen::Profiles => 6, // kaspad, backend, frontend-w1 through w5 = 7 profiles (0-6)
+            Screen::Services => {
+                match self.services_view {
+                    ServicesView::Services => self.containers.len().saturating_sub(1),
+                    ServicesView::Profiles => 6, // kaspad, backend, frontend-w1 through w5 = 7 profiles (0-6)
+                }
+            }
             Screen::Wallets => self.wallets.len().saturating_sub(1),
-            Screen::RpcTokens => 45, // 46 tokens, 0-45
-            Screen::Config => self.config_data.len().saturating_sub(1),
+            Screen::Watch => self.watch_transactions.len().saturating_sub(1),
+            Screen::Config => {
+                match self.config_section {
+                    ConfigSection::Environment => self.config_data.len().saturating_sub(1),
+                    ConfigSection::RpcTokens => 45, // 46 tokens, 0-45
+                    ConfigSection::SslCerts => 0, // No selection in SSL section
+                }
+            }
             Screen::Logs => {
                 if self.logs_selected_service.is_none() {
                     self.containers.len().saturating_sub(1)
@@ -1067,16 +1354,24 @@ impl App {
                     0 // No selection when viewing logs
                 }
             }
-            _ => 0,
         }
     }
 
     async fn handle_action(&mut self) -> Result<()> {
         match self.current_screen {
-            Screen::Services => self.show_service_details().await,
-            Screen::Profiles => self.handle_profile_toggle().await,
+            Screen::Services => {
+                match self.services_view {
+                    ServicesView::Services => self.show_service_details().await,
+                    ServicesView::Profiles => self.handle_profile_toggle().await,
+                }
+            }
             Screen::Wallets => self.show_wallet_details().await,
-            Screen::RpcTokens => self.handle_rpc_action().await,
+            Screen::Config => {
+                match self.config_section {
+                    ConfigSection::RpcTokens => self.handle_rpc_action().await,
+                    _ => Ok(()),
+                }
+            }
             Screen::Logs => self.handle_logs_action().await,
             _ => Ok(()),
         }
@@ -1091,6 +1386,12 @@ impl App {
 
             let service_name = self.containers[self.selected_index].name.clone();
             self.set_status(format!("Loading logs for {}...", service_name));
+
+            // Stop live mode if switching services
+            if self.logs_live_mode {
+                self.logs_live_mode = false;
+                self.stop_logs_live_mode();
+            }
 
             // Load initial logs (last 500 lines)
             match self.docker.get_logs(&service_name, Some(500)).await {
@@ -2085,6 +2386,8 @@ impl App {
         self.dashboard.render(
             frame,
             self.current_screen,
+            self.services_view,
+            self.config_section,
             self.selected_index,
             self.status_message.as_deref(),
             self.edit_mode,
@@ -2096,6 +2399,9 @@ impl App {
             self.logs_selected_service.as_deref(),
             &self.logs_data,
             self.logs_follow_mode,
+            self.logs_compact_mode,
+            self.logs_live_mode,
+            self.logs_grouping_enabled,
             self.logs_filter.as_deref(),
             self.logs_scroll_offset,
             &self.containers,
@@ -2120,6 +2426,99 @@ impl App {
             self.tx_search_mode,
             &self.tx_search_buffer,
             &self.filtered_tx_indices,
+            self.watch_statistics.as_ref(),
+            &self.watch_transactions,
+            &self.watch_filter,
+            self.watch_scroll_offset,
         );
+    }
+
+    /// Start background polling task for logs live mode
+    fn start_logs_live_mode(&mut self) {
+        // Stop any existing task first
+        self.stop_logs_live_mode();
+
+        if let Some(service_name) = self.logs_selected_service.clone() {
+            let docker = self.docker.clone();
+            let logs_tx = self.logs_live_tx.clone();
+
+            let handle = tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(1));
+
+                loop {
+                    interval.tick().await;
+
+                    // Fetch logs
+                    if let Ok(logs) = docker.get_logs(&service_name, Some(500)).await {
+                        let log_lines: Vec<String> = logs.lines().map(|s| s.to_string()).collect();
+                        // Send to main thread (non-blocking send)
+                        if logs_tx.send(log_lines).is_err() {
+                            // Channel closed, stop task
+                            break;
+                        }
+                    }
+                }
+            });
+
+            self.logs_live_task_handle = Some(handle);
+        }
+    }
+
+    /// Stop background polling task for logs live mode
+    fn stop_logs_live_mode(&mut self) {
+        if let Some(handle) = self.logs_live_task_handle.take() {
+            handle.abort();
+        }
+    }
+
+    /// Write a transaction to file in the specified format
+    fn write_transaction_to_file(
+        file: &mut std::fs::File,
+        tx: &crate::core::l2_monitor::TransactionInfo,
+        format: &str,
+    ) -> anyhow::Result<()> {
+        use std::io::Write;
+
+        match format {
+            "json" => {
+                let json = serde_json::to_string(tx)?;
+                writeln!(file, "{}", json)?;
+            }
+            "csv" => {
+                // CSV format
+                writeln!(
+                    file,
+                    "{},{},{},{},{},{},{},{},{},{}",
+                    tx.timestamp.format("%Y-%m-%d %H:%M:%S"),
+                    tx.tx_type,
+                    tx.hash,
+                    tx.from,
+                    tx.to.as_deref().unwrap_or(""),
+                    tx.value_ikas(),
+                    tx.gas_fee_ikas(),
+                    tx.l1_fee.unwrap_or(0.0),
+                    tx.status,
+                    tx.block_number
+                )?;
+            }
+            _ => {
+                // Text format
+                writeln!(file, "[{}] {}", tx.timestamp.format("%H:%M:%S"), tx.tx_type)?;
+                writeln!(file, "  Hash: {}", tx.hash)?;
+                writeln!(file, "  From: {}", tx.from)?;
+                if let Some(ref to) = tx.to {
+                    writeln!(file, "  To:   {}", to)?;
+                }
+                writeln!(file, "  Value: {} iKAS", tx.value_ikas())?;
+                writeln!(file, "  Gas: {} iKAS", tx.gas_fee_ikas())?;
+                if let Some(l1_fee) = tx.l1_fee {
+                    writeln!(file, "  L1 Fee: {} KAS", l1_fee)?;
+                }
+                writeln!(file, "  Status: {}", if tx.status { "Success" } else { "Failed" })?;
+                writeln!(file)?;
+            }
+        }
+
+        Ok(())
     }
 }

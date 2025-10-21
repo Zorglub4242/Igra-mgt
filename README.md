@@ -2,7 +2,7 @@
 
 A comprehensive terminal-based management tool for IGRA Orchestra node operators. Built with Rust for performance, reliability, and single-binary distribution.
 
-![IGRA CLI Dashboard](https://img.shields.io/badge/version-0.2.0-blue) ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange) ![License](https://img.shields.io/badge/license-MIT-green)
+![IGRA CLI Dashboard](https://img.shields.io/badge/version-0.6.5-blue) ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Overview
 
@@ -24,7 +24,13 @@ The IGRA CLI is a powerful terminal user interface (TUI) that provides real-time
 - **Network I/O**: Monitor network traffic (RX/TX) for each service
 - **Color-Coded Alerts**: Red (>80%), Yellow (>60%) for resource warnings
 - **Service Control**: Start, stop, restart services directly from TUI
-- **Interactive Logs**: Real-time log viewer with auto-scroll
+- **Enhanced Log Viewer**:
+  - **Intelligent parsing**: Supports multiple log formats (block-builder, viaduct, execution-layer/reth)
+  - **Smart grouping**: Groups consecutive logs by level and module
+  - **Fast scrolling**: Ctrl+Up/Down for 10-line jumps, Ctrl+Shift+Up/Down to jump to top/bottom
+  - **ANSI stripping**: Removes color codes for clean parsing
+  - **Message truncation**: Prevents wrapping of long structured log messages
+  - **Real-time updates**: Auto-refresh with follow mode
 
 #### 🔍 Search & Filter
 - **Universal Search**: Press `/` to search on Services, Wallets, Config screens
@@ -146,12 +152,18 @@ igra-cli
 
 The TUI will open with the Services screen. Use the following keys:
 
-- **Arrow Keys** / **j/k**: Navigate lists
-- **Tab** / **Number Keys**: Switch screens
+- **Left/Right Arrows**: Navigate between main screens (Services ↔ Wallets ↔ Watch ↔ Logs ↔ Config)
+- **Tab**: Switch sub-views within screens (e.g., Services ↔ Profiles)
+- **Up/Down Arrows** / **j/k**: Navigate lists
+- **Ctrl+Up/Down**: Fast scroll (10 lines at a time)
+- **Ctrl+Shift+Up/Down**: Jump to beginning/end
+- **Number Keys (1-7)**: Direct screen access
 - **Enter**: Select / Activate
 - **r**: Restart selected service
 - **s**: Stop service
 - **d**: View detailed logs
+- **g**: Toggle log grouping
+- **l**: Toggle live mode
 - **?**: Show help
 - **q**: Quit
 

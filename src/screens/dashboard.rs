@@ -4,7 +4,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap},
+    widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, Wrap},
     Frame,
 };
 
@@ -13,7 +13,337 @@ use crate::core::docker::{ContainerInfo, ContainerStats};
 use crate::core::wallet::WalletInfo;
 use crate::core::ssl::CertificateInfo;
 use crate::core::reth_metrics::RethMetrics;
+use crate::core::l2_monitor::{Statistics, TransactionInfo, TransactionType};
+use crate::screens::watch::TransactionFilter;
 use std::collections::HashMap;
+
+/// Parsed Docker Compose log line components
+#[derive(Debug, Clone)]
+struct ParsedLogLine {
+    timestamp: String,      // Full timestamp: "2025-10-21T08:48:40Z"
+    service: String,        // Service name from Docker: "viaduct"
+    module_path: String,    // Rust module path: "viaduct::uni_storage"
+    module_short: String,   // Last segment: "uni_storage"
+    level: LogLevel,        // Detected log level
+    message: String,        // Clean message without bracketed prefix
+    raw_line: String,       // Original line for fallback
+}
+
+/// Log level enum for consistent handling
+#[derive(Debug, Clone, PartialEq)]
+enum LogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+    Unknown,
+}
+
+impl LogLevel {
+    fn from_str(s: &str) -> Self {
+        let upper = s.to_uppercase();
+        if upper.contains("ERROR") {
+            LogLevel::Error
+        } else if upper.contains("WARN") {
+            LogLevel::Warn
+        } else if upper.contains("INFO") {
+            LogLevel::Info
+        } else if upper.contains("DEBUG") {
+            LogLevel::Debug
+        } else if upper.contains("TRACE") {
+            LogLevel::Trace
+        } else {
+            LogLevel::Unknown
+        }
+    }
+
+    fn to_string(&self) -> &str {
+        match self {
+            LogLevel::Error => "ERROR",
+            LogLevel::Warn => "WARN ",
+            LogLevel::Info => "INFO ",
+            LogLevel::Debug => "DEBUG",
+            LogLevel::Trace => "TRACE",
+            LogLevel::Unknown => "     ",
+        }
+    }
+
+    fn color(&self) -> Color {
+        match self {
+            LogLevel::Error => Color::Red,
+            LogLevel::Warn => Color::Yellow,
+            LogLevel::Info => Color::Cyan,
+            LogLevel::Debug => Color::Gray,
+            LogLevel::Trace => Color::DarkGray,
+            LogLevel::Unknown => Color::White,
+        }
+    }
+}
+
+/// Parse a Docker Compose log line into components
+/// Handles Rust env_logger format: "service | [YYYY-MM-DDTHH:MM:SSZ LEVEL module::path] message"
+/// Strip ANSI escape codes from a string
+fn strip_ansi_codes(s: &str) -> String {
+    // Match ANSI escape sequences: ESC [ ... m
+    let ansi_regex = regex::Regex::new(r"\x1b\[[0-9;]*m").unwrap();
+    ansi_regex.replace_all(s, "").to_string()
+}
+
+fn parse_docker_log_line(line: &str) -> ParsedLogLine {
+    let raw_line = line.to_string();
+
+    // Try to split on first pipe (service separator)
+    if let Some(pipe_idx) = line.find('|') {
+        let service = line[..pipe_idx].trim().to_string();
+        let rest_with_ansi = line[pipe_idx + 1..].trim();
+
+        // Strip ANSI color codes that docker adds
+        let rest_cleaned = strip_ansi_codes(rest_with_ansi);
+        let rest = rest_cleaned.as_str();
+
+        // Try to match bracketed Rust log format: [timestamp LEVEL module::path] message
+        let bracketed_regex = regex::Regex::new(
+            r"^\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)\s+(ERROR|WARN|INFO|DEBUG|TRACE)\s+([^\]]+)\]\s*(.*)$"
+        ).unwrap();
+
+        if let Some(caps) = bracketed_regex.captures(rest) {
+            let timestamp = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let level_str = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            let mut module_path = caps.get(3).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+            let mut message = caps.get(4).map(|m| m.as_str().to_string()).unwrap_or_default();
+
+            // Handle block-builder format: "module::path: src/file.rs:line"
+            // The file path is in the module_path capture, but the actual message is already in the message capture
+            // We just need to strip the file path from module_path
+            if let Some(colon_pos) = module_path.find(": ") {
+                // Check if what follows the colon looks like a file path
+                let after_colon = &module_path[colon_pos + 2..];
+                if after_colon.starts_with("src/") || after_colon.starts_with("/") {
+                    // Strip everything from the colon onwards (the file path annotation)
+                    module_path = module_path[..colon_pos].trim().to_string();
+                }
+            }
+
+            // Extract short module name (last segment after ::)
+            let module_short = module_path.split("::").last().unwrap_or(&module_path).to_string();
+
+            let level = match level_str {
+                "ERROR" => LogLevel::Error,
+                "WARN" => LogLevel::Warn,
+                "INFO" => LogLevel::Info,
+                "DEBUG" => LogLevel::Debug,
+                "TRACE" => LogLevel::Trace,
+                _ => LogLevel::Unknown,
+            };
+
+            return ParsedLogLine {
+                timestamp,
+                service,
+                module_path,
+                module_short,
+                level,
+                message,
+                raw_line,
+            };
+        }
+
+        // Try non-bracketed format: "HH:MM:SS LEVEL module::path: src/file.rs:line: message"
+        // This is what block-builder outputs
+        let nonbracketed_regex = regex::Regex::new(
+            r"^(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(ERROR|WARN|INFO|DEBUG|TRACE)\s+(.+)$"
+        ).unwrap();
+
+        if let Some(caps) = nonbracketed_regex.captures(rest) {
+            let time_only = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let level_str = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            let remainder = caps.get(3).map(|m| m.as_str().trim()).unwrap_or("");
+
+            // Parse remainder: "module::path: src/file.rs:line: message"
+            let (module_path, message) = if let Some(colon_pos) = remainder.find(": ") {
+                let before_colon = &remainder[..colon_pos];
+                let after_colon = &remainder[colon_pos + 2..];
+
+                // Check if this looks like "module: src/file" pattern
+                if after_colon.starts_with("src/") || after_colon.starts_with("/") {
+                    // Find the next ": " which separates file path from message
+                    if let Some(msg_pos) = after_colon.find(": ") {
+                        (before_colon.to_string(), after_colon[msg_pos + 2..].to_string())
+                    } else {
+                        (before_colon.to_string(), String::new())
+                    }
+                } else {
+                    // It's "module: message" format
+                    (before_colon.to_string(), after_colon.to_string())
+                }
+            } else {
+                (String::new(), remainder.to_string())
+            };
+
+            let module_short = module_path.split("::").last().unwrap_or(&module_path).to_string();
+
+            let level = match level_str {
+                "ERROR" => LogLevel::Error,
+                "WARN" => LogLevel::Warn,
+                "INFO" => LogLevel::Info,
+                "DEBUG" => LogLevel::Debug,
+                "TRACE" => LogLevel::Trace,
+                _ => LogLevel::Unknown,
+            };
+
+            return ParsedLogLine {
+                timestamp: time_only,
+                service,
+                module_path,
+                module_short,
+                level,
+                message,
+                raw_line,
+            };
+        }
+
+        // Fallback: Try ISO timestamp + LEVEL + target: message format (execution-layer/reth logs)
+        // Example: "2025-10-21T10:37:06.342076Z  INFO reth_node_events::node: Canonical chain committed"
+        let iso_format_regex = regex::Regex::new(
+            r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)\s+(ERROR|WARN|INFO|DEBUG|TRACE)\s+(.+)$"
+        ).unwrap();
+
+        if let Some(caps) = iso_format_regex.captures(rest) {
+            let iso_timestamp = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let level_str = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            let remainder = caps.get(3).map(|m| m.as_str().trim()).unwrap_or("");
+
+            // Parse remainder: "module::path: message"
+            // Note: We already captured the LEVEL, so remainder should be "module: message"
+            let (module_path, message) = if let Some(colon_pos) = remainder.find(": ") {
+                let before_colon = &remainder[..colon_pos];
+                let after_colon = &remainder[colon_pos + 2..];
+                (before_colon.to_string(), after_colon.to_string())
+            } else {
+                (String::new(), remainder.to_string())
+            };
+
+            let module_short = module_path.split("::").last().unwrap_or(&module_path).to_string();
+
+            let level = match level_str {
+                "ERROR" => LogLevel::Error,
+                "WARN" => LogLevel::Warn,
+                "INFO" => LogLevel::Info,
+                "DEBUG" => LogLevel::Debug,
+                "TRACE" => LogLevel::Trace,
+                _ => LogLevel::Unknown,
+            };
+
+            return ParsedLogLine {
+                timestamp: iso_timestamp,
+                service,
+                module_path,
+                module_short,
+                level,
+                message,
+                raw_line,
+            };
+        }
+
+        // Final fallback: Just extract timestamp if present
+        let simple_timestamp_regex = regex::Regex::new(
+            r"^(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)"
+        ).unwrap();
+
+        if let Some(ts_match) = simple_timestamp_regex.find(rest) {
+            let timestamp = ts_match.as_str().to_string();
+            let after_ts = rest[ts_match.end()..].trim();
+            let level = LogLevel::from_str(after_ts);
+
+            return ParsedLogLine {
+                timestamp,
+                service,
+                module_path: String::new(),
+                module_short: String::new(),
+                level,
+                message: after_ts.to_string(),
+                raw_line,
+            };
+        }
+
+        // No timestamp found, treat everything as message
+        ParsedLogLine {
+            timestamp: String::new(),
+            service,
+            module_path: String::new(),
+            module_short: String::new(),
+            level: LogLevel::from_str(rest),
+            message: rest.to_string(),
+            raw_line,
+        }
+    } else {
+        // No pipe separator, raw log line
+        ParsedLogLine {
+            timestamp: String::new(),
+            service: String::new(),
+            module_path: String::new(),
+            module_short: String::new(),
+            level: LogLevel::from_str(line),
+            message: line.to_string(),
+            raw_line,
+        }
+    }
+}
+
+/// Format timestamp for compact display (HH:MM:SS)
+fn format_timestamp_compact(timestamp: &str) -> String {
+    // Extract time portion from ISO 8601: "2025-10-21T10:28:44.123Z" -> "10:28:44"
+    if let Some(t_idx) = timestamp.find('T') {
+        let time_part = &timestamp[t_idx + 1..];
+        // Get HH:MM:SS, strip milliseconds and timezone
+        if let Some(dot_idx) = time_part.find('.') {
+            time_part[..dot_idx].to_string()
+        } else if let Some(z_idx) = time_part.find('Z') {
+            time_part[..z_idx].to_string()
+        } else {
+            // Take first 8 chars (HH:MM:SS)
+            time_part.chars().take(8).collect()
+        }
+    } else {
+        timestamp.to_string()
+    }
+}
+
+/// Log group for displaying consecutive logs with same level/module
+#[derive(Debug, Clone)]
+struct LogGroup {
+    level: LogLevel,
+    module: String,        // Short module name
+    logs: Vec<ParsedLogLine>,
+}
+
+/// Group consecutive logs by level and module
+fn group_logs_by_level_module(logs: Vec<ParsedLogLine>) -> Vec<LogGroup> {
+    let mut groups: Vec<LogGroup> = Vec::new();
+
+    for log in logs {
+        // Check if we can add to current group (same level and module)
+        let can_add_to_current = groups.last().map(|g| {
+            g.level == log.level && g.module == log.module_short
+        }).unwrap_or(false);
+
+        if can_add_to_current {
+            // Add to existing group
+            if let Some(group) = groups.last_mut() {
+                group.logs.push(log);
+            }
+        } else {
+            // Start new group
+            groups.push(LogGroup {
+                level: log.level.clone(),
+                module: log.module_short.clone(),
+                logs: vec![log],
+            });
+        }
+    }
+
+    groups
+}
 
 pub struct Dashboard {
     pub title: String,
@@ -87,7 +417,7 @@ impl Dashboard {
         self.network = network;
     }
 
-    pub fn render(&self, frame: &mut Frame, current_screen: Screen, selected_index: usize, status_message: Option<&str>, edit_mode: bool, edit_buffer: &str, detail_container: Option<&ContainerInfo>, detail_logs: &[String], system_resources: &SystemResources, show_help: bool, logs_selected_service: Option<&str>, logs_data: &[String], logs_follow_mode: bool, logs_filter: Option<&str>, logs_scroll_offset: usize, containers: &[ContainerInfo], search_mode: bool, search_buffer: &str, filtered_indices: &[usize], show_send_dialog: bool, send_amount: &str, send_address: &str, send_input_field: usize, send_use_wallet_selector: bool, send_selected_wallet_index: usize, send_source_address: &str, wallets: &[crate::core::wallet::WalletInfo], reth_metrics: Option<&RethMetrics>, detail_wallet: Option<&WalletInfo>, detail_wallet_addresses: &[(String, f64, f64)], detail_wallet_utxos: &[crate::core::wallet::UtxoInfo], detail_wallet_scroll: usize, show_tx_detail: bool, selected_tx_index: Option<usize>, tx_search_mode: bool, tx_search_buffer: &str, filtered_tx_indices: &[usize]) {
+    pub fn render(&self, frame: &mut Frame, current_screen: Screen, services_view: crate::app::ServicesView, config_section: crate::app::ConfigSection, selected_index: usize, status_message: Option<&str>, edit_mode: bool, edit_buffer: &str, detail_container: Option<&ContainerInfo>, detail_logs: &[String], system_resources: &SystemResources, show_help: bool, logs_selected_service: Option<&str>, logs_data: &[String], logs_follow_mode: bool, logs_compact_mode: bool, logs_live_mode: bool, logs_grouping_enabled: bool, logs_filter: Option<&str>, logs_scroll_offset: usize, containers: &[ContainerInfo], search_mode: bool, search_buffer: &str, filtered_indices: &[usize], show_send_dialog: bool, send_amount: &str, send_address: &str, send_input_field: usize, send_use_wallet_selector: bool, send_selected_wallet_index: usize, send_source_address: &str, wallets: &[crate::core::wallet::WalletInfo], reth_metrics: Option<&RethMetrics>, detail_wallet: Option<&WalletInfo>, detail_wallet_addresses: &[(String, f64, f64)], detail_wallet_utxos: &[crate::core::wallet::UtxoInfo], detail_wallet_scroll: usize, show_tx_detail: bool, selected_tx_index: Option<usize>, tx_search_mode: bool, tx_search_buffer: &str, filtered_tx_indices: &[usize], watch_stats: Option<&Statistics>, watch_transactions: &[TransactionInfo], watch_filter: &TransactionFilter, watch_scroll_offset: usize) {
         // If showing wallet detail view, render that instead
         if let Some(wallet) = detail_wallet {
             self.render_wallet_detail(frame, wallet, detail_wallet_addresses, detail_wallet_utxos, status_message, detail_wallet_scroll, tx_search_mode, tx_search_buffer, filtered_tx_indices, selected_tx_index);
@@ -267,13 +597,11 @@ impl Dashboard {
 
         // Content area - render based on current screen
         match current_screen {
-            Screen::Services => self.render_services(frame, chunks[2], selected_index, filtered_indices),
-            Screen::Profiles => self.render_profiles(frame, chunks[2], selected_index),
+            Screen::Services => self.render_services(frame, chunks[2], services_view, selected_index, filtered_indices),
             Screen::Wallets => self.render_wallets(frame, chunks[2], selected_index, filtered_indices),
-            Screen::RpcTokens => self.render_rpc_tokens(frame, chunks[2], selected_index),
-            Screen::Config => self.render_config(frame, chunks[2], selected_index, edit_mode, edit_buffer, filtered_indices),
-            Screen::Ssl => self.render_ssl(frame, chunks[2]),
-            Screen::Logs => self.render_logs(frame, chunks[2], logs_selected_service, logs_data, logs_follow_mode, logs_filter, logs_scroll_offset, selected_index, containers),
+            Screen::Watch => self.render_watch(frame, chunks[2], watch_stats, watch_transactions, watch_filter, watch_scroll_offset),
+            Screen::Logs => self.render_logs(frame, chunks[2], logs_selected_service, logs_data, logs_follow_mode, logs_compact_mode, logs_live_mode, logs_grouping_enabled, logs_filter, logs_scroll_offset, selected_index, containers),
+            Screen::Config => self.render_config(frame, chunks[2], config_section, selected_index, edit_mode, edit_buffer, filtered_indices),
         }
 
         // Footer with status message or help
@@ -285,20 +613,17 @@ impl Dashboard {
             "Editing config value - Type to edit | [Enter] Save | [Esc] Cancel".to_string()
         } else {
             match current_screen {
-                Screen::Services => "[↑↓] Select | [Enter] Details | [s]tart | [x]top | [R]estart | [/] Search | [r]efresh | [?] Help | [q]uit".to_string(),
-                Screen::Profiles => "[↑↓] Select | [Enter/Space] Toggle | [s]tart | [x]top | [u]pgrade | [r]efresh | [?] Help | [q]uit".to_string(),
-                Screen::Wallets => "[↑↓] Select | [Enter] Info | [g]enerate | [t]ransfer | [/] Search | [r]efresh | [?] Help | [q]uit".to_string(),
-                Screen::RpcTokens => "[↑↓] Select | [Enter] Test | [g]enerate All | [u]pgrade | [r]efresh | [?] Help | [q]uit".to_string(),
-                Screen::Config => "[↑↓] Select | [e]dit Value | [/] Search | [r]efresh | [?] Help | [q]uit".to_string(),
-                Screen::Ssl => "[c] Check | [n] Force Renewal | [u]pgrade | [r]efresh | [?] Help | [q]uit".to_string(),
+                Screen::Services => "[Tab] Switch view | [← →] Next screen | [↑↓] Select | [Enter] Details | [s]tart | [x]top | [R]estart | [q]uit".to_string(),
+                Screen::Wallets => "[← →] Next screen | [↑↓] Select | [Enter] Info | [g]enerate | [t]ransfer | [/] Search | [r]efresh | [?] Help | [q]uit".to_string(),
+                Screen::Watch => "[← →] Next screen | [↑↓] Scroll | [f] Filter | [r] Record | [?] Help | [q]uit".to_string(),
+                Screen::Config => "[Tab] Switch tab | [← →] Next screen | [↑↓] Select | [e]dit | [g]enerate | [c]heck | [n]ew cert | [q]uit".to_string(),
                 Screen::Logs => {
                     if logs_selected_service.is_some() {
-                        "[↑↓/PgUp/PgDn] Scroll | [e]rror [w]arn [i]nfo [c]lear filter | [f]ollow | [r]efresh | [Esc] back | [?] Help".to_string()
+                        "[← →] Next screen | [↑↓/PgUp/PgDn] Scroll | [l]ive | [f]ollow | [e]rror [w]arn [i]nfo [c]lear | [Esc] back".to_string()
                     } else {
-                        "[↑↓] Select | [Enter] View logs | [?] Help | [q]uit".to_string()
+                        "[← →] Next screen | [↑↓] Select | [Enter] View logs | [?] Help | [q]uit".to_string()
                     }
                 }
-                _ => "[1-7] Screen | [Tab]/[←→] Navigate | [u]pgrade | [r]efresh | [?] Help | [q]uit".to_string(),
             }
         };
 
@@ -324,7 +649,67 @@ impl Dashboard {
         }
     }
 
-    fn render_services(&self, frame: &mut Frame, area: ratatui::layout::Rect, selected_index: usize, filtered_indices: &[usize]) {
+    /// Render a tab bar showing available sub-views with the active one highlighted
+    fn render_tab_bar(&self, tabs: &[(&str, bool)]) -> Paragraph {
+        let mut tab_spans = Vec::new();
+
+        for (i, (tab_name, is_active)) in tabs.iter().enumerate() {
+            if i > 0 {
+                tab_spans.push(Span::raw(" "));
+            }
+
+            if *is_active {
+                // Active tab: inverted colors
+                tab_spans.push(Span::styled(
+                    format!(" {} ", tab_name),
+                    Style::default()
+                        .bg(Color::Blue)
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            } else {
+                // Inactive tab: normal style with brackets
+                tab_spans.push(Span::styled(
+                    format!("[{}]", tab_name),
+                    Style::default().fg(Color::Gray),
+                ));
+            }
+        }
+
+        tab_spans.push(Span::styled(
+            "  Tab to switch",
+            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+        ));
+
+        Paragraph::new(Line::from(tab_spans))
+            .alignment(Alignment::Left)
+    }
+
+    fn render_services(&self, frame: &mut Frame, area: ratatui::layout::Rect, services_view: crate::app::ServicesView, selected_index: usize, filtered_indices: &[usize]) {
+        use crate::app::ServicesView;
+
+        // Split area to add tab bar
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(0)])
+            .split(area);
+
+        // Render tab bar
+        let tabs = [
+            ("Services", services_view == ServicesView::Services),
+            ("Profiles", services_view == ServicesView::Profiles),
+        ];
+        let tab_bar = self.render_tab_bar(&tabs);
+        frame.render_widget(tab_bar, chunks[0]);
+
+        // Delegate to appropriate view based on services_view
+        match services_view {
+            ServicesView::Services => self.render_services_table(frame, chunks[1], selected_index, filtered_indices),
+            ServicesView::Profiles => self.render_profiles(frame, chunks[1], selected_index),
+        }
+    }
+
+    fn render_services_table(&self, frame: &mut Frame, area: ratatui::layout::Rect, selected_index: usize, filtered_indices: &[usize]) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(4), Constraint::Min(0)])
@@ -374,7 +759,7 @@ impl Dashboard {
                 Color::Red
             };
 
-            let health_color = match container.health.as_deref() {
+            let _health_color = match container.health.as_deref() {
                 Some("healthy") => Color::Green,
                 Some("unhealthy") => Color::Red,
                 Some("starting") => Color::Yellow,
@@ -383,10 +768,10 @@ impl Dashboard {
 
             let name = container.name.clone();
             let status = container.status.clone();
-            let health = container.health.as_deref().unwrap_or("N/A").to_string();
+            let _health = container.health.as_deref().unwrap_or("N/A").to_string();
 
             // Get stats if available with color-coding
-            let (cpu_cell, mem_cell, storage_cell, net_rx_text, net_tx_text) = if let Some(stats) = self.container_stats.get(&container.name) {
+            let (cpu_cell, mem_cell, storage_cell, _net_rx_text, _net_tx_text) = if let Some(stats) = self.container_stats.get(&container.name) {
                 // CPU with color coding
                 let cpu_percent = stats.cpu_percent;
                 let cpu_color = if cpu_percent > 80.0 {
@@ -688,6 +1073,158 @@ impl Dashboard {
         frame.render_widget(table, area);
     }
 
+    fn render_watch(&self, frame: &mut Frame, area: ratatui::layout::Rect, stats: Option<&Statistics>, transactions: &[TransactionInfo], filter: &TransactionFilter, _scroll_offset: usize) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(5),  // Stats header
+                Constraint::Min(0),     // Transaction list
+            ])
+            .split(area);
+
+        // Statistics header
+        if let Some(stats) = stats {
+            let stats_text = vec![
+                Line::from(vec![
+                    Span::styled("Block: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format!("#{}", stats.current_block),
+                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw("  │  "),
+                    Span::styled("TPS: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format!("{:.2}", stats.tps()),
+                        Style::default().fg(Color::Yellow),
+                    ),
+                    Span::raw("  │  "),
+                    Span::styled("Uptime: ", Style::default().fg(Color::Gray)),
+                    Span::styled(stats.uptime(), Style::default().fg(Color::Blue)),
+                ]),
+                Line::from(vec![
+                    Span::styled("Total: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format!("{}", stats.total_transactions),
+                        Style::default().fg(Color::White),
+                    ),
+                    Span::raw("  │  "),
+                    Span::styled("Success: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format!("{}", stats.successful_transactions),
+                        Style::default().fg(Color::Green),
+                    ),
+                    Span::raw("  │  "),
+                    Span::styled("Failed: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format!("{}", stats.failed_transactions),
+                        Style::default().fg(Color::Red),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled("L2 Fees: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format!("{:.4} iKAS", stats.total_gas_fees_ikas),
+                        Style::default().fg(Color::Yellow),
+                    ),
+                    Span::raw("  │  "),
+                    Span::styled("L1 Fees: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format!("{:.6} KAS", stats.total_l1_fees_kas),
+                        Style::default().fg(Color::Magenta),
+                    ),
+                    Span::raw(" (node wallet)"),
+                ]),
+            ];
+
+            let stats_block = Paragraph::new(stats_text)
+                .block(Block::default().borders(Borders::ALL).title("Statistics"))
+                .wrap(Wrap { trim: false });
+            frame.render_widget(stats_block, chunks[0]);
+        } else {
+            let connecting = Paragraph::new("Connecting to L2 node...")
+                .block(Block::default().borders(Borders::ALL).title("Statistics"))
+                .style(Style::default().fg(Color::Yellow));
+            frame.render_widget(connecting, chunks[0]);
+        }
+
+        // Transaction list
+        let filtered_txs: Vec<&TransactionInfo> = transactions
+            .iter()
+            .filter(|tx| filter.matches(&tx.tx_type))
+            .collect();
+
+        let items: Vec<ListItem> = filtered_txs
+            .iter()
+            .map(|tx| {
+                let type_color = match tx.tx_type {
+                    TransactionType::Transfer => Color::White,
+                    TransactionType::Contract => Color::Cyan,
+                    TransactionType::Entry => Color::Blue,
+                    TransactionType::Unknown => Color::Gray,
+                };
+
+                let status_symbol = if tx.status { "✓" } else { "✗" };
+                let status_color = if tx.status { Color::Green } else { Color::Red };
+
+                let mut lines = vec![
+                    Line::from(vec![
+                        Span::styled(
+                            format!("[{}] ", tx.timestamp.format("%H:%M:%S")),
+                            Style::default().fg(Color::Gray),
+                        ),
+                        Span::styled(
+                            format!("{}", tx.tx_type),
+                            Style::default().fg(type_color).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::raw("  "),
+                        Span::styled(status_symbol, Style::default().fg(status_color)),
+                    ]),
+                    Line::from(vec![
+                        Span::raw("  Hash: "),
+                        Span::styled(tx.hash.chars().take(16).collect::<String>() + "...", Style::default().fg(Color::Gray)),
+                    ]),
+                ];
+
+                lines.push(Line::from(vec![
+                    Span::raw("  Value: "),
+                    Span::styled(
+                        format!("{:.4} iKAS", tx.value_ikas()),
+                        Style::default().fg(Color::Green),
+                    ),
+                    Span::raw("  │  Gas: "),
+                    Span::styled(
+                        format!("{:.6} iKAS", tx.gas_fee_ikas()),
+                        Style::default().fg(Color::Magenta),
+                    ),
+                ]));
+
+                if let Some(l1_fee) = tx.l1_fee {
+                    lines.push(Line::from(vec![
+                        Span::raw("  L1 Fee: "),
+                        Span::styled(
+                            format!("{:.6} KAS", l1_fee),
+                            Style::default().fg(Color::Yellow),
+                        ),
+                    ]));
+                }
+
+                ListItem::new(lines)
+            })
+            .collect();
+
+        let filter_text = match filter {
+            TransactionFilter::All => "All",
+            TransactionFilter::Transfer => "Transfer",
+            TransactionFilter::Contract => "Contract",
+            TransactionFilter::Entry => "Entry",
+        };
+
+        let list = List::new(items)
+            .block(Block::default().borders(Borders::ALL).title(format!("Transactions - Filter: {} ({} shown)", filter_text, filtered_txs.len())));
+
+        frame.render_widget(list, chunks[1]);
+    }
+
     fn render_rpc_tokens(&self, frame: &mut Frame, area: ratatui::layout::Rect, selected_index: usize) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -742,7 +1279,33 @@ impl Dashboard {
         frame.render_widget(table, chunks[1]);
     }
 
-    fn render_config(&self, frame: &mut Frame, area: ratatui::layout::Rect, selected_index: usize, edit_mode: bool, edit_buffer: &str, filtered_indices: &[usize]) {
+    fn render_config(&self, frame: &mut Frame, area: ratatui::layout::Rect, config_section: crate::app::ConfigSection, selected_index: usize, edit_mode: bool, edit_buffer: &str, filtered_indices: &[usize]) {
+        use crate::app::ConfigSection;
+
+        // Split area to add tab bar
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(0)])
+            .split(area);
+
+        // Render tab bar
+        let tabs = [
+            ("Environment", config_section == ConfigSection::Environment),
+            ("RPC Tokens", config_section == ConfigSection::RpcTokens),
+            ("SSL Certificates", config_section == ConfigSection::SslCerts),
+        ];
+        let tab_bar = self.render_tab_bar(&tabs);
+        frame.render_widget(tab_bar, chunks[0]);
+
+        // Delegate to appropriate tab based on config_section
+        match config_section {
+            ConfigSection::Environment => self.render_config_environment(frame, chunks[1], selected_index, edit_mode, edit_buffer, filtered_indices),
+            ConfigSection::RpcTokens => self.render_rpc_tokens(frame, chunks[1], selected_index),
+            ConfigSection::SslCerts => self.render_ssl(frame, chunks[1]),
+        }
+    }
+
+    fn render_config_environment(&self, frame: &mut Frame, area: ratatui::layout::Rect, selected_index: usize, edit_mode: bool, edit_buffer: &str, filtered_indices: &[usize]) {
         let header = Row::new(vec!["Key", "Value"])
             .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
             .bottom_margin(1);
@@ -889,7 +1452,7 @@ impl Dashboard {
         frame.render_widget(paragraph, area);
     }
 
-    fn render_logs(&self, frame: &mut Frame, area: ratatui::layout::Rect, selected_service: Option<&str>, logs_data: &[String], follow_mode: bool, filter: Option<&str>, scroll_offset: usize, selected_index: usize, containers: &[ContainerInfo]) {
+    fn render_logs(&self, frame: &mut Frame, area: ratatui::layout::Rect, selected_service: Option<&str>, logs_data: &[String], follow_mode: bool, compact_mode: bool, live_mode: bool, grouping_enabled: bool, filter: Option<&str>, scroll_offset: usize, selected_index: usize, containers: &[ContainerInfo]) {
         // If no service selected, show service list
         if selected_service.is_none() {
             let chunks = Layout::default()
@@ -952,14 +1515,20 @@ impl Dashboard {
             } else {
                 String::new()
             };
-            let follow_text = if follow_mode { " | FOLLOW MODE" } else { "" };
+            let follow_text = if follow_mode { " | FOLLOW" } else { "" };
+            let live_text = if live_mode { " | 🔴 LIVE" } else { "" };
+            let view_text = if compact_mode { " | Compact" } else { " | Detailed" };
+            let group_text = if grouping_enabled { " | Grouped" } else { "" };
 
             let header_text = format!(
-                "Service: {} | Lines: {}{}{}",
+                "Service: {} | Lines: {}{}{}{}{}{}",
                 selected_service.unwrap_or("N/A"),
                 logs_data.len(),
                 filter_text,
-                follow_text
+                follow_text,
+                live_text,
+                view_text,
+                group_text
             );
 
             let header = Paragraph::new(header_text)
@@ -967,42 +1536,205 @@ impl Dashboard {
                 .block(Block::default().borders(Borders::ALL).title("Log Viewer"));
             frame.render_widget(header, chunks[0]);
 
-            // Filter and render logs
-            let filtered_logs: Vec<&String> = if let Some(filter_level) = filter {
-                logs_data.iter().filter(|line| {
-                    line.to_uppercase().contains(filter_level)
-                }).collect()
-            } else {
-                logs_data.iter().collect()
-            };
-
-            // Apply scroll offset and get visible logs
-            let visible_logs: Vec<Line> = filtered_logs
+            // Parse all logs first
+            let parsed_logs: Vec<ParsedLogLine> = logs_data
                 .iter()
-                .skip(scroll_offset)
-                .take(chunks[1].height as usize - 2) // Account for borders
-                .map(|log| {
-                    let style = if log.contains("ERROR") || log.contains("error") {
-                        Style::default().fg(Color::Red)
-                    } else if log.contains("WARN") || log.contains("warn") {
-                        Style::default().fg(Color::Yellow)
-                    } else if log.contains("INFO") || log.contains("info") {
-                        Style::default().fg(Color::Cyan)
-                    } else {
-                        Style::default().fg(Color::White)
-                    };
-                    Line::from(Span::styled(log.as_str(), style))
-                })
+                .map(|line| parse_docker_log_line(line))
                 .collect();
 
-            let logs_widget = Paragraph::new(visible_logs)
+            // Filter logs if filter is set
+            let filtered_logs: Vec<ParsedLogLine> = if let Some(filter_level) = filter {
+                parsed_logs.into_iter().filter(|log| {
+                    log.raw_line.to_uppercase().contains(filter_level)
+                }).collect()
+            } else {
+                parsed_logs
+            };
+
+            // Group or render chronologically based on setting
+            let mut visible_lines: Vec<Line> = Vec::new();
+            let max_lines = chunks[1].height as usize - 2; // Account for borders
+            let total_logs = filtered_logs.len(); // Save count before move
+
+            if grouping_enabled {
+                // Group logs by level/module
+                let groups = group_logs_by_level_module(filtered_logs);
+
+                let mut line_count = 0;
+                let mut skip_count = scroll_offset;
+
+                for group in groups {
+                    if line_count >= max_lines {
+                        break;
+                    }
+
+                    let logs_count = group.logs.len();
+                    let level_text = group.level.to_string();
+                    let level_color = group.level.color();
+
+                    // Group header: [LEVEL] module:
+                    if skip_count == 0 {
+                        let module_text = if !group.module.is_empty() {
+                            format!(" {}:", group.module)
+                        } else {
+                            String::new()
+                        };
+
+                        visible_lines.push(Line::from(vec![
+                            Span::styled(
+                                format!("[{}]", level_text),
+                                Style::default()
+                                    .fg(Color::Black)
+                                    .bg(level_color)
+                                    .add_modifier(Modifier::BOLD)
+                            ),
+                            Span::styled(module_text, Style::default().fg(Color::Gray)),
+                        ]));
+                        line_count += 1;
+                    } else {
+                        skip_count -= 1;
+                    }
+
+                    // Group items
+                    for (idx, log) in group.logs.into_iter().enumerate() {
+                        if line_count >= max_lines {
+                            break;
+                        }
+
+                        if skip_count > 0 {
+                            skip_count -= 1;
+                            continue;
+                        }
+
+                        let time = if !log.timestamp.is_empty() {
+                            format_timestamp_compact(&log.timestamp)
+                        } else {
+                            "        ".to_string()
+                        };
+
+                        let prefix = if idx == logs_count - 1 {
+                            "  └─ "
+                        } else {
+                            "  ├─ "
+                        };
+
+                        let level_color = log.level.color();
+
+                        // Truncate long messages to prevent wrapping
+                        const MAX_MESSAGE_LEN: usize = 120;
+                        let message = if log.message.len() > MAX_MESSAGE_LEN {
+                            format!("{}...", &log.message[..MAX_MESSAGE_LEN])
+                        } else {
+                            log.message.clone()
+                        };
+
+                        visible_lines.push(Line::from(vec![
+                            Span::styled(prefix, Style::default().fg(Color::DarkGray)),
+                            Span::styled(time, Style::default().fg(Color::DarkGray)),
+                            Span::raw(" "),
+                            Span::styled(message, Style::default().fg(level_color)),
+                        ]));
+                        line_count += 1;
+                    }
+                }
+            } else {
+                // Chronological view (no grouping)
+                for log in filtered_logs.iter().skip(scroll_offset).take(max_lines) {
+                    if compact_mode {
+                        // Compact: "HH:MM:SS [LEVEL] module: message"
+                        let time = if !log.timestamp.is_empty() {
+                            format_timestamp_compact(&log.timestamp)
+                        } else {
+                            "        ".to_string()
+                        };
+
+                        let level_text = log.level.to_string();
+                        let level_color = log.level.color();
+                        let module_text = if !log.module_short.is_empty() {
+                            format!(" {}:", log.module_short)
+                        } else {
+                            String::new()
+                        };
+
+                        // Truncate long messages to prevent wrapping
+                        const MAX_MESSAGE_LEN: usize = 120;
+                        let message = if log.message.len() > MAX_MESSAGE_LEN {
+                            format!("{}...", &log.message[..MAX_MESSAGE_LEN])
+                        } else {
+                            log.message.clone()
+                        };
+
+                        visible_lines.push(Line::from(vec![
+                            Span::styled(time, Style::default().fg(Color::DarkGray)),
+                            Span::raw(" "),
+                            Span::styled(
+                                format!("[{}]", level_text),
+                                Style::default()
+                                    .fg(Color::Black)
+                                    .bg(level_color)
+                                    .add_modifier(Modifier::BOLD)
+                            ),
+                            Span::styled(module_text, Style::default().fg(Color::Gray)),
+                            Span::raw(" "),
+                            Span::styled(message, Style::default().fg(level_color)),
+                        ]));
+                    } else {
+                        // Detailed: "YYYY-MM-DD HH:MM:SS [service] [module] [LEVEL] message"
+                        let timestamp = if !log.timestamp.is_empty() {
+                            log.timestamp.clone()
+                        } else {
+                            "                           ".to_string()
+                        };
+
+                        let level_text = log.level.to_string();
+                        let level_color = log.level.color();
+
+                        let mut spans = vec![
+                            Span::styled(timestamp, Style::default().fg(Color::DarkGray)),
+                            Span::raw(" "),
+                        ];
+
+                        if !log.service.is_empty() {
+                            spans.push(Span::styled(format!("[{}]", log.service), Style::default().fg(Color::Blue)));
+                            spans.push(Span::raw(" "));
+                        }
+
+                        if !log.module_path.is_empty() {
+                            spans.push(Span::styled(format!("[{}]", log.module_path), Style::default().fg(Color::Cyan)));
+                            spans.push(Span::raw(" "));
+                        }
+
+                        spans.push(Span::styled(
+                            format!("[{}]", level_text),
+                            Style::default()
+                                .fg(Color::Black)
+                                .bg(level_color)
+                                .add_modifier(Modifier::BOLD)
+                        ));
+                        spans.push(Span::raw(" "));
+
+                        // Truncate long messages to prevent wrapping
+                        const MAX_MESSAGE_LEN: usize = 120;
+                        let message = if log.message.len() > MAX_MESSAGE_LEN {
+                            format!("{}...", &log.message[..MAX_MESSAGE_LEN])
+                        } else {
+                            log.message.clone()
+                        };
+                        spans.push(Span::styled(message, Style::default().fg(level_color)));
+
+                        visible_lines.push(Line::from(spans));
+                    }
+                }
+            }
+
+            let logs_widget = Paragraph::new(visible_lines)
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .title(format!("Logs (showing {}-{} of {})",
-                            scroll_offset.min(filtered_logs.len()),
-                            (scroll_offset + chunks[1].height as usize).min(filtered_logs.len()),
-                            filtered_logs.len()
+                        .title(format!("Logs (showing {}-{} of {}) | 't'=toggle view, 'l'=live, 'g'=group",
+                            scroll_offset.min(total_logs),
+                            (scroll_offset + max_lines).min(total_logs),
+                            total_logs
                         ))
                 )
                 .wrap(Wrap { trim: false });
@@ -1243,20 +1975,58 @@ impl Dashboard {
             2  // Logs are in chunk 2 when no metrics
         };
 
-        // Logs section
-        let log_lines: Vec<Line> = logs.iter().rev().take(100).rev().map(|log| {
-            let style = if log.contains("ERROR") || log.contains("error") {
-                Style::default().fg(Color::Red)
-            } else if log.contains("WARN") || log.contains("warn") {
-                Style::default().fg(Color::Yellow)
-            } else {
-                Style::default().fg(Color::White)
-            };
-            Line::from(Span::styled(log.as_str(), style))
-        }).collect();
+        // Logs section - Parse and group logs
+        let parsed_logs: Vec<ParsedLogLine> = logs.iter()
+            .rev()
+            .take(100)
+            .rev()
+            .map(|log| parse_docker_log_line(log))
+            .collect();
+
+        let groups = group_logs_by_level_module(parsed_logs);
+        let mut log_lines: Vec<Line> = Vec::new();
+
+        for group in groups {
+            // Group header: [LEVEL] module:
+            let level_text = group.level.to_string();
+            let level_color = group.level.color();
+            let module_text = format!(" {}", group.module);
+
+            log_lines.push(Line::from(vec![
+                Span::styled(
+                    format!("[{}]", level_text),
+                    Style::default().fg(Color::Black).bg(level_color).add_modifier(Modifier::BOLD)
+                ),
+                Span::styled(module_text, Style::default().fg(Color::Gray)),
+            ]));
+
+            // Group items with tree characters
+            let logs_count = group.logs.len();
+            for (idx, log) in group.logs.into_iter().enumerate() {
+                let prefix = if idx == logs_count - 1 { "  └─ " } else { "  ├─ " };
+                let time = format_timestamp_compact(&log.timestamp);
+
+                // Truncate long messages to prevent wrapping
+                const MAX_MESSAGE_LEN: usize = 120;
+                let message = if log.message.len() > MAX_MESSAGE_LEN {
+                    format!("{}...", &log.message[..MAX_MESSAGE_LEN])
+                } else {
+                    log.message.clone()
+                };
+
+                let level_color = log.level.color();
+
+                log_lines.push(Line::from(vec![
+                    Span::styled(prefix, Style::default().fg(Color::DarkGray)),
+                    Span::styled(time, Style::default().fg(Color::DarkGray)),
+                    Span::raw(" "),
+                    Span::styled(message, Style::default().fg(level_color)),
+                ]));
+            }
+        }
 
         let logs_widget = Paragraph::new(log_lines)
-            .block(Block::default().borders(Borders::ALL).title(format!("Recent Logs (last {} lines)", logs.len())))
+            .block(Block::default().borders(Borders::ALL).title(format!("Recent Logs (grouped, last {} lines)", logs.len())))
             .wrap(Wrap { trim: false });
 
         frame.render_widget(logs_widget, chunks[logs_chunk_idx]);
@@ -1305,16 +2075,17 @@ impl Dashboard {
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
+            Line::from(Span::styled("Global Navigation:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+            Line::from("  [1-5]          Jump to screen (1=Services, 2=Wallets, 3=Watch, 4=Logs, 5=Config)"),
+            Line::from("  [← →]          Next/Previous screen (1↔2↔3↔4↔5)"),
+            Line::from("  [Tab]          Switch sub-views (Services/Config screens only)"),
+            Line::from("  [↑ ↓]          Select items / scroll lists"),
+            Line::from(""),
             Line::from(Span::styled("Global Commands:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
             Line::from("  [?] / [F1]     Toggle this help screen"),
-            Line::from("  [q] / [Esc]    Quit application"),
+            Line::from("  [q]            Quit application"),
             Line::from("  [r]            Refresh data"),
             Line::from("  [u]            Upgrade (pull latest Docker images)"),
-            Line::from("  [1-7]          Jump to screen (1=Services, 2=Profiles, 3=Wallets, etc.)"),
-            Line::from("  [Tab] / [→]    Next screen"),
-            Line::from("  [Shift+Tab] / [←]  Previous screen"),
-            Line::from("  [↑] / [k]      Move selection up"),
-            Line::from("  [↓] / [j]      Move selection down"),
             Line::from(""),
         ];
 
@@ -1322,17 +2093,17 @@ impl Dashboard {
         match current_screen {
             Screen::Services => {
                 help_text.push(Line::from(Span::styled("Services Screen:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+                help_text.push(Line::from("  [Tab]          Switch between Services and Profiles views"));
+                help_text.push(Line::from(""));
+                help_text.push(Line::from(Span::styled("Services View:", Style::default().fg(Color::Cyan))));
                 help_text.push(Line::from("  [Enter]        View service details and logs"));
                 help_text.push(Line::from("  [s]            Start selected service"));
                 help_text.push(Line::from("  [x]            Stop selected service"));
                 help_text.push(Line::from("  [R]            Restart selected service"));
                 help_text.push(Line::from("  [/]            Search/filter services"));
-            }
-            Screen::Profiles => {
-                help_text.push(Line::from(Span::styled("Profiles Screen:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
-                help_text.push(Line::from("  [Enter]/[Space] Toggle profile on/off"));
-                help_text.push(Line::from("  [s]            Start selected profile"));
-                help_text.push(Line::from("  [x]            Stop selected profile"));
+                help_text.push(Line::from(""));
+                help_text.push(Line::from(Span::styled("Profiles View:", Style::default().fg(Color::Cyan))));
+                help_text.push(Line::from("  [Enter]        Start selected profile (service group)"));
             }
             Screen::Wallets => {
                 help_text.push(Line::from(Span::styled("Wallets Screen:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
@@ -1348,20 +2119,28 @@ impl Dashboard {
                 help_text.push(Line::from("  [Esc] / [q]    Return to wallet list"));
                 help_text.push(Line::from("  [r]            Refresh wallet data"));
             }
-            Screen::RpcTokens => {
-                help_text.push(Line::from(Span::styled("RPC Tokens Screen:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
-                help_text.push(Line::from("  [Enter]        Test RPC endpoint"));
-                help_text.push(Line::from("  [g]            Generate all RPC tokens"));
+            Screen::Watch => {
+                help_text.push(Line::from(Span::styled("Watch Screen:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+                help_text.push(Line::from("  [↑↓] / [j/k]   Scroll through transactions"));
+                help_text.push(Line::from("  [f]            Filter transactions (All/Transfer/Contract/Entry)"));
+                help_text.push(Line::from("  [r]            Start/stop recording transactions"));
+                help_text.push(Line::from("  [c]            Clear transaction history"));
             }
             Screen::Config => {
                 help_text.push(Line::from(Span::styled("Configuration Screen:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+                help_text.push(Line::from("  [Tab]          Cycle tabs (Environment ↔ RPC Tokens ↔ SSL Certificates)"));
+                help_text.push(Line::from(""));
+                help_text.push(Line::from(Span::styled("Environment Tab:", Style::default().fg(Color::Cyan))));
                 help_text.push(Line::from("  [e]            Edit selected config value"));
                 help_text.push(Line::from("  [Enter]        Save changes (when editing)"));
                 help_text.push(Line::from("  [Esc]          Cancel edit (when editing)"));
                 help_text.push(Line::from("  [/]            Search/filter config keys"));
-            }
-            Screen::Ssl => {
-                help_text.push(Line::from(Span::styled("SSL Certificates Screen:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+                help_text.push(Line::from(""));
+                help_text.push(Line::from(Span::styled("RPC Tokens Tab:", Style::default().fg(Color::Cyan))));
+                help_text.push(Line::from("  [Enter]        Test RPC endpoint"));
+                help_text.push(Line::from("  [g]            Generate all RPC tokens"));
+                help_text.push(Line::from(""));
+                help_text.push(Line::from(Span::styled("SSL Certificates Tab:", Style::default().fg(Color::Cyan))));
                 help_text.push(Line::from("  [c]            Check certificate status"));
                 help_text.push(Line::from("  [n]            Force renewal (restart Traefik)"));
             }
