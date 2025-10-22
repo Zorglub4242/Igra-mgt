@@ -12,6 +12,51 @@ The IGRA CLI is a powerful terminal user interface (TUI) that provides real-time
 
 ### ✅ Fully Implemented
 
+#### 🌐 Web Management UI (NEW in v0.10.0)
+- **Browser-based Interface**: Modern React web UI for remote management
+- **Real-time Monitoring**: Auto-refreshing service status, wallets, and metrics
+- **System Dashboard**: CPU, RAM, Disk, OS info in header
+- **Service Management**: Start, stop, restart services with one click
+- **Profile Controls**: Manage service profiles (kaspad, backend, frontend)
+- **Wallet Viewer**: Full wallet addresses with copy button, balance tracking, fees display
+- **Transaction History**: View UTXO history when clicking on wallet
+- **Storage Monitor**: Docker volumes, images, containers with cleanup tools
+- **Monitoring Integration**: Embedded Grafana dashboard for metrics
+- **Log Viewer**: Real-time service logs with WebSocket streaming
+- **Token Authentication**: Secure API with `IGRA_WEB_TOKEN` environment variable
+- **CORS Support**: Enable cross-origin requests with `--cors` flag
+- **Embedded Assets**: Single binary includes full web UI
+
+**Web Server Usage:**
+```bash
+# Start web server (localhost only, with auth)
+IGRA_WEB_TOKEN=your-secret-token igra-cli serve
+
+# Start web server accessible from network
+IGRA_WEB_TOKEN=your-secret-token igra-cli serve --host 0.0.0.0 --port 3000 --cors
+
+# Access web UI
+# Open browser: http://your-server:3000
+# Login with your IGRA_WEB_TOKEN
+```
+
+**API Endpoints:**
+- `GET /api/services` - List all Docker services
+- `POST /api/services/:name/start` - Start a service
+- `POST /api/services/:name/stop` - Stop a service
+- `POST /api/services/:name/restart` - Restart a service
+- `GET /api/services/:name/logs` - Get service logs
+- `GET /api/profiles` - List compose profiles
+- `POST /api/profiles/:name/start` - Start a profile
+- `POST /api/profiles/:name/stop` - Stop a profile
+- `GET /api/wallets` - List all wallets with balances and fees
+- `GET /api/wallets/:id/detail` - Get wallet transaction history (UTXOs)
+- `GET /api/storage` - Get storage information
+- `GET /api/system` - Get system resources (CPU, RAM, disk, OS)
+- `GET /api/config` - Get configuration
+- `GET /api/health` - Health check
+- `GET /ws/logs/:service` - WebSocket log stream
+
 #### 🖥️ Interactive TUI Dashboard
 - **8 Full-Featured Screens**: Services, Wallets, Watch, Config, Storage, and more
 - **Real-time Updates**: 2-second refresh for live monitoring
@@ -206,6 +251,9 @@ igra-cli watch --filter entry
 
 # Record transactions to file
 igra-cli watch --record transactions.json --format json
+
+# Run Web Management UI (NEW in v0.10.0)
+igra-cli serve --host 0.0.0.0 --port 3000 --cors
 ```
 
 ## Usage Guide
@@ -426,6 +474,71 @@ Interactive real-time log viewer with auto-scroll and search
 ---
 
 ## Changelog
+
+### v0.10.0 (2025-10-22) - Web Management UI
+
+**Major New Feature: Browser-Based Management Interface** 🌐
+
+**Web UI Features:**
+- 🎨 **Modern React Interface**: Clean, responsive design with dark theme
+- 📊 **Real-time Dashboard**: Auto-refreshing every 5 seconds
+- 🖥️ **System Info Header**: Node ID, CPU model, RAM, Disk, OS, Network displayed prominently
+- 🐳 **Service Management**:
+  - View all Docker services grouped by profile (kaspad, backend, frontend-w1-5)
+  - Start/Stop/Restart services with confirmation dialogs
+  - View service metrics (CPU, memory, storage, network)
+  - Service-specific metrics preserved between refreshes (no flickering)
+  - Live service status with health badges
+  - One-click log viewer per service
+- 📦 **Profile Controls**: Start/Stop entire profiles with active status indicators
+- 💼 **Wallet Management**:
+  - Full wallet addresses (not truncated) with copy-to-clipboard button
+  - Current balance, initial balance, and fees spent displayed
+  - Click wallet row to view full transaction history
+  - Transaction detail modal with UTXO information
+  - Sortable by timestamp (most recent first)
+  - Source addresses and coinbase detection
+- 💾 **Storage Monitor**: View Docker volumes, images, containers with sizes
+- 📊 **Transactions Panel**: View L2 transaction activity
+- 🔍 **Monitoring**: Full-screen embedded Grafana dashboard
+- 🔒 **Security**: Token-based authentication with `IGRA_WEB_TOKEN`
+- 🌐 **CORS Support**: Optional cross-origin requests for development
+
+**Backend Improvements:**
+- ✅ **Code Reuse**: Web API endpoints reuse existing CLI business logic
+  - `WalletManager::list_wallets()` for wallet data
+  - `WalletManager::get_utxos()` for transaction history
+  - `App::collect_system_resources()` for system metrics
+- ✅ **Efficient Architecture**: No duplication of Docker/wallet operations
+- ✅ **Serialization**: Made core structs (`WalletInfo`, `UtxoInfo`, `SystemResources`) JSON-serializable
+- ✅ **New Endpoints**: `/api/system`, `/api/wallets/:id/detail` for enhanced functionality
+- ✅ **Static Asset Embedding**: Full React app embedded in single binary using `rust-embed`
+
+**Web Server Options:**
+```bash
+# Basic usage (localhost only)
+IGRA_WEB_TOKEN=secret igra-cli serve
+
+# Network accessible
+IGRA_WEB_TOKEN=secret igra-cli serve --host 0.0.0.0 --port 3000 --cors
+
+Options:
+  -p, --port <PORT>  Port to listen on [default: 3000]
+      --host <HOST>  Host to bind to [default: 127.0.0.1]
+      --cors         Enable CORS for cross-origin requests
+```
+
+**Technical Stack:**
+- Frontend: React 18 + Vite
+- Backend: Axum HTTP server with Rust
+- Authentication: Token-based with middleware
+- Static assets: Embedded via `rust-embed` crate
+- WebSocket: Real-time log streaming
+
+**Breaking Changes:**
+- None - Web UI is optional, TUI remains unchanged
+
+---
 
 ### v0.9.1 (2025-10-22) - Code Review Fixes
 

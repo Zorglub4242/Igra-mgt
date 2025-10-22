@@ -76,13 +76,7 @@ pub struct ServiceInfo {
     is_healthy_metric: bool,
 }
 
-#[derive(Serialize)]
-pub struct WalletInfo {
-    id: usize,
-    address: Option<String>,
-    balance: Option<String>,
-    container_status: String,
-}
+// WalletInfo is now imported from crate::core::wallet module
 
 #[derive(Deserialize)]
 pub struct LogsQuery {
@@ -298,33 +292,12 @@ pub async fn get_logs_parsed(
 // Wallet Handlers
 // ============================================================================
 
-pub async fn get_wallets() -> Result<Json<ApiResponse<Vec<WalletInfo>>>, StatusCode> {
+pub async fn get_wallets() -> Result<Json<ApiResponse<Vec<crate::core::wallet::WalletInfo>>>, StatusCode> {
     let wallet_manager = WalletManager::new()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let docker = DockerManager::new().await
+    let wallets = wallet_manager.list_wallets().await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let mut wallets = Vec::new();
-
-    for i in 0..5 {
-        let address = wallet_manager.get_address(i).await.ok();
-        let balance = wallet_manager.get_balance(i).await.ok().map(|b| format!("{:.2}", b));
-
-        let container_name = format!("kaswallet-{}", i);
-        let status = docker.get_container(&container_name).await
-            .ok()
-            .flatten()
-            .map(|c| c.status)
-            .unwrap_or_else(|| "not found".to_string());
-
-        wallets.push(WalletInfo {
-            id: i,
-            address,
-            balance,
-            container_status: status,
-        });
-    }
 
     Ok(Json(ApiResponse::ok(wallets)))
 }
@@ -339,6 +312,18 @@ pub async fn get_wallet_balance(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ApiResponse::ok(format!("{:.2} KAS", balance))))
+}
+
+pub async fn get_wallet_detail(
+    Path(id): Path<usize>,
+) -> Result<Json<ApiResponse<Vec<crate::core::wallet::UtxoInfo>>>, StatusCode> {
+    let wallet_manager = WalletManager::new()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let utxos = wallet_manager.get_utxos(id).await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(ApiResponse::ok(utxos)))
 }
 
 // ============================================================================
@@ -406,29 +391,14 @@ pub async fn get_config() -> Result<Json<ApiResponse<HashMap<String, String>>>, 
     let config_manager = ConfigManager::load_from_project()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let mut config = config_manager.to_map();
-
-    // Add system information
-    let mut sys = System::new_all();
-    sys.refresh_all();
-
-    // Get node_id from config or use "Unknown"
-    let node_id = config.get("NODE_ID").map(|s| s.as_str()).unwrap_or("Unknown");
-    config.insert("node_id".to_string(), node_id.to_string());
-
-    // Get network from config
-    let network = config.get("NETWORK").map(|s| s.as_str()).unwrap_or("Unknown");
-    config.insert("network".to_string(), network.to_string());
-
-    // Get CPU info
-    if let Some(cpu) = sys.cpus().first() {
-        config.insert("cpu_info".to_string(), cpu.brand().to_string());
-    }
-
-    // Get total memory in bytes
-    config.insert("total_memory".to_string(), sys.total_memory().to_string());
+    let config = config_manager.to_map();
 
     Ok(Json(ApiResponse::ok(config)))
+}
+
+pub async fn get_system_info() -> Result<Json<ApiResponse<crate::app::SystemResources>>, StatusCode> {
+    let system_resources = crate::app::App::collect_system_resources();
+    Ok(Json(ApiResponse::ok(system_resources)))
 }
 
 #[derive(Serialize)]

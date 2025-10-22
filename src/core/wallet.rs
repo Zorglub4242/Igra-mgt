@@ -19,7 +19,7 @@ pub struct WalletManager {
     project_root: std::path::PathBuf,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct WalletInfo {
     pub worker_id: usize,
     pub address: Option<String>,
@@ -29,7 +29,7 @@ pub struct WalletInfo {
     pub fees_spent: Option<f64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct UtxoInfo {
     pub address: String,
     pub tx_id: String,

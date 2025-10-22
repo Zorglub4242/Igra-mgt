@@ -67,7 +67,7 @@ impl Screen {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct SystemResources {
     pub cpu_percent: f32,
     pub memory_used_gb: f32,
@@ -428,7 +428,7 @@ impl App {
         })
     }
 
-    fn collect_system_resources() -> SystemResources {
+    pub fn collect_system_resources() -> SystemResources {
         use sysinfo::{System, Disks, CpuRefreshKind, RefreshKind};
         use std::process::Command;
 
