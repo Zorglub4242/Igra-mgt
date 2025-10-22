@@ -1,708 +1,188 @@
 # IGRA Orchestra CLI
 
-A comprehensive terminal-based management tool for IGRA Orchestra node operators. Built with Rust for performance, reliability, and single-binary distribution.
+A comprehensive management tool for IGRA Orchestra node operators. Built with Rust for performance, reliability, and single-binary distribution.
 
-![IGRA CLI Dashboard](https://img.shields.io/badge/version-0.9.1-blue) ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange) ![License](https://img.shields.io/badge/license-MIT-green)
+![IGRA CLI Dashboard](https://img.shields.io/badge/version-0.10.0-blue) ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Overview
 
-The IGRA CLI is a powerful terminal user interface (TUI) that provides real-time monitoring and management of your IGRA Orchestra node infrastructure. It replaces multiple Docker and CLI commands with an intuitive, keyboard-driven interface.
+`igra-cli` provides both a terminal user interface (TUI) and a modern web-based UI for real-time monitoring and management of your IGRA Orchestra node infrastructure. It replaces multiple Docker and CLI commands with intuitive, easy-to-use interfaces.
 
 ## Features
 
-### ✅ Fully Implemented
+### 🌐 Web Management UI (v0.10.0)
+- Browser-based remote management with modern React interface
+- Real-time monitoring with auto-refresh
+- Service control (start, stop, restart) with one click
+- Wallet viewer with balances and transaction history
+- Storage monitoring with Docker cleanup tools
+- Real-time log streaming via WebSocket
+- Token-based authentication
+- Single binary deployment with embedded assets
 
-#### 🌐 Web Management UI (NEW in v0.10.0)
-- **Browser-based Interface**: Modern React web UI for remote management
-- **Real-time Monitoring**: Auto-refreshing service status, wallets, and metrics
-- **System Dashboard**: CPU, RAM, Disk, OS info in header
-- **Service Management**: Start, stop, restart services with one click
-- **Profile Controls**: Manage service profiles (kaspad, backend, frontend)
-- **Wallet Viewer**: Full wallet addresses with copy button, balance tracking, fees display
-- **Transaction History**: View UTXO history when clicking on wallet
-- **Storage Monitor**: Docker volumes, images, containers with cleanup tools
-- **Monitoring Integration**: Embedded Grafana dashboard for metrics
-- **Log Viewer**: Real-time service logs with WebSocket streaming
-- **Token Authentication**: Secure API with `IGRA_WEB_TOKEN` environment variable
-- **CORS Support**: Enable cross-origin requests with `--cors` flag
-- **Embedded Assets**: Single binary includes full web UI
+### 🖥️ Terminal User Interface (TUI)
+- 8 full-featured screens for comprehensive management
+- Real-time updates every 2 seconds
+- Keyboard-driven navigation
+- Service monitoring with resource metrics
+- Enhanced log viewer with intelligent parsing
+- Storage analysis and disk monitoring
+- Configuration management
 
-**Web Server Usage:**
-```bash
-# Start web server (localhost only)
-IGRA_WEB_TOKEN=your-secret-token igra-cli serve
+## Quick Start
 
-# Start web server accessible from network
-IGRA_WEB_TOKEN=your-secret-token igra-cli serve --host 0.0.0.0 --port 3000 --cors
+### Install
 
-# Access web UI
-# Open browser: http://your-server:3000
-# Enter your IGRA_WEB_TOKEN to login
-```
-
-**Running as a System Service:**
-
-Create a systemd service file to run the web server automatically:
-
-```bash
-# Create service file
-sudo nano /etc/systemd/system/igra-web.service
-```
-
-Service file content:
-```ini
-[Unit]
-Description=IGRA Orchestra Web Management Interface
-After=network.target docker.service
-Requires=docker.service
-
-[Service]
-Type=simple
-User=your-username
-WorkingDirectory=/path/to/igra-orchestra-public
-Environment="IGRA_WEB_TOKEN=your-secret-token"
-ExecStart=/usr/local/bin/igra-cli serve --host 0.0.0.0 --port 3000 --cors
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start the service:
-```bash
-# Reload systemd
-sudo systemctl daemon-reload
-
-# Enable service to start on boot
-sudo systemctl enable igra-web
-
-# Start the service
-sudo systemctl start igra-web
-
-# Check status
-sudo systemctl status igra-web
-
-# View logs
-sudo journalctl -u igra-web -f
-```
-
-**API Endpoints:**
-- `GET /api/services` - List all Docker services
-- `POST /api/services/:name/start` - Start a service
-- `POST /api/services/:name/stop` - Stop a service
-- `POST /api/services/:name/restart` - Restart a service
-- `GET /api/services/:name/logs` - Get service logs
-- `GET /api/profiles` - List compose profiles
-- `POST /api/profiles/:name/start` - Start a profile
-- `POST /api/profiles/:name/stop` - Stop a profile
-- `GET /api/wallets` - List all wallets with balances and fees
-- `GET /api/wallets/:id/detail` - Get wallet transaction history (UTXOs)
-- `GET /api/storage` - Get storage information
-- `GET /api/system` - Get system resources (CPU, RAM, disk, OS)
-- `GET /api/config` - Get configuration
-- `GET /api/health` - Health check
-- `GET /ws/logs/:service` - WebSocket log stream
-
-#### 🖥️ Interactive TUI Dashboard
-- **8 Full-Featured Screens**: Services, Wallets, Watch, Config, Storage, and more
-- **Real-time Updates**: 2-second refresh for live monitoring
-- **Keyboard Navigation**: Arrow keys, Tab, numbers for screen switching
-- **Help System**: Press `?` on any screen for context-sensitive help
-
-#### 📊 Service Monitoring & Management
-- **Container Status**: View all running services with health status
-- **Resource Metrics**: Real-time CPU, Memory, Disk usage per container
-- **Network I/O**: Monitor network traffic (RX/TX) for each service
-- **Color-Coded Alerts**: Red (>80%), Yellow (>60%) for resource warnings
-- **Service Control**: Start, stop, restart services directly from TUI
-- **Enhanced Log Viewer** (NEW in v0.7.0):
-  - **High-performance rendering**: Parse-once architecture (100× faster scrolling)
-  - **Live mode**: Auto-refresh every 250ms with automatic viewport scroll
-  - **Intelligent parsing**: Supports multiple log formats (block-builder, viaduct, execution-layer/reth)
-  - **Dual display modes**: Toggle between grouped (by level/module) and chronological views
-  - **Level filtering**: Filter by Error, Warn, Info, Debug, Trace
-  - **Smart scrolling**:
-    - Arrow keys: 5 lines
-    - Ctrl+Arrow: 50 lines
-    - PageUp/PageDown: 100 lines
-    - Ctrl+Shift+Up/Down: Jump to top/bottom
-  - **Ultra-compact layout**: Single-line title bar maximizes log viewing space
-  - **Visual indicators**: Live mode status, scroll position, filter info in title
-  - **Rolling buffer**: 10,000 line buffer with automatic trimming
-
-#### 🔍 Search & Filter
-- **Universal Search**: Press `/` to search on Services, Wallets, Config screens
-- **Real-time Filtering**: Results highlight as you type
-- **Smart Matching**: Search by name, status, image, address, or configuration keys
-
-#### 💼 Wallet Management
-- **Address Display**: View wallet addresses from keys files
-- **Multi-Wallet Support**: kaswallet-0 through kaswallet-4
-- **Container Status**: Track which wallet services are running
-- **Transaction UI**: Send dialog interface (requires gRPC integration)
-
-#### 🔐 RPC & SSL Management
-- **Token Listing**: View all RPC access tokens with endpoints
-- **SSL Certificate Info**: Check Let's Encrypt certificate status and expiry
-- **DNS Configuration**: View DNS-01 challenge settings
-
-#### ⚙️ Configuration Management
-- **Environment Variables**: View all .env configuration
-- **Validation**: Check for missing or invalid settings
-- **Search**: Find specific config keys quickly
-
-#### 💾 Storage Analysis (NEW in v0.8.0)
-- **Comprehensive Monitoring**: System disk, Docker images, volumes, containers, build cache
-- **Volume Details**: All Docker volumes with size, status, and critical marking
-- **Growth Prediction**: 90-day historical tracking with trend analysis
-- **Capacity Alerts**: Visual warnings for approaching disk limits
-- **Cleanup Tools**: One-key pruning of build cache and unused images
-- **Scrollable Lists**: Navigate through all volumes with arrow keys
-- **Space Reclamation**: Track and report freed space after cleanup
-
-#### 📈 System Monitoring
-- **Global Metrics**: System-wide CPU, Memory, Disk usage in header
-- **Container Stats**: Per-service resource consumption
-- **Health Checks**: Docker health check status for all services
-
-### 🚧 Requires Additional Integration
-
-- **Wallet Balances**: Needs kaswallet-daemon gRPC API integration
-- **Send Transactions**: Requires kaswallet-daemon gRPC API
-- **RPC Token Generation**: Automated token creation
-- **Backup/Restore**: Automated backup functionality
-
-## Installation
-
-### Prerequisites
-
-- **Docker** 23.0+ with Docker Compose V2
-- **IGRA Orchestra** repository cloned
-- **Rust** 1.70+ (only required if building from source)
-
-### Option 1: Binary Release (Recommended)
-
-Download pre-built binaries from [GitHub Releases](https://github.com/Zorglub4242/Igra-mgt/releases):
-
-**Linux (x86_64):**
 ```bash
 # Download latest release
 wget https://github.com/Zorglub4242/Igra-mgt/releases/latest/download/igra-cli-linux-x86_64.tar.gz
-
-# Extract
 tar -xzf igra-cli-linux-x86_64.tar.gz
-
-# Install
 sudo mv igra-cli /usr/local/bin/
 sudo chmod +x /usr/local/bin/igra-cli
 ```
 
-**Windows (x86_64):**
-```powershell
-# Download from releases page
-# https://github.com/Zorglub4242/Igra-mgt/releases/latest/download/igra-cli-windows-x86_64.zip
-
-# Extract and add to PATH
-# Move igra-cli.exe to a directory in your PATH
-```
-
-**macOS (Intel/Apple Silicon):**
-```bash
-# Download from releases page
-wget https://github.com/Zorglub4242/Igra-mgt/releases/latest/download/igra-cli-macos-universal.tar.gz
-
-# Extract
-tar -xzf igra-cli-macos-universal.tar.gz
-
-# Install
-sudo mv igra-cli /usr/local/bin/
-sudo chmod +x /usr/local/bin/igra-cli
-```
-
-### Option 2: Build from Source
-
-```bash
-# Clone the repository
-git clone https://github.com/Zorglub4242/Igra-mgt.git
-cd Igra-mgt
-
-# Build and install
-./build.sh
-sudo ./install.sh
-```
-
-### Option 3: Manual Build
-
-```bash
-# Build release binary
-cargo build --release
-
-# Install to system path
-sudo cp target/release/igra-cli /usr/local/bin/
-```
-
-### Verify Installation
-
-```bash
-igra-cli --version
-```
-
-## Quick Start
+For other platforms and installation methods, see **[Installation Guide](docs/installation.md)**.
 
 ### Launch the TUI
 
 ```bash
-# From your IGRA Orchestra directory
 cd ~/igra-orchestra-public
 igra-cli
 ```
 
-The TUI will open with the Services screen. Use the following keys:
+Use arrow keys to navigate, `?` for help, `q` to quit.
 
-- **Left/Right Arrows**: Navigate between main screens (Services ↔ Wallets ↔ Watch ↔ Logs ↔ Config)
-- **Tab**: Switch sub-views within screens (e.g., Services ↔ Profiles)
-- **Up/Down Arrows** / **j/k**: Navigate lists
-- **Ctrl+Up/Down**: Fast scroll (10 lines at a time)
-- **Ctrl+Shift+Up/Down**: Jump to beginning/end
-- **Number Keys (1-7)**: Direct screen access
-- **Enter**: Select / Activate
-- **r**: Restart selected service
-- **s**: Stop service
-- **d**: View detailed logs
-- **g**: Toggle log grouping
-- **l**: Toggle live mode
-- **?**: Show help
-- **q**: Quit
+See **[TUI Guide](docs/tui-guide.md)** for keyboard shortcuts and features.
 
-### CLI Commands
+### Launch the Web UI
 
 ```bash
+# Start web server
+IGRA_WEB_TOKEN=your-secret-token igra-cli serve --host 0.0.0.0 --port 3000 --cors
+
+# Open browser: http://your-server:3000
+# Login with your IGRA_WEB_TOKEN
+```
+
+See **[Web UI Guide](docs/web-ui.md)** for features and systemd service setup.
+
+## Documentation
+
+- **[Installation Guide](docs/installation.md)** - Prerequisites, installation options, verification
+- **[Web UI Guide](docs/web-ui.md)** - Web interface features, server usage, API endpoints
+- **[TUI Guide](docs/tui-guide.md)** - Terminal interface screens, keyboard shortcuts
+- **[Configuration Guide](docs/configuration.md)** - Environment variables, security best practices
+- **[Architecture](docs/architecture.md)** - Technology stack, project structure, data flow
+- **[Development Guide](docs/development.md)** - Building from source, contributing
+- **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
+- **[Changelog](docs/changelog.md)** - Version history and release notes
+
+## Screenshots
+
+### TUI Dashboard
+![Services Screen](https://via.placeholder.com/800x400?text=TUI+Services+Screen)
+
+### Web UI
+![Web Dashboard](https://via.placeholder.com/800x400?text=Web+Management+UI)
+
+## Key Features
+
+### Service Management
+- Monitor Docker container status and health
+- Real-time CPU, memory, and network metrics
+- Start, stop, restart services
+- View detailed logs with filtering
+
+### Wallet Management
+- Display wallet addresses from key files
+- View balances and transaction fees
+- Transaction history (UTXO details)
+- Multi-wallet support (kaswallet-0 through kaswallet-4)
+
+### Storage Monitoring
+- System disk usage tracking
+- Docker volumes, images, containers breakdown
+- Growth prediction and capacity alerts
+- One-click cleanup tools
+
+### Configuration
+- View all environment variables
+- Configuration validation
+- Search functionality
+
+## Requirements
+
+- **Docker** 23.0+ with Docker Compose V2
+- **IGRA Orchestra** repository with valid `.env` file
+- **Rust** 1.70+ (only for building from source)
+
+## CLI Commands
+
+```bash
+# Launch TUI
+igra-cli
+
+# Start web server
+igra-cli serve [OPTIONS]
+
 # View service status
 igra-cli status
 
-# Start services by profile
-igra-cli start --profile backend
-
 # View logs
-igra-cli logs viaduct -n 100
+igra-cli logs <service> [OPTIONS]
 
-# View configuration
-igra-cli config view
-
-# Watch L2 transactions in real-time
-igra-cli watch
-
-# Watch with filtering
-igra-cli watch --filter entry
-
-# Record transactions to file
-igra-cli watch --record transactions.json --format json
-
-# Run Web Management UI (NEW in v0.10.0)
-igra-cli serve --host 0.0.0.0 --port 3000 --cors
-```
-
-## Usage Guide
-
-See [USER_GUIDE.md](USER_GUIDE.md) for comprehensive documentation including:
-
-- Detailed screen-by-screen walkthrough
-- Keyboard shortcuts reference
-- Common workflows and tasks
-- Troubleshooting guide
-- Advanced features
-
-## TUI Screens
-
-| Screen | Key | Description |
-|--------|-----|-------------|
-| Services | `1` | Monitor and manage Docker containers |
-| Profiles | `2` | Start services by profile groups |
-| Wallets | `3` | View wallet addresses and balances |
-| RPC Tokens | `4` | Manage RPC access tokens |
-| SSL Info | `5` | Check SSL certificates and DNS |
-| Config | `6` | View environment configuration |
-| Logs | `7` | Real-time log viewer |
-
-## Configuration
-
-The CLI automatically discovers your IGRA Orchestra installation by searching for `docker-compose.yml` in the current directory and parent directories.
-
-**Recommended Setup:**
-```bash
-# Run from IGRA Orchestra root
-cd ~/igra-orchestra-public
-igra-cli
-```
-
-**Environment Variables:**
-- Configuration is read from `.env` in the project root
-- Wallet keys are read from `keys/keys.kaswallet-*.json`
-
-## Architecture
-
-### Technology Stack
-
-- **Language**: Rust 2021 Edition
-- **TUI Framework**: [Ratatui](https://github.com/ratatui-org/ratatui) v0.26
-- **Terminal Backend**: [Crossterm](https://github.com/crossterm-rs/crossterm) v0.27
-- **Docker SDK**: [Bollard](https://github.com/fussybeaver/bollard) v0.16
-- **Async Runtime**: [Tokio](https://tokio.rs/)
-
-### Project Structure
-
-```
-src/
-├── main.rs              # CLI entry point and command handlers
-├── cli.rs               # Command-line argument parsing
-├── app.rs               # TUI application state and event handling
-├── core/                # Core business logic
-│   ├── docker.rs        # Docker API operations
-│   ├── config.rs        # Configuration management
-│   ├── wallet.rs        # Wallet operations
-│   ├── rpc.rs           # RPC token management
-│   ├── ssl.rs           # SSL certificate checking
-│   ├── backup.rs        # Backup procedures (manual)
-│   ├── health.rs        # Health check documentation
-│   └── metrics.rs       # Metrics collection documentation
-├── screens/
-│   ├── mod.rs           # Screen implementations
-│   └── dashboard.rs     # TUI rendering logic
-├── widgets/
-│   └── mod.rs           # Widget documentation
-└── utils/
-    ├── constants.rs     # Service definitions
-    └── helpers.rs       # Utility functions
+# Show help
+igra-cli --help
 ```
 
 ## Development
 
-### Build Commands
+To build from source:
 
 ```bash
-# Debug build
-cargo build
+git clone https://github.com/Zorglub4242/Igra-mgt.git
+cd Igra-mgt
 
-# Release build (optimized)
+# Build Rust binary
 cargo build --release
 
-# Run tests
-cargo test
-
-# Format code
-cargo fmt
-
-# Lint
-cargo clippy
+# Build with Web UI
+cd igra-web-ui && npm install && npm run build && cd ..
+cargo build --release --features server
 ```
 
-### Adding Features
-
-1. **New Screens**: Add to `src/screens/dashboard.rs` and update `Screen` enum in `app.rs`
-2. **Core Logic**: Add modules to `src/core/`
-3. **CLI Commands**: Update `src/cli.rs` and add handlers to `main.rs`
-4. **Service Definitions**: Modify `src/utils/constants.rs`
-
-## Troubleshooting
-
-### Docker Connection Issues
-
-```bash
-# Check Docker daemon
-docker ps
-
-# Add user to docker group
-sudo usermod -aG docker $USER
-# Log out and back in
-```
-
-### Project Root Not Found
-
-```bash
-# Ensure you're in IGRA Orchestra directory
-cd ~/igra-orchestra-public
-igra-cli
-
-# Or specify path
-cd /path/to/igra-orchestra-public && igra-cli
-```
-
-### Wallet Shows "N/A"
-
-- **Addresses**: Requires `keys/keys.kaswallet-*.json` file
-- **Balances**: Requires kaswallet-daemon gRPC integration (not yet implemented)
-
-### Binary Already Running
-
-```bash
-# If getting "text file busy" during install
-sudo systemctl stop igra-cli  # if running as service
-# Or kill the running process
-sudo killall igra-cli
-./install.sh
-```
-
-## Performance
-
-- **Binary Size**: ~8MB (release build, stripped)
-- **Memory Usage**: ~10-20MB typical
-- **CPU Usage**: <1% idle, ~5% during intensive operations
-- **Startup Time**: <100ms
-
-## Roadmap
-
-### v0.3.0 (Planned)
-- gRPC integration for kaswallet-daemon (balance, transactions)
-- RPC token generation and testing
-- Configuration editing in TUI
-- Enhanced log filtering and search
-
-### v0.4.0 (Planned)
-- Automated backup/restore functionality
-- Upgrade manager with version comparison
-- Performance graphs and historical metrics
-- Alert notifications
-
-### v1.0.0 (Future)
-- Complete feature parity with manual operations
-- Comprehensive test coverage
-- Official stable release
+See **[Development Guide](docs/development.md)** for detailed instructions.
 
 ## Contributing
 
 Contributions are welcome! Please:
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create a feature branch
+3. Make your changes
+4. Run tests: `cargo test`
+5. Submit a Pull Request
 
-### Code Standards
+See **[Development Guide](docs/development.md)** for coding standards and guidelines.
 
-- Follow Rust naming conventions
-- Run `cargo fmt` before committing
-- Ensure `cargo clippy` passes
-- Add documentation for public APIs
+## Troubleshooting
+
+Having issues? Check the **[Troubleshooting Guide](docs/troubleshooting.md)** for common problems and solutions.
+
+For additional help:
+- [Open an issue](https://github.com/Zorglub4242/Igra-mgt/issues)
+- Check [existing issues](https://github.com/Zorglub4242/Igra-mgt/issues)
 
 ## License
 
-MIT License - see LICENSE file for details
-
-## Support & Community
-
-- **Issues**: [GitHub Issues](https://github.com/Zorglub4242/Igra-mgt/issues)
-- **Documentation**: See USER_GUIDE.md and inline help (`?` key)
-- **IGRA Community**: [Discord Server](https://discord.gg/igra)
-- **IGRA Orchestra**: [Main Repository](https://github.com/igralabs/igra-orchestra-public)
+MIT License - see LICENSE file for details.
 
 ## Acknowledgments
 
-Built with ❤️ by Merlin for the IGRA Community
-
-Special thanks to:
-- [Ratatui](https://github.com/ratatui-org/ratatui) - Excellent TUI framework
-- [Bollard](https://github.com/fussybeaver/bollard) - Docker SDK for Rust
-- IGRA Labs team and community
-- All contributors and testers
-
-## Screenshots
-
-### Services Screen
-Monitor all containers with real-time metrics and health status
-
-### Wallets Screen
-Manage multiple kaspa wallets with address and balance information
-
-### Logs Screen
-Interactive real-time log viewer with auto-scroll and search
+Built for the IGRA Orchestra project by the community.
 
 ---
 
-## Changelog
-
-### v0.10.0 (2025-10-22) - Web Management UI
-
-**Major New Feature: Browser-Based Management Interface** 🌐
-
-**Web UI Features:**
-- 🎨 **Modern React Interface**: Clean, responsive design with dark theme
-- 📊 **Real-time Dashboard**: Auto-refreshing every 5 seconds
-- 🖥️ **System Info Header**: Node ID, CPU model, RAM, Disk, OS, Network displayed prominently
-- 🐳 **Service Management**:
-  - View all Docker services grouped by profile (kaspad, backend, frontend-w1-5)
-  - Start/Stop/Restart services with confirmation dialogs
-  - View service metrics (CPU, memory, storage, network)
-  - Service-specific metrics preserved between refreshes (no flickering)
-  - Live service status with health badges
-  - One-click log viewer per service
-- 📦 **Profile Controls**: Start/Stop entire profiles with active status indicators
-- 💼 **Wallet Management**:
-  - Full wallet addresses (not truncated) with copy-to-clipboard button
-  - Current balance, initial balance, and fees spent displayed
-  - Click wallet row to view full transaction history
-  - Transaction detail modal with UTXO information
-  - Sortable by timestamp (most recent first)
-  - Source addresses and coinbase detection
-- 💾 **Storage Monitor**: View Docker volumes, images, containers with sizes
-- 📊 **Transactions Panel**: View L2 transaction activity
-- 🔍 **Monitoring**: Full-screen embedded Grafana dashboard
-- 🔒 **Security**: Token-based authentication with `IGRA_WEB_TOKEN`
-- 🌐 **CORS Support**: Optional cross-origin requests for development
-
-**Backend Improvements:**
-- ✅ **Code Reuse**: Web API endpoints reuse existing CLI business logic
-  - `WalletManager::list_wallets()` for wallet data
-  - `WalletManager::get_utxos()` for transaction history
-  - `App::collect_system_resources()` for system metrics
-- ✅ **Efficient Architecture**: No duplication of Docker/wallet operations
-- ✅ **Serialization**: Made core structs (`WalletInfo`, `UtxoInfo`, `SystemResources`) JSON-serializable
-- ✅ **New Endpoints**: `/api/system`, `/api/wallets/:id/detail` for enhanced functionality
-- ✅ **Static Asset Embedding**: Full React app embedded in single binary using `rust-embed`
-
-**Web Server Options:**
-```bash
-# Basic usage (localhost only)
-IGRA_WEB_TOKEN=secret igra-cli serve
-
-# Network accessible
-IGRA_WEB_TOKEN=secret igra-cli serve --host 0.0.0.0 --port 3000 --cors
-
-Options:
-  -p, --port <PORT>  Port to listen on [default: 3000]
-      --host <HOST>  Host to bind to [default: 127.0.0.1]
-      --cors         Enable CORS for cross-origin requests
-```
-
-**Technical Stack:**
-- Frontend: React 18 + Vite
-- Backend: Axum HTTP server with Rust
-- Authentication: Token-based with middleware
-- Static assets: Embedded via `rust-embed` crate
-- WebSocket: Real-time log streaming
-
-**Breaking Changes:**
-- None - Web UI is optional, TUI remains unchanged
-
----
-
-### v0.9.1 (2025-10-22) - Code Review Fixes
-
-**Critical Improvements:**
-- 🔗 **Git dependencies**: Replaced local path dependencies with git URLs for kaspa crates
-  - Now works for all contributors without requiring `setup-repos.sh`
-  - Pinned to commit `08018e79` for version stability
-  - Affects: `kaspa-wrpc-client`, `kaspa-rpc-core`, `kaspa-addresses`
-- 🛠️ **Robust system metrics**: Replaced fragile shell commands with `sysinfo` crate
-  - Cross-platform compatibility (no more Linux-specific `top`, `free`, `df`, `lscpu`)
-  - Eliminates parsing errors from command output variations
-  - More accurate CPU, memory, disk, and OS detection
-  - Reduced external process overhead
-
-**Technical Details:**
-- Removed dependencies on: `sh`, `top`, `grep`, `sed`, `awk`, `free`, `df`, `lscpu`
-- Added proper use of existing `sysinfo = "0.30"` dependency
-- Improved reliability of dashboard system resource display
-
-### v0.9.0 (2025-10-22) - Historical Storage Charts & Smart Sampling
-
-**New Features: Storage History Visualization** 📈
-- 📊 **Historical storage chart**: ASCII line chart showing 90-day storage trends
-- 📅 **Time range selection**: Toggle between 7, 30, or 90-day views (`[`, `t`, `]`)
-- 📋 **Details table**: View exact measurements with timestamps (`[D]`)
-- 🎨 **Color-coded series**: Total (cyan), Volumes (green), Images (yellow)
-- ⚡ **Smart 12-hour sampling**: Background snapshots every 12 hours (2 per day)
-- 🔄 **Auto-downsampling**: Migrates old high-frequency data automatically
-- 🚀 **Dual-mode capture**: On startup + periodic (6-hour checks)
-- 💾 **Efficient storage**: ~34 KB for 90 days vs 37 MB with old method
-- 🧹 **Post-cleanup snapshots**: Automatic snapshot after prune operations
-
-**Bug Fixes:**
-- ✅ Fixed key conflicts: Changed `7/3/9` → `[/t/]` (no screen navigation clash)
-- ✅ Fixed `d` key conflict: Changed to `[D]` (capital D for details toggle)
-- ✅ Fixed volume list spacing: Now uses full available screen space
-- ✅ Removed excessive storage sampling: From 30s to 12h intervals
-
-**Technical Improvements:**
-- Background tasks for passive data collection
-- Downsampling algorithm with time bucketing
-- Separate display cache (30s) from history sampling (12h)
-- Maintains trend quality with 1440× less data
-
-**Keyboard Shortcuts (Storage Screen):**
-- `[` - Show last 7 days
-- `t` - Show last 30 days
-- `]` - Show last 90 days (default)
-- `D` - Toggle details table
-- `p` - Prune build cache
-- `I` - Prune unused images
-
----
-
-### v0.8.0 (2025-10-21) - Storage Analyzer
-
-**New Feature: Storage Analysis Screen** 📊
-- 💾 **Comprehensive storage monitoring**: System disk, Docker images, volumes, containers, build cache
-- 📈 **Growth prediction**: Track storage usage trends with 90-day historical data
-- ⚠️ **Capacity alerts**: Visual warnings when approaching 90% disk usage
-- 🧹 **Cleanup tools**: One-key pruning of build cache (`[p]`) and unused images (`[I]`)
-- 📋 **Volume analysis**: All Docker volumes listed with size, status, and critical marking
-- ↕️ **Scrollable lists**: Navigate through all volumes with `↑↓` arrow keys
-- 💡 **Reclaimable space tracking**: See total space that can be freed
-
-**Storage Screen Features:**
-- System disk usage with progress visualization
-- Docker storage breakdown by category
-- Individual volume sizes (requires sudo)
-- Critical volume highlighting (viaduct_data)
-- Growth rate calculation (bytes/day)
-- Days-to-full prediction
-- Auto-refresh with 30-second cache
-- Space reclamation reporting after cleanup
-
-**Technical Implementation:**
-- New `core::storage` module with comprehensive analysis
-- JSON-based history tracking (`~/.config/igra-cli/storage_history.json`)
-- Docker system df integration
-- Volume size detection via sudo du
-- Linear trend analysis for predictions
-
----
-
-### v0.7.0 (2025-10-21) - Performance & UX Overhaul
-
-**Major Performance Improvements:**
-- 🚀 **100× faster log scrolling**: Parse-once architecture eliminates redundant regex operations
-- ⚡ **Optimized rendering**: Pre-parsed log cache with instant filtering and windowing
-- 📊 **Reduced CPU usage**: From 200,000 regex ops/sec to ~200 ops/sec during scrolling
-
-**Live Mode Enhancements:**
-- 🔴 **Real-time updates**: 250ms polling interval for near-instant log visibility
-- 📺 **Auto-scroll viewport**: Logs automatically appear at bottom without manual scrolling
-- 🎯 **Smart deduplication**: Overlap handling prevents duplicate log lines
-- 💾 **Rolling buffer**: 10,000 line buffer with automatic trimming
-
-**UI/UX Improvements:**
-- 🎨 **Ultra-compact layout**: Single-line title bar reclaims 8 lines for log viewing
-- 📍 **Visual indicators**: Live mode badge, scroll position counter, mode indicator in title
-- 🔄 **Dual display modes**: Toggle between grouped and chronological log views
-- 🎛️ **Enhanced filtering**: Level-based filtering (Error/Warn/Info/Debug/Trace)
-- ⌨️ **Improved scroll speeds**: 5/50/100 line jumps for faster navigation
-- 🔧 **Compact metrics panel**: Reth metrics optimized to eliminate empty space
-
-**Bug Fixes:**
-- ✅ Fixed scroll offset not affecting visible logs
-- ✅ Fixed chronological mode rendering empty screen
-- ✅ Fixed live mode hanging on `docker compose logs --since`
-- ✅ Fixed metrics panel showing 3 empty lines
-
-**Technical Changes:**
-- Created shared `core::log_parser` module for centralized parsing
-- Added `ParsedLogLine` and `LogLevel` types with format auto-detection
-- Implemented viewport scrolling with `.scroll()` for proper auto-follow
-- Removed redundant type definitions and duplicate code paths
-
----
-
-**Made with Rust** 🦀 | **Powered by IGRA** ⚡
+**Version:** 0.10.0
+**Repository:** https://github.com/Zorglub4242/Igra-mgt
+**Documentation:** [docs/](docs/)
