@@ -29,7 +29,7 @@ The IGRA CLI is a powerful terminal user interface (TUI) that provides real-time
 
 **Web Server Usage:**
 ```bash
-# Start web server (localhost only, with auth)
+# Start web server (localhost only)
 IGRA_WEB_TOKEN=your-secret-token igra-cli serve
 
 # Start web server accessible from network
@@ -37,7 +37,54 @@ IGRA_WEB_TOKEN=your-secret-token igra-cli serve --host 0.0.0.0 --port 3000 --cor
 
 # Access web UI
 # Open browser: http://your-server:3000
-# Login with your IGRA_WEB_TOKEN
+# Enter your IGRA_WEB_TOKEN to login
+```
+
+**Running as a System Service:**
+
+Create a systemd service file to run the web server automatically:
+
+```bash
+# Create service file
+sudo nano /etc/systemd/system/igra-web.service
+```
+
+Service file content:
+```ini
+[Unit]
+Description=IGRA Orchestra Web Management Interface
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=your-username
+WorkingDirectory=/path/to/igra-orchestra-public
+Environment="IGRA_WEB_TOKEN=your-secret-token"
+ExecStart=/usr/local/bin/igra-cli serve --host 0.0.0.0 --port 3000 --cors
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start the service:
+```bash
+# Reload systemd
+sudo systemctl daemon-reload
+
+# Enable service to start on boot
+sudo systemctl enable igra-web
+
+# Start the service
+sudo systemctl start igra-web
+
+# Check status
+sudo systemctl status igra-web
+
+# View logs
+sudo journalctl -u igra-web -f
 ```
 
 **API Endpoints:**
