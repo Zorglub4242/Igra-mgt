@@ -427,6 +427,41 @@ Interactive real-time log viewer with auto-scroll and search
 
 ## Changelog
 
+### v0.9.0 (2025-10-22) - Historical Storage Charts & Smart Sampling
+
+**New Features: Storage History Visualization** 📈
+- 📊 **Historical storage chart**: ASCII line chart showing 90-day storage trends
+- 📅 **Time range selection**: Toggle between 7, 30, or 90-day views (`[`, `t`, `]`)
+- 📋 **Details table**: View exact measurements with timestamps (`[D]`)
+- 🎨 **Color-coded series**: Total (cyan), Volumes (green), Images (yellow)
+- ⚡ **Smart 12-hour sampling**: Background snapshots every 12 hours (2 per day)
+- 🔄 **Auto-downsampling**: Migrates old high-frequency data automatically
+- 🚀 **Dual-mode capture**: On startup + periodic (6-hour checks)
+- 💾 **Efficient storage**: ~34 KB for 90 days vs 37 MB with old method
+- 🧹 **Post-cleanup snapshots**: Automatic snapshot after prune operations
+
+**Bug Fixes:**
+- ✅ Fixed key conflicts: Changed `7/3/9` → `[/t/]` (no screen navigation clash)
+- ✅ Fixed `d` key conflict: Changed to `[D]` (capital D for details toggle)
+- ✅ Fixed volume list spacing: Now uses full available screen space
+- ✅ Removed excessive storage sampling: From 30s to 12h intervals
+
+**Technical Improvements:**
+- Background tasks for passive data collection
+- Downsampling algorithm with time bucketing
+- Separate display cache (30s) from history sampling (12h)
+- Maintains trend quality with 1440× less data
+
+**Keyboard Shortcuts (Storage Screen):**
+- `[` - Show last 7 days
+- `t` - Show last 30 days
+- `]` - Show last 90 days (default)
+- `D` - Toggle details table
+- `p` - Prune build cache
+- `I` - Prune unused images
+
+---
+
 ### v0.8.0 (2025-10-21) - Storage Analyzer
 
 **New Feature: Storage Analysis Screen** 📊

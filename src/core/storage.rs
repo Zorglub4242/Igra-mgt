@@ -121,6 +121,55 @@ impl StorageHistory {
             .join("igra-cli");
         Ok(config_dir.join("storage_history.json"))
     }
+
+    /// Get measurements filtered by number of days
+    pub fn get_last_n_days(&self, days: u32) -> Vec<&StorageMeasurement> {
+        let cutoff = Utc::now() - chrono::Duration::days(days as i64);
+        self.measurements
+            .iter()
+            .filter(|m| m.timestamp > cutoff)
+            .collect()
+    }
+
+    /// Downsample measurements to specified interval (in hours)
+    /// Keeps the first measurement in each time bucket
+    pub fn downsample_to_interval(&mut self, interval_hours: i64) {
+        if self.measurements.is_empty() {
+            return;
+        }
+
+        let mut downsampled = Vec::new();
+        let mut current_bucket: Option<i64> = None;
+
+        for measurement in &self.measurements {
+            let timestamp_hours = measurement.timestamp.timestamp() / 3600;
+            let bucket = timestamp_hours / interval_hours;
+
+            if current_bucket != Some(bucket) {
+                // New bucket - keep this measurement
+                downsampled.push(measurement.clone());
+                current_bucket = Some(bucket);
+            }
+            // else: same bucket, skip this measurement
+        }
+
+        self.measurements = downsampled;
+    }
+
+    /// Check if downsampling is needed (more than expected measurements for timespan)
+    pub fn needs_downsampling(&self, interval_hours: i64) -> bool {
+        if self.measurements.len() < 2 {
+            return false;
+        }
+
+        let first = &self.measurements[0];
+        let last = &self.measurements[self.measurements.len() - 1];
+        let duration_hours = (last.timestamp - first.timestamp).num_hours();
+        let expected_count = (duration_hours / interval_hours) + 1;
+
+        // If we have more than 2x expected measurements, downsample
+        self.measurements.len() > (expected_count * 2) as usize
+    }
 }
 
 /// Analyze current storage usage
@@ -469,5 +518,53 @@ pub fn format_bytes(bytes: u64) -> String {
         format!("{:.0}KB", bytes as f64 / KB as f64)
     } else {
         format!("{}B", bytes)
+    }
+}
+
+/// Check if snapshot is needed and save if necessary
+/// Returns true if snapshot was saved
+pub async fn check_and_save_snapshot_if_needed() -> bool {
+    const SNAPSHOT_INTERVAL_HOURS: i64 = 12;
+
+    // Load history
+    let mut history = match StorageHistory::load() {
+        Ok(h) => h,
+        Err(_) => StorageHistory::new(),
+    };
+
+    // Check if downsampling needed (migrate old high-frequency data)
+    if history.needs_downsampling(SNAPSHOT_INTERVAL_HOURS) {
+        history.downsample_to_interval(SNAPSHOT_INTERVAL_HOURS);
+        let _ = history.save();
+    }
+
+    // Check if snapshot is needed
+    let should_save = match history.measurements.last() {
+        Some(last) => {
+            let elapsed = chrono::Utc::now() - last.timestamp;
+            elapsed.num_hours() >= SNAPSHOT_INTERVAL_HOURS
+        }
+        None => true, // First time - save immediately
+    };
+
+    if !should_save {
+        return false;
+    }
+
+    // Take snapshot
+    match analyze_storage().await {
+        Ok(analysis) => {
+            let measurement = StorageMeasurement {
+                timestamp: chrono::Utc::now(),
+                total_used_bytes: analysis.system_disk.used_bytes,
+                docker_volumes_bytes: analysis.docker_volumes.iter().map(|v| v.size_bytes).sum(),
+                docker_images_bytes: analysis.docker_images.total_bytes,
+            };
+
+            history.add_measurement(measurement);
+            let _ = history.save();
+            true
+        }
+        Err(_) => false,
     }
 }

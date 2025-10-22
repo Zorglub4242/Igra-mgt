@@ -178,6 +178,8 @@ pub struct App {
     storage_analysis: Option<crate::core::storage::StorageAnalysis>,
     storage_last_update: Option<Instant>,
     storage_scroll_offset: usize,
+    storage_chart_days: u32,        // Time range for chart: 7, 30, or 90 days
+    storage_show_details: bool,     // Toggle details table view
 }
 
 impl App {
@@ -418,6 +420,8 @@ impl App {
             storage_analysis: None,
             storage_last_update: None,
             storage_scroll_offset: 0,
+            storage_chart_days: 90,        // Default to 90 days
+            storage_show_details: false,   // Details table hidden by default
             detail_logs_live_tx,
             detail_logs_live_rx,
             detail_logs_live_task_handle: None,
@@ -603,6 +607,21 @@ impl App {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
+        // Spawn background storage snapshot tasks
+        // Task 1: Immediate check on startup
+        tokio::spawn(async {
+            let _ = crate::core::storage::check_and_save_snapshot_if_needed().await;
+        });
+
+        // Task 2: Periodic check every 6 hours while app is running
+        tokio::spawn(async {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(6 * 3600));
+            loop {
+                interval.tick().await;
+                let _ = crate::core::storage::check_and_save_snapshot_if_needed().await;
+            }
+        });
+
         // Initial data load
         self.refresh_data().await?;
 
@@ -685,7 +704,8 @@ impl App {
                 }
             }
             Screen::Storage => {
-                // Refresh storage analysis (with caching)
+                // Refresh storage analysis (with caching for display only)
+                // Note: History snapshots are handled by background task now
                 let should_refresh = self.storage_last_update
                     .map(|last| last.elapsed() > std::time::Duration::from_secs(30))
                     .unwrap_or(true);
@@ -693,20 +713,6 @@ impl App {
                 if should_refresh {
                     match crate::core::storage::analyze_storage().await {
                         Ok(analysis) => {
-                            // Save measurement to history
-                            let mut history = crate::core::storage::StorageHistory::load()
-                                .unwrap_or_else(|_| crate::core::storage::StorageHistory::new());
-
-                            let measurement = crate::core::storage::StorageMeasurement {
-                                timestamp: chrono::Utc::now(),
-                                total_used_bytes: analysis.system_disk.used_bytes,
-                                docker_volumes_bytes: analysis.docker_volumes.iter().map(|v| v.size_bytes).sum(),
-                                docker_images_bytes: analysis.docker_images.total_bytes,
-                            };
-
-                            history.add_measurement(measurement);
-                            let _ = history.save();
-
                             self.storage_analysis = Some(analysis);
                             self.storage_last_update = Some(Instant::now());
                         }
@@ -1285,6 +1291,30 @@ impl App {
                 // Prune unused Docker images (Storage screen - capital I)
                 if self.current_screen == Screen::Storage {
                     self.handle_storage_prune_images().await?;
+                }
+            }
+            KeyCode::Char('[') => {
+                // Show last 7 days in Storage chart
+                if self.current_screen == Screen::Storage {
+                    self.storage_chart_days = 7;
+                }
+            }
+            KeyCode::Char('t') => {
+                // Show last 30 days in Storage chart (t = thirty)
+                if self.current_screen == Screen::Storage {
+                    self.storage_chart_days = 30;
+                }
+            }
+            KeyCode::Char(']') => {
+                // Show last 90 days in Storage chart
+                if self.current_screen == Screen::Storage {
+                    self.storage_chart_days = 90;
+                }
+            }
+            KeyCode::Char('D') => {
+                // Toggle details table in Storage screen (capital D)
+                if self.current_screen == Screen::Storage {
+                    self.storage_show_details = !self.storage_show_details;
                 }
             }
             KeyCode::Char('f') => {
@@ -2035,8 +2065,11 @@ impl App {
                         self.set_status("✓ Build cache pruned successfully".to_string());
                     }
 
-                    // Refresh storage analysis
+                    // Force immediate storage snapshot and refresh display
                     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    tokio::spawn(async {
+                        let _ = crate::core::storage::check_and_save_snapshot_if_needed().await;
+                    });
                     self.storage_last_update = None; // Force refresh
                     self.refresh_data().await?;
                 } else {
@@ -2070,8 +2103,11 @@ impl App {
                         self.set_status("✓ Unused images pruned successfully".to_string());
                     }
 
-                    // Refresh storage analysis
+                    // Force immediate storage snapshot and refresh display
                     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    tokio::spawn(async {
+                        let _ = crate::core::storage::check_and_save_snapshot_if_needed().await;
+                    });
                     self.storage_last_update = None; // Force refresh
                     self.refresh_data().await?;
                 } else {
@@ -2691,6 +2727,8 @@ impl App {
             self.watch_scroll_offset,
             self.storage_analysis.as_ref(),
             self.storage_scroll_offset,
+            self.storage_chart_days,
+            self.storage_show_details,
         );
     }
 

@@ -4,7 +4,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, Wrap},
+    widgets::{Axis, Block, Borders, Cell, Chart, Dataset, GraphType, List, ListItem, Paragraph, Row, Table, Wrap},
     Frame,
 };
 
@@ -161,7 +161,7 @@ impl Dashboard {
         self.network = network;
     }
 
-    pub fn render(&self, frame: &mut Frame, current_screen: Screen, services_view: crate::app::ServicesView, config_section: crate::app::ConfigSection, selected_index: usize, status_message: Option<&str>, edit_mode: bool, edit_buffer: &str, detail_container: Option<&ContainerInfo>, detail_logs: &[crate::core::ParsedLogLine], detail_logs_live_mode: bool, detail_logs_grouping: bool, detail_logs_filter: Option<&crate::core::LogLevel>, detail_logs_scroll_offset: usize, system_resources: &SystemResources, show_help: bool, search_mode: bool, search_buffer: &str, filtered_indices: &[usize], show_send_dialog: bool, send_amount: &str, send_address: &str, send_input_field: usize, send_use_wallet_selector: bool, send_selected_wallet_index: usize, send_source_address: &str, wallets: &[crate::core::wallet::WalletInfo], reth_metrics: Option<&RethMetrics>, detail_wallet: Option<&WalletInfo>, detail_wallet_addresses: &[(String, f64, f64)], detail_wallet_utxos: &[crate::core::wallet::UtxoInfo], detail_wallet_scroll: usize, show_tx_detail: bool, selected_tx_index: Option<usize>, tx_search_mode: bool, tx_search_buffer: &str, filtered_tx_indices: &[usize], watch_stats: Option<&Statistics>, watch_transactions: &[TransactionInfo], watch_filter: &TransactionFilter, watch_scroll_offset: usize, storage_analysis: Option<&crate::core::storage::StorageAnalysis>, storage_scroll_offset: usize) {
+    pub fn render(&self, frame: &mut Frame, current_screen: Screen, services_view: crate::app::ServicesView, config_section: crate::app::ConfigSection, selected_index: usize, status_message: Option<&str>, edit_mode: bool, edit_buffer: &str, detail_container: Option<&ContainerInfo>, detail_logs: &[crate::core::ParsedLogLine], detail_logs_live_mode: bool, detail_logs_grouping: bool, detail_logs_filter: Option<&crate::core::LogLevel>, detail_logs_scroll_offset: usize, system_resources: &SystemResources, show_help: bool, search_mode: bool, search_buffer: &str, filtered_indices: &[usize], show_send_dialog: bool, send_amount: &str, send_address: &str, send_input_field: usize, send_use_wallet_selector: bool, send_selected_wallet_index: usize, send_source_address: &str, wallets: &[crate::core::wallet::WalletInfo], reth_metrics: Option<&RethMetrics>, detail_wallet: Option<&WalletInfo>, detail_wallet_addresses: &[(String, f64, f64)], detail_wallet_utxos: &[crate::core::wallet::UtxoInfo], detail_wallet_scroll: usize, show_tx_detail: bool, selected_tx_index: Option<usize>, tx_search_mode: bool, tx_search_buffer: &str, filtered_tx_indices: &[usize], watch_stats: Option<&Statistics>, watch_transactions: &[TransactionInfo], watch_filter: &TransactionFilter, watch_scroll_offset: usize, storage_analysis: Option<&crate::core::storage::StorageAnalysis>, storage_scroll_offset: usize, storage_chart_days: u32, storage_show_details: bool) {
         // If showing wallet detail view, render that instead
         if let Some(wallet) = detail_wallet {
             self.render_wallet_detail(frame, wallet, detail_wallet_addresses, detail_wallet_utxos, status_message, detail_wallet_scroll, tx_search_mode, tx_search_buffer, filtered_tx_indices, selected_tx_index);
@@ -345,7 +345,7 @@ impl Dashboard {
             Screen::Wallets => self.render_wallets(frame, chunks[2], selected_index, filtered_indices),
             Screen::Watch => self.render_watch(frame, chunks[2], watch_stats, watch_transactions, watch_filter, watch_scroll_offset),
             Screen::Config => self.render_config(frame, chunks[2], config_section, selected_index, edit_mode, edit_buffer, filtered_indices),
-            Screen::Storage => self.render_storage(frame, chunks[2], storage_analysis, storage_scroll_offset),
+            Screen::Storage => self.render_storage(frame, chunks[2], storage_analysis, storage_scroll_offset, storage_chart_days, storage_show_details),
         }
 
         // Footer with status message or help
@@ -361,7 +361,7 @@ impl Dashboard {
                 Screen::Wallets => "[← →] Next screen | [↑↓] Select | [Enter] Info | [g]enerate | [t]ransfer | [/] Search | [r]efresh | [?] Help | [q]uit".to_string(),
                 Screen::Watch => "[← →] Next screen | [↑↓] Scroll | [f] Filter | [r] Record | [?] Help | [q]uit".to_string(),
                 Screen::Config => "[Tab] Switch tab | [← →] Next screen | [↑↓] Select | [e]dit | [g]enerate | [c]heck | [n]ew cert | [q]uit".to_string(),
-                Screen::Storage => "[← →] Next screen | [r]efresh | [p]rune cache | [I]mages | [?] Help | [q]uit".to_string(),
+                Screen::Storage => "[← →] Next screen | [r]efresh | [[/t/]] Chart | [D]etails | [p]rune | [I]mages | [?] Help | [q]uit".to_string(),
             }
         };
 
@@ -1190,7 +1190,7 @@ impl Dashboard {
         frame.render_widget(paragraph, area);
     }
 
-    fn render_storage(&self, frame: &mut Frame, area: Rect, storage_analysis: Option<&crate::core::storage::StorageAnalysis>, scroll_offset: usize) {
+    fn render_storage(&self, frame: &mut Frame, area: Rect, storage_analysis: Option<&crate::core::storage::StorageAnalysis>, scroll_offset: usize, chart_days: u32, show_details: bool) {
         use crate::core::storage::format_bytes;
 
         // If no analysis yet, show loading
@@ -1202,16 +1202,32 @@ impl Dashboard {
             return;
         };
 
-        // Split into sections
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(5),  // System disk
-                Constraint::Length(6),  // Docker summary
-                Constraint::Min(10),    // Volumes list
-                Constraint::Length(4),  // Growth rate
-            ])
-            .split(area);
+        // Split into sections - add chart space
+        let chunks = if show_details {
+            // Details table mode: replace volumes with details
+            Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(5),  // System disk
+                    Constraint::Length(6),  // Docker summary
+                    Constraint::Length(12), // Historical chart
+                    Constraint::Min(10),    // Details table (instead of volumes)
+                    Constraint::Length(4),  // Growth rate
+                ])
+                .split(area)
+        } else {
+            // Normal mode: chart + volumes
+            Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(5),  // System disk
+                    Constraint::Length(6),  // Docker summary
+                    Constraint::Length(12), // Historical chart
+                    Constraint::Min(10),    // Volumes list
+                    Constraint::Length(4),  // Growth rate
+                ])
+                .split(area)
+        };
 
         // System Disk Usage
         let disk = &analysis.system_disk;
@@ -1265,7 +1281,14 @@ impl Dashboard {
             .block(Block::default().borders(Borders::ALL).title("Docker Storage"));
         frame.render_widget(docker_paragraph, chunks[1]);
 
-        // Volumes List - show all volumes with scrolling
+        // Historical Storage Chart
+        self.render_storage_chart(frame, chunks[2], chart_days);
+
+        // Volumes List or Details Table
+        if show_details {
+            self.render_storage_details(frame, chunks[3], chart_days);
+        } else {
+            // Volumes List - show all volumes with scrolling
         let mut volumes_text = vec![
             Line::from(vec![
                 Span::styled("Volume Name", Style::default().add_modifier(Modifier::BOLD)),
@@ -1276,8 +1299,8 @@ impl Dashboard {
             ]),
         ];
 
-        // Calculate visible area (subtract borders and header)
-        let visible_height = chunks[2].height.saturating_sub(3) as usize;
+        // Calculate visible area (subtract borders and header) - use chunks[3] for volumes area
+        let visible_height = chunks[3].height.saturating_sub(3) as usize;
         let total_volumes = analysis.docker_volumes.len();
 
         // Apply scrolling - show window of volumes
@@ -1323,7 +1346,8 @@ impl Dashboard {
 
         let volumes_paragraph = Paragraph::new(volumes_text)
             .block(Block::default().borders(Borders::ALL).title(title));
-        frame.render_widget(volumes_paragraph, chunks[2]);
+        frame.render_widget(volumes_paragraph, chunks[3]);
+        } // end if show_details
 
         // Growth Rate & Predictions
         let growth_text = if let Some(growth) = &analysis.growth_rate {
@@ -1369,7 +1393,210 @@ impl Dashboard {
 
         let growth_paragraph = Paragraph::new(growth_text)
             .block(Block::default().borders(Borders::ALL).title("Storage Growth Prediction"));
-        frame.render_widget(growth_paragraph, chunks[3]);
+        frame.render_widget(growth_paragraph, chunks[4]);
+    }
+
+    /// Render historical storage chart
+    fn render_storage_chart(&self, frame: &mut Frame, area: Rect, chart_days: u32) {
+        use crate::core::storage::{StorageHistory, format_bytes};
+
+        // Load storage history
+        let history = match StorageHistory::load() {
+            Ok(h) => h,
+            Err(_) => {
+                let msg = Paragraph::new("No historical data available yet. Data is collected when storage screen is accessed.")
+                    .block(Block::default().borders(Borders::ALL).title(format!("Storage History (Last {} Days)", chart_days)))
+                    .alignment(Alignment::Center);
+                frame.render_widget(msg, area);
+                return;
+            }
+        };
+
+        // Filter by selected time range
+        let measurements = history.get_last_n_days(chart_days);
+
+        if measurements.len() < 2 {
+            let msg = Paragraph::new(format!("Insufficient data. Need at least 2 measurements. Currently: {}", measurements.len()))
+                .block(Block::default().borders(Borders::ALL).title(format!("Storage History (Last {} Days)", chart_days)))
+                .alignment(Alignment::Center);
+            frame.render_widget(msg, area);
+            return;
+        }
+
+        // Convert to chart data points (time as f64, bytes as GB)
+        let mut total_data: Vec<(f64, f64)> = Vec::new();
+        let mut volumes_data: Vec<(f64, f64)> = Vec::new();
+        let mut images_data: Vec<(f64, f64)> = Vec::new();
+
+        let first_timestamp = measurements.first().unwrap().timestamp.timestamp() as f64;
+
+        for m in &measurements {
+            let x = (m.timestamp.timestamp() as f64 - first_timestamp) / 86400.0; // days since first
+            total_data.push((x, m.total_used_bytes as f64 / 1_000_000_000.0)); // GB
+            volumes_data.push((x, m.docker_volumes_bytes as f64 / 1_000_000_000.0));
+            images_data.push((x, m.docker_images_bytes as f64 / 1_000_000_000.0));
+        }
+
+        // Calculate Y-axis bounds
+        let max_y = total_data.iter().map(|(_, y)| *y).fold(0.0, f64::max);
+        let min_y = total_data.iter().map(|(_, y)| *y).fold(max_y, f64::min).min(0.0);
+        let y_padding = (max_y - min_y) * 0.1;
+
+        // Create datasets
+        let datasets = vec![
+            Dataset::default()
+                .name("Total Used")
+                .marker(ratatui::symbols::Marker::Braille)
+                .graph_type(GraphType::Line)
+                .style(Style::default().fg(Color::Cyan))
+                .data(&total_data),
+            Dataset::default()
+                .name("Volumes")
+                .marker(ratatui::symbols::Marker::Braille)
+                .graph_type(GraphType::Line)
+                .style(Style::default().fg(Color::Green))
+                .data(&volumes_data),
+            Dataset::default()
+                .name("Images")
+                .marker(ratatui::symbols::Marker::Braille)
+                .graph_type(GraphType::Line)
+                .style(Style::default().fg(Color::Yellow))
+                .data(&images_data),
+        ];
+
+        // Create X-axis labels
+        let max_x = measurements.len() as f64 - 1.0;
+        let x_labels = vec![
+            Span::raw("0d"),
+            Span::raw(format!("{}d", chart_days / 2)),
+            Span::raw(format!("{}d", chart_days)),
+        ];
+
+        // Create Y-axis labels (in GB)
+        let y_labels = vec![
+            Span::raw(format!("{:.0}", min_y)),
+            Span::raw(format!("{:.0}", (min_y + max_y) / 2.0)),
+            Span::raw(format!("{:.0}", max_y)),
+        ];
+
+        // Latest values for legend
+        let latest = measurements.last().unwrap();
+        let _legend_text = format!(
+            "Latest: Total {}  Volumes {}  Images {}",
+            format_bytes(latest.total_used_bytes),
+            format_bytes(latest.docker_volumes_bytes),
+            format_bytes(latest.docker_images_bytes)
+        );
+
+        let chart = Chart::new(datasets)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(format!("Storage History (Last {} Days) - {} measurements", chart_days, measurements.len()))
+            )
+            .x_axis(
+                Axis::default()
+                    .title("Days Ago")
+                    .style(Style::default().fg(Color::Gray))
+                    .labels(x_labels)
+                    .bounds([0.0, max_x])
+            )
+            .y_axis(
+                Axis::default()
+                    .title("Storage (GB)")
+                    .style(Style::default().fg(Color::Gray))
+                    .labels(y_labels)
+                    .bounds([min_y - y_padding, max_y + y_padding])
+            )
+            .legend_position(None); // We'll show legend in title
+
+        frame.render_widget(chart, area);
+    }
+
+    /// Render storage details table
+    fn render_storage_details(&self, frame: &mut Frame, area: Rect, chart_days: u32) {
+        use crate::core::storage::{StorageHistory, format_bytes};
+
+        let history = match StorageHistory::load() {
+            Ok(h) => h,
+            Err(_) => {
+                let msg = Paragraph::new("No historical data available")
+                    .block(Block::default().borders(Borders::ALL).title("Storage Details"))
+                    .alignment(Alignment::Center);
+                frame.render_widget(msg, area);
+                return;
+            }
+        };
+
+        let measurements = history.get_last_n_days(chart_days);
+
+        if measurements.is_empty() {
+            let msg = Paragraph::new("No measurements in selected time range")
+                .block(Block::default().borders(Borders::ALL).title("Storage Details"))
+                .alignment(Alignment::Center);
+            frame.render_widget(msg, area);
+            return;
+        }
+
+        // Create table with latest 10 measurements (reversed to show newest first)
+        let mut rows = Vec::new();
+        let display_count = measurements.len().min(10);
+        let start_idx = measurements.len().saturating_sub(display_count);
+
+        for (i, m) in measurements[start_idx..].iter().rev().enumerate() {
+            let date = m.timestamp.format("%Y-%m-%d").to_string();
+            let time = m.timestamp.format("%H:%M").to_string();
+            let total = format_bytes(m.total_used_bytes);
+            let volumes = format_bytes(m.docker_volumes_bytes);
+            let images = format_bytes(m.docker_images_bytes);
+
+            // Calculate change from previous
+            let change = if i < measurements.len() - start_idx - 1 {
+                let prev_idx = measurements.len() - i - 2;
+                let prev = &measurements[prev_idx];
+                let diff = m.total_used_bytes as i64 - prev.total_used_bytes as i64;
+                if diff > 0 {
+                    format!("↑{}", format_bytes(diff.abs() as u64))
+                } else if diff < 0 {
+                    format!("↓{}", format_bytes(diff.abs() as u64))
+                } else {
+                    "→".to_string()
+                }
+            } else {
+                "-".to_string()
+            };
+
+            rows.push(Row::new(vec![
+                Cell::from(date),
+                Cell::from(time),
+                Cell::from(total),
+                Cell::from(volumes),
+                Cell::from(images),
+                Cell::from(change),
+            ]));
+        }
+
+        let table = Table::new(rows, vec![
+            Constraint::Length(12), // Date
+            Constraint::Length(7),  // Time
+            Constraint::Length(12), // Total
+            Constraint::Length(12), // Volumes
+            Constraint::Length(12), // Images
+            Constraint::Length(10), // Change
+        ])
+        .header(
+            Row::new(vec!["Date", "Time", "Total Used", "Volumes", "Images", "Change"])
+                .style(Style::default().add_modifier(Modifier::BOLD))
+                .bottom_margin(1)
+        )
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(format!("Storage Details (Last {} measurements)", display_count))
+        )
+        .style(Style::default().fg(Color::White));
+
+        frame.render_widget(table, area);
     }
 
     fn render_service_detail(&self, frame: &mut Frame, container: &ContainerInfo, logs: &[crate::core::ParsedLogLine], live_mode: bool, grouping_enabled: bool, log_filter: Option<&crate::core::LogLevel>, scroll_offset: usize, status_message: Option<&str>, reth_metrics: Option<&RethMetrics>) {
@@ -1802,8 +2029,18 @@ impl Dashboard {
             Screen::Storage => {
                 help_text.push(Line::from(Span::styled("Storage Screen:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
                 help_text.push(Line::from("  [r]            Refresh storage analysis"));
+                help_text.push(Line::from("  [[]            Show last 7 days in chart"));
+                help_text.push(Line::from("  [t]            Show last 30 days in chart (Thirty)"));
+                help_text.push(Line::from("  []]            Show last 90 days in chart (default)"));
+                help_text.push(Line::from("  [D]            Toggle detailed measurements table (capital D)"));
                 help_text.push(Line::from("  [p]            Prune Docker build cache"));
-                help_text.push(Line::from("  [I]            Prune unused Docker images"));
+                help_text.push(Line::from("  [I]            Prune unused Docker images (capital I)"));
+                help_text.push(Line::from("  [↑↓]           Scroll Docker volumes list"));
+                help_text.push(Line::from(""));
+                help_text.push(Line::from(Span::styled("Chart Information:", Style::default().fg(Color::Cyan))));
+                help_text.push(Line::from("  Cyan line:     Total disk used"));
+                help_text.push(Line::from("  Green line:    Docker volumes"));
+                help_text.push(Line::from("  Yellow line:   Docker images"));
                 help_text.push(Line::from(""));
                 help_text.push(Line::from("Note: Storage analysis requires sudo access for volume sizes"));
             }
