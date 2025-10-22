@@ -133,6 +133,42 @@ pub enum Commands {
         #[arg(long, default_value = "text")]
         format: String,
     },
+
+    /// Run HTTP API server mode
+    #[cfg(feature = "server")]
+    Serve {
+        /// Port to listen on
+        #[arg(short, long, default_value = "3000")]
+        port: u16,
+
+        /// Host to bind to
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+
+        /// Enable CORS for cross-origin requests
+        #[arg(long)]
+        cors: bool,
+    },
+
+    /// Install web UI as a systemd service
+    #[cfg(feature = "server")]
+    InstallService {
+        /// Port for the web server
+        #[arg(short, long, default_value = "3000")]
+        port: u16,
+
+        /// Host to bind to
+        #[arg(long, default_value = "0.0.0.0")]
+        host: String,
+
+        /// Enable CORS
+        #[arg(long)]
+        cors: bool,
+
+        /// Service user (default: current user)
+        #[arg(short, long)]
+        user: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

@@ -5,6 +5,9 @@ mod screens;
 mod utils;
 mod widgets;
 
+#[cfg(feature = "server")]
+mod server;
+
 use anyhow::Result;
 use clap::Parser;
 
@@ -79,6 +82,14 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Watch { filter, record, format }) => {
             handle_watch(filter, record, format).await?;
+        }
+        #[cfg(feature = "server")]
+        Some(Commands::Serve { port, host, cors }) => {
+            server::run(host, port, cors).await?;
+        }
+        #[cfg(feature = "server")]
+        Some(Commands::InstallService { port, host, cors, user }) => {
+            handle_install_service(port, host, cors, user).await?;
         }
     }
 
@@ -504,4 +515,120 @@ async fn handle_watch(filter: String, record: Option<String>, format: String) ->
     println!("\nPress 'q' to quit, '↑↓' to scroll, 'f' to toggle filter\n");
 
     run_watch_tui(filter, record, format).await
+}
+
+#[cfg(feature = "server")]
+async fn handle_install_service(port: u16, host: String, cors: bool, user: Option<String>) -> Result<()> {
+    use std::io::{self, Write};
+    use std::fs;
+
+    let current_user = std::env::var("USER").unwrap_or_else(|_| "root".to_string());
+    let service_user = user.unwrap_or(current_user);
+
+    // Get binary path
+    let binary_path = std::env::current_exe()?;
+    let binary_path_str = binary_path.display();
+
+    // Prompt for token
+    print!("Enter IGRA_WEB_TOKEN (required for API authentication): ");
+    io::stdout().flush()?;
+    let mut token = String::new();
+    io::stdin().read_line(&mut token)?;
+    let token = token.trim();
+
+    if token.is_empty() {
+        anyhow::bail!("Token is required for service installation");
+    }
+
+    let cors_flag = if cors { "--cors" } else { "" };
+
+    let service_content = format!(r#"[Unit]
+Description=IGRA Orchestra Web Management UI
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User={user}
+WorkingDirectory=/home/{user}
+Environment="IGRA_WEB_TOKEN={token}"
+ExecStart={binary} serve --host {host} --port {port} {cors}
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+"#,
+        user = service_user,
+        token = token,
+        binary = binary_path_str,
+        host = host,
+        port = port,
+        cors = cors_flag
+    );
+
+    let service_file = "/etc/systemd/system/igra-web-ui.service";
+
+    println!("📝 Creating systemd service file...");
+    println!("   Service file: {}", service_file);
+    println!("   User: {}", service_user);
+    println!("   Host: {}", host);
+    println!("   Port: {}", port);
+    println!("   CORS: {}", cors);
+    println!();
+
+    // Write service file (requires sudo)
+    match fs::write(service_file, &service_content) {
+        Ok(_) => {
+            println!("✓ Service file created successfully");
+        }
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                println!("⚠️  Permission denied. Run with sudo:");
+                println!();
+                println!("   sudo {} install-service --port {} --host {} {}",
+                    binary_path_str, port, host, cors_flag);
+                println!();
+                println!("Or manually create {} with:", service_file);
+                println!();
+                println!("{}", service_content);
+                anyhow::bail!("Permission denied");
+            } else {
+                return Err(e.into());
+            }
+        }
+    }
+
+    println!();
+    println!("🔧 Enabling and starting service...");
+
+    // Reload systemd
+    std::process::Command::new("systemctl")
+        .arg("daemon-reload")
+        .status()?;
+
+    // Enable service
+    std::process::Command::new("systemctl")
+        .arg("enable")
+        .arg("igra-web-ui.service")
+        .status()?;
+
+    // Start service
+    std::process::Command::new("systemctl")
+        .arg("start")
+        .arg("igra-web-ui.service")
+        .status()?;
+
+    println!();
+    println!("✅ IGRA Web UI service installed and started!");
+    println!();
+    println!("📚 Useful commands:");
+    println!("   sudo systemctl status igra-web-ui    - Check service status");
+    println!("   sudo systemctl stop igra-web-ui      - Stop service");
+    println!("   sudo systemctl restart igra-web-ui   - Restart service");
+    println!("   sudo journalctl -u igra-web-ui -f    - View logs");
+    println!();
+    println!("🌐 Access the web UI at: http://{}:{}", host, port);
+
+    Ok(())
 }

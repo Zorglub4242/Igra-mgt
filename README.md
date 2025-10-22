@@ -2,7 +2,7 @@
 
 A comprehensive terminal-based management tool for IGRA Orchestra node operators. Built with Rust for performance, reliability, and single-binary distribution.
 
-![IGRA CLI Dashboard](https://img.shields.io/badge/version-0.8.0-blue) ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange) ![License](https://img.shields.io/badge/license-MIT-green)
+![IGRA CLI Dashboard](https://img.shields.io/badge/version-0.9.1-blue) ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Overview
 
@@ -426,6 +426,24 @@ Interactive real-time log viewer with auto-scroll and search
 ---
 
 ## Changelog
+
+### v0.9.1 (2025-10-22) - Code Review Fixes
+
+**Critical Improvements:**
+- 🔗 **Git dependencies**: Replaced local path dependencies with git URLs for kaspa crates
+  - Now works for all contributors without requiring `setup-repos.sh`
+  - Pinned to commit `08018e79` for version stability
+  - Affects: `kaspa-wrpc-client`, `kaspa-rpc-core`, `kaspa-addresses`
+- 🛠️ **Robust system metrics**: Replaced fragile shell commands with `sysinfo` crate
+  - Cross-platform compatibility (no more Linux-specific `top`, `free`, `df`, `lscpu`)
+  - Eliminates parsing errors from command output variations
+  - More accurate CPU, memory, disk, and OS detection
+  - Reduced external process overhead
+
+**Technical Details:**
+- Removed dependencies on: `sh`, `top`, `grep`, `sed`, `awk`, `free`, `df`, `lscpu`
+- Added proper use of existing `sysinfo = "0.30"` dependency
+- Improved reliability of dashboard system resource display
 
 ### v0.9.0 (2025-10-22) - Historical Storage Charts & Smart Sampling
 

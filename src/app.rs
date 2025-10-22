@@ -429,99 +429,51 @@ impl App {
     }
 
     fn collect_system_resources() -> SystemResources {
+        use sysinfo::{System, Disks, CpuRefreshKind, RefreshKind};
         use std::process::Command;
 
-        // Get CPU usage
-        let cpu_percent = Command::new("sh")
-            .arg("-c")
-            .arg("top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{print 100 - $1}'")
-            .output()
-            .ok()
-            .and_then(|output| String::from_utf8(output.stdout).ok())
-            .and_then(|s| s.trim().parse::<f32>().ok())
+        // Initialize system info with CPU refresh
+        let mut sys = System::new_with_specifics(
+            RefreshKind::new()
+                .with_cpu(CpuRefreshKind::everything())
+        );
+
+        // Refresh to get accurate CPU usage
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        sys.refresh_all();
+
+        // Get CPU usage (global)
+        let cpu_percent = sys.global_cpu_info().cpu_usage();
+
+        // Get memory usage (convert bytes to GB)
+        let memory_total_gb = sys.total_memory() as f32 / 1_073_741_824.0; // 1024^3
+        let memory_used_gb = sys.used_memory() as f32 / 1_073_741_824.0;
+
+        // Get disk usage for root filesystem
+        let disks = Disks::new_with_refreshed_list();
+        let (disk_total_gb, disk_free_gb) = disks
+            .iter()
+            .find(|disk| disk.mount_point().to_str() == Some("/"))
+            .map(|disk| {
+                let total = disk.total_space() as f32 / 1_000_000_000.0; // Convert to GB
+                let available = disk.available_space() as f32 / 1_000_000_000.0;
+                (total, available)
+            })
+            .unwrap_or((0.0, 0.0));
+
+        // Get OS info
+        let os_name = System::name().unwrap_or_else(|| "Linux".to_string());
+        let os_version = System::os_version().unwrap_or_else(|| "Unknown".to_string());
+
+        // Get CPU info
+        let cpus = sys.cpus();
+        let cpu_cores = cpus.len();
+        let cpu_model = cpus.first()
+            .map(|cpu| cpu.brand().to_string())
+            .unwrap_or_else(|| "Unknown CPU".to_string());
+        let cpu_frequency_ghz = cpus.first()
+            .map(|cpu| cpu.frequency() as f32 / 1000.0) // Convert MHz to GHz
             .unwrap_or(0.0);
-
-        // Get memory usage
-        let mem_output = Command::new("sh")
-            .arg("-c")
-            .arg("free -g | grep Mem")
-            .output()
-            .ok()
-            .and_then(|output| String::from_utf8(output.stdout).ok())
-            .unwrap_or_default();
-
-        let mem_parts: Vec<&str> = mem_output.split_whitespace().collect();
-        let memory_total_gb = mem_parts.get(1).and_then(|s| s.parse::<f32>().ok()).unwrap_or(0.0);
-        let memory_used_gb = mem_parts.get(2).and_then(|s| s.parse::<f32>().ok()).unwrap_or(0.0);
-
-        // Get disk usage for root
-        let disk_output = Command::new("sh")
-            .arg("-c")
-            .arg("df -BG / | tail -1")
-            .output()
-            .ok()
-            .and_then(|output| String::from_utf8(output.stdout).ok())
-            .unwrap_or_default();
-
-        let disk_parts: Vec<&str> = disk_output.split_whitespace().collect();
-        let disk_total_gb = disk_parts.get(1)
-            .and_then(|s| s.trim_end_matches('G').parse::<f32>().ok())
-            .unwrap_or(0.0);
-        let disk_free_gb = disk_parts.get(3)
-            .and_then(|s| s.trim_end_matches('G').parse::<f32>().ok())
-            .unwrap_or(0.0);
-
-        // Get OS info from /etc/os-release
-        let os_info = Command::new("sh")
-            .arg("-c")
-            .arg("grep -E '^(NAME|VERSION)=' /etc/os-release | head -2")
-            .output()
-            .ok()
-            .and_then(|output| String::from_utf8(output.stdout).ok())
-            .unwrap_or_default();
-
-        let mut os_name = String::from("Linux");
-        let mut os_version = String::new();
-        for line in os_info.lines() {
-            if line.starts_with("NAME=") {
-                os_name = line.strip_prefix("NAME=").unwrap_or("Linux")
-                    .trim_matches('"').to_string();
-            } else if line.starts_with("VERSION=") {
-                os_version = line.strip_prefix("VERSION=").unwrap_or("")
-                    .trim_matches('"').to_string();
-            }
-        }
-
-        // Get CPU info from lscpu
-        let cpu_info = Command::new("lscpu")
-            .output()
-            .ok()
-            .and_then(|output| String::from_utf8(output.stdout).ok())
-            .unwrap_or_default();
-
-        let mut cpu_cores = 0usize;
-        let mut cpu_frequency_ghz = 0.0f32;
-        let mut cpu_model = String::from("Unknown CPU");
-
-        for line in cpu_info.lines() {
-            if line.starts_with("CPU(s):") {
-                cpu_cores = line.split_whitespace()
-                    .nth(1)
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(0);
-            } else if line.starts_with("CPU max MHz:") || line.starts_with("CPU MHz:") {
-                let mhz = line.split_whitespace()
-                    .nth(2)
-                    .and_then(|s| s.parse::<f32>().ok())
-                    .unwrap_or(0.0);
-                cpu_frequency_ghz = mhz / 1000.0;
-            } else if line.starts_with("Model name:") {
-                cpu_model = line.split(':')
-                    .nth(1)
-                    .map(|s| s.trim().to_string())
-                    .unwrap_or_else(|| "Unknown CPU".to_string());
-            }
-        }
 
         // Get public IP (non-blocking, use cached value on failure)
         let public_ip = Command::new("curl")
@@ -1255,9 +1207,11 @@ impl App {
                 }
             }
             KeyCode::Char('t') => {
-                // Send transaction (Transfer)
+                // Send transaction (Transfer) or Show 30 days in Storage chart
                 if self.current_screen == Screen::Wallets {
                     self.open_send_dialog();
+                } else if self.current_screen == Screen::Storage {
+                    self.storage_chart_days = 30;
                 }
             }
             KeyCode::Char('e') => {
@@ -1297,12 +1251,6 @@ impl App {
                 // Show last 7 days in Storage chart
                 if self.current_screen == Screen::Storage {
                     self.storage_chart_days = 7;
-                }
-            }
-            KeyCode::Char('t') => {
-                // Show last 30 days in Storage chart (t = thirty)
-                if self.current_screen == Screen::Storage {
-                    self.storage_chart_days = 30;
                 }
             }
             KeyCode::Char(']') => {
