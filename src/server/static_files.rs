@@ -9,7 +9,7 @@ use axum::{
 use rust_embed::RustEmbed;
 
 #[derive(RustEmbed)]
-#[folder = "../igra-web-ui/dist/"]
+#[folder = "igra-web-ui/dist/"]
 pub struct Assets;
 
 pub async fn static_handler(uri: Uri) -> impl IntoResponse {

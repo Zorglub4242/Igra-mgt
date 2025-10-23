@@ -33,6 +33,19 @@ A comprehensive management tool for IGRA Orchestra node operators. Built with Ru
 
 ### Install
 
+**Quick install with Web UI setup:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/Zorglub4242/Igra-mgt/main/quick-install.sh | bash
+```
+
+Or inspect first:
+```bash
+wget https://raw.githubusercontent.com/Zorglub4242/Igra-mgt/main/quick-install.sh
+chmod +x quick-install.sh
+./quick-install.sh
+```
+
+**Manual install:**
 ```bash
 # Download latest release
 wget https://github.com/Zorglub4242/Igra-mgt/releases/latest/download/igra-cli-linux-x86_64.tar.gz

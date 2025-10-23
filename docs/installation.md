@@ -2,6 +2,33 @@
 
 This guide covers how to install `igra-cli` using pre-built binaries or by building from source.
 
+## Quick Install (Recommended)
+
+For fastest setup with interactive Web UI configuration:
+
+**One-line install:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/Zorglub4242/Igra-mgt/main/quick-install.sh | bash
+```
+
+**Two-step install** (if you prefer to inspect the script first):
+```bash
+wget https://raw.githubusercontent.com/Zorglub4242/Igra-mgt/main/quick-install.sh
+chmod +x quick-install.sh
+./quick-install.sh
+```
+
+This interactive script will:
+- Auto-detect your OS and architecture
+- Download latest release from GitHub
+- Install the binary to `/usr/local/bin`
+- Configure Web UI with your preferences
+- Optionally set up systemd service
+
+For manual installation or specific platforms, continue with the options below.
+
+---
+
 ## Prerequisites
 
 - **Docker** 23.0+ with Docker Compose V2
