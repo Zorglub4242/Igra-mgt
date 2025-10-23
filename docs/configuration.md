@@ -15,6 +15,45 @@ cd ~/igra-orchestra-public
 igra-cli
 ```
 
+## Auto-Discovery of IGRA Orchestra
+
+`igra-cli` automatically discovers your IGRA Orchestra installation using multiple detection methods (in order of priority):
+
+### 1. Saved Configuration
+Reads `~/.config/igra-cli/config.toml` for previously detected path:
+```toml
+project_root = "/home/user/igra-orchestra-public"
+```
+
+### 2. Environment Variable
+Set `IGRA_PROJECT_ROOT` to specify the installation path:
+```bash
+export IGRA_PROJECT_ROOT=/path/to/igra-orchestra-public
+igra-cli
+```
+
+### 3. Docker Container Inspection
+Automatically scans running containers for bind mounts:
+- Inspects containers: `traefik`, `kaswallet-0`, `execution-layer`, `kaspad`, `viaduct`
+- Extracts host paths from bind mounts (excludes Docker volumes)
+- Walks up directory tree looking for `docker-compose.yml`
+- Saves discovered path to config for future use
+
+### 4. Current Directory Search
+Walks up from current working directory searching for `docker-compose.yml`
+
+### 5. Common Paths
+Checks these standard locations:
+- `/home/kaspa/igra2/igra-orchestra-public`
+- `/home/kaspa/igra-orchestra-public`
+- `./igra-orchestra-public` (relative to current directory)
+- `../igra-orchestra-public` (parent directory)
+
+### 6. Manual Specification
+If auto-detection fails, you'll see a helpful error message with options to manually specify the path.
+
+The discovered path is automatically saved to `~/.config/igra-cli/config.toml` for faster startup next time.
+
 ## Key Configuration Variables
 
 ### Docker Configuration

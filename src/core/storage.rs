@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 /// Main storage analysis result
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct StorageAnalysis {
     pub system_disk: DiskUsage,
     pub docker_images: DockerStorageInfo,
@@ -17,7 +17,7 @@ pub struct StorageAnalysis {
 }
 
 /// System disk usage information
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DiskUsage {
     pub filesystem: String,
     pub total_bytes: u64,
@@ -28,7 +28,7 @@ pub struct DiskUsage {
 }
 
 /// Docker storage category info
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DockerStorageInfo {
     pub total_bytes: u64,
     pub reclaimable_bytes: u64,
@@ -37,7 +37,7 @@ pub struct DockerStorageInfo {
 }
 
 /// Individual Docker volume usage
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct VolumeUsage {
     pub name: String,
     pub size_bytes: u64,
@@ -47,14 +47,14 @@ pub struct VolumeUsage {
 }
 
 /// Growth rate analysis
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct GrowthRate {
     pub bytes_per_day: f64,
     pub days_to_full: Option<u64>,
     pub trend: GrowthTrend,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum GrowthTrend {
     Growing,
     Stable,

@@ -77,14 +77,6 @@ See **[Web UI Guide](docs/web-ui.md)** for features and systemd service setup.
 - **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
 - **[Changelog](docs/changelog.md)** - Version history and release notes
 
-## Screenshots
-
-### TUI Dashboard
-![Services Screen](https://via.placeholder.com/800x400?text=TUI+Services+Screen)
-
-### Web UI
-![Web Dashboard](https://via.placeholder.com/800x400?text=Web+Management+UI)
-
 ## Key Features
 
 ### Service Management
@@ -118,21 +110,150 @@ See **[Web UI Guide](docs/web-ui.md)** for features and systemd service setup.
 
 ## CLI Commands
 
+### Basic Commands
+
 ```bash
-# Launch TUI
+# Launch interactive TUI
 igra-cli
 
-# Start web server
-igra-cli serve [OPTIONS]
-
-# View service status
+# Show service status
 igra-cli status
 
-# View logs
-igra-cli logs <service> [OPTIONS]
+# View logs for a service
+igra-cli logs <service> [-f] [-n LINES]
+  -f, --follow          Follow log output
+  -n, --tail <LINES>    Number of lines to show (default: 100)
+```
+
+### Service Management
+
+```bash
+# Start a service or profile
+igra-cli start [--profile PROFILE | SERVICE]
+  --profile kaspad          # Start kaspad profile
+  --profile backend         # Start backend profile
+  --profile frontend-w1     # Start frontend with 1 worker
+
+# Stop services
+igra-cli stop [--all | SERVICE]
+  --all                     # Stop all services
+
+# Restart a service
+igra-cli restart <SERVICE>
+```
+
+### Web Server
+
+```bash
+# Start web management UI (requires 'server' feature)
+igra-cli serve [OPTIONS]
+  --port <PORT>             # Port number (default: 3000)
+  --host <HOST>             # Bind address (default: 127.0.0.1)
+  --cors                    # Enable CORS
+
+# Install as systemd service (requires 'server' feature)
+sudo igra-cli install-service [OPTIONS]
+  --port <PORT>             # Port number (default: 3000)
+  --host <HOST>             # Bind address (default: 0.0.0.0)
+  --cors                    # Enable CORS
+  --user <USER>             # Service user (default: current user)
+```
+
+### RPC Management
+
+```bash
+# List RPC tokens
+igra-cli rpc tokens list
+
+# Generate RPC tokens
+igra-cli rpc tokens generate
+
+# Test RPC token
+igra-cli rpc tokens test <TOKEN_NUMBER>
+
+# Test RPC endpoint
+igra-cli rpc test-endpoint [--token N]
+```
+
+### Wallet Management
+
+```bash
+# List all wallets
+igra-cli wallet list
+
+# Check wallet balance
+igra-cli wallet balance <WORKER_ID>
+
+# Generate new wallet
+igra-cli wallet generate <WORKER_ID>
+```
+
+### Configuration
+
+```bash
+# View configuration
+igra-cli config view
+
+# Edit configuration
+igra-cli config edit
+
+# Validate configuration
+igra-cli config validate
+
+# Generate RPC tokens
+igra-cli config generate-tokens
+```
+
+### Backup & Restore
+
+```bash
+# Create backup
+igra-cli backup create <SERVICE>
+
+# List backups
+igra-cli backup list
+
+# Restore from backup
+igra-cli backup restore <SERVICE> <FILE>
+```
+
+### Monitoring & Diagnostics
+
+```bash
+# Resource monitoring
+igra-cli monitor
+
+# Health check report
+igra-cli health
+
+# Run diagnostics
+igra-cli diag [--report]
+
+# Check for updates
+igra-cli upgrade [--check] [--pull] [--apply]
+```
+
+### Transaction Watching
+
+```bash
+# Watch L2 transactions in real-time
+igra-cli watch [OPTIONS]
+  --filter <TYPE>           # Filter by type: all, transfer, contract, entry (default: all)
+  --record <FILE>           # Record transactions to file
+  --format <FORMAT>         # Output format: json, csv, text (default: text)
+```
+
+### Other
+
+```bash
+# Run setup wizard
+igra-cli setup
 
 # Show help
 igra-cli --help
+
+# Show version
+igra-cli --version
 ```
 
 ## Development

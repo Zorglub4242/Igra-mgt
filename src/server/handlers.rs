@@ -330,34 +330,11 @@ pub async fn get_wallet_detail(
 // Storage Handlers
 // ============================================================================
 
-#[derive(Serialize)]
-pub struct StorageInfo {
-    pub system_disk_used_percent: f64,
-    pub system_disk_total_gb: f64,
-    pub system_disk_used_gb: f64,
-    pub docker_images_gb: f64,
-    pub docker_volumes_gb: f64,
-    pub docker_containers_gb: f64,
-    pub docker_build_cache_gb: f64,
-    pub reclaimable_gb: f64,
-}
-
-pub async fn get_storage() -> Result<Json<ApiResponse<StorageInfo>>, StatusCode> {
+pub async fn get_storage() -> Result<Json<ApiResponse<storage::StorageAnalysis>>, StatusCode> {
     let analysis = storage::analyze_storage().await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let info = StorageInfo {
-        system_disk_used_percent: analysis.system_disk.use_percent,
-        system_disk_total_gb: analysis.system_disk.total_bytes as f64 / 1024.0 / 1024.0 / 1024.0,
-        system_disk_used_gb: analysis.system_disk.used_bytes as f64 / 1024.0 / 1024.0 / 1024.0,
-        docker_images_gb: analysis.docker_images.total_bytes as f64 / 1024.0 / 1024.0 / 1024.0,
-        docker_volumes_gb: analysis.docker_volumes.iter().map(|v| v.size_bytes).sum::<u64>() as f64 / 1024.0 / 1024.0 / 1024.0,
-        docker_containers_gb: analysis.docker_containers.total_bytes as f64 / 1024.0 / 1024.0 / 1024.0,
-        docker_build_cache_gb: analysis.docker_build_cache.total_bytes as f64 / 1024.0 / 1024.0 / 1024.0,
-        reclaimable_gb: analysis.reclaimable_space as f64 / 1024.0 / 1024.0 / 1024.0,
-    };
-
-    Ok(Json(ApiResponse::ok(info)))
+    Ok(Json(ApiResponse::ok(analysis)))
 }
 
 pub async fn get_storage_history() -> Result<Json<ApiResponse<Vec<storage::StorageMeasurement>>>, StatusCode> {

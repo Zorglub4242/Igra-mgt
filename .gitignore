@@ -26,3 +26,11 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 package-lock.json
+
+# Test binaries (not part of main build)
+/test_*.rs
+/kaswallet_cli.rs
+
+# Release archives (keep in releases/ only)
+/*.tar.gz
+/*.zip
