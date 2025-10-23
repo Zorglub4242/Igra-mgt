@@ -150,19 +150,19 @@
 }
 
 .btn-success {
-  background: #10b981;
+  background: #5bc0de;
 }
 
 .btn-success:hover {
-  background: #059669;
+  background: #4aa3bb;
 }
 
 .btn-danger {
-  background: #ef4444;
+  background: #dc2626;
 }
 
 .btn-danger:hover {
-  background: #dc2626;
+  background: #b91c1c;
 }
 
 .btn-warning {
@@ -259,7 +259,7 @@
 }
 
 .progress-fill.danger {
-  background: #ef4444;
+  background: #dc2626;
 }
 
 /* Modal Overlay */

@@ -650,3 +650,111 @@ pub async fn get_version_info() -> Result<Json<ApiResponse<updater::VersionInfo>
 
     Ok(Json(ApiResponse::ok(version_info)))
 }
+
+#[derive(Serialize)]
+pub struct UpdateStatus {
+    message: String,
+    step: String,
+    success: bool,
+}
+
+/// Trigger automatic update
+/// Downloads latest release, installs it, and restarts the service
+pub async fn trigger_update() -> Result<Json<ApiResponse<UpdateStatus>>, StatusCode> {
+    use std::process::Command;
+    use std::path::Path;
+    use std::fs;
+
+    // Download latest release to /tmp
+    let download_path = Path::new("/tmp/igra-cli-update");
+
+    match updater::download_latest_release(download_path).await {
+        Ok(_) => {
+            // Extract the binary from the tarball to a temp location
+            let extract_result = Command::new("tar")
+                .args(&["-xzf", download_path.to_str().unwrap(), "-C", "/tmp"])
+                .output();
+
+            match extract_result {
+                Err(e) => {
+                    return Ok(Json(ApiResponse::ok(UpdateStatus {
+                        message: format!("Failed to run tar command: {}", e),
+                        step: "extract_failed".to_string(),
+                        success: false,
+                    })));
+                }
+                Ok(output) if !output.status.success() => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return Ok(Json(ApiResponse::ok(UpdateStatus {
+                        message: format!("Failed to extract tarball: {}", stderr),
+                        step: "extract_failed".to_string(),
+                        success: false,
+                    })));
+                }
+                _ => {}
+            }
+
+            // The extracted binary is now at /tmp/igra-cli
+            let new_binary = Path::new("/tmp/igra-cli");
+
+            // Make executable
+            let _ = Command::new("chmod")
+                .args(&["+x", new_binary.to_str().unwrap()])
+                .output();
+
+            // Create an update script that will be executed by the new binary
+            let update_script = r#"#!/bin/bash
+# Stop the service
+systemctl stop igra-web-ui 2>/dev/null || sudo systemctl stop igra-web-ui
+
+# Copy new binary
+cp /tmp/igra-cli /usr/local/bin/igra-cli 2>/dev/null || sudo cp /tmp/igra-cli /usr/local/bin/igra-cli
+
+# Clean up
+rm -f /tmp/igra-cli /tmp/igra-cli-update /tmp/igra-update.sh
+
+# Start the service
+systemctl start igra-web-ui 2>/dev/null || sudo systemctl start igra-web-ui
+"#;
+
+            // Write the update script
+            let script_path = Path::new("/tmp/igra-update.sh");
+            if let Err(e) = fs::write(script_path, update_script) {
+                return Ok(Json(ApiResponse::ok(UpdateStatus {
+                    message: format!("Failed to create update script: {}", e),
+                    step: "script_failed".to_string(),
+                    success: false,
+                })));
+            }
+
+            // Make script executable
+            let _ = Command::new("chmod")
+                .args(&["+x", script_path.to_str().unwrap()])
+                .output();
+
+            // Schedule the update to run in 2 seconds
+            // This allows the response to be sent before we kill ourselves
+            tokio::spawn(async {
+                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                // Use systemd-run to execute the script detached from the service
+                // This ensures the script continues after the service stops
+                let _ = Command::new("systemd-run")
+                    .args(&["--scope", "--unit=igra-cli-update", "bash", "/tmp/igra-update.sh"])
+                    .spawn();
+            });
+
+            Ok(Json(ApiResponse::ok(UpdateStatus {
+                message: "Update downloaded! Service will restart in 2 seconds...".to_string(),
+                step: "completed".to_string(),
+                success: true,
+            })))
+        }
+        Err(e) => {
+            Ok(Json(ApiResponse::ok(UpdateStatus {
+                message: format!("Failed to download update: {}", e),
+                step: "download_failed".to_string(),
+                success: false,
+            })))
+        }
+    }
+}

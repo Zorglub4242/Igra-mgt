@@ -1,19 +1,23 @@
 import { useState, useEffect } from 'react';
+import { api } from '../services/api';
 
 /**
  * Update notification banner
  * Displays when a new version is available
  * Fetches from /api/version endpoint
+ * Supports automatic updates via /api/update endpoint
  */
 function UpdateBanner() {
   const [versionInfo, setVersionInfo] = useState(null);
   const [dismissed, setDismissed] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState(null);
 
   useEffect(() => {
     checkForUpdates();
-    // Check every 30 minutes
-    const interval = setInterval(checkForUpdates, 30 * 60 * 1000);
+    // Check every 6 hours
+    const interval = setInterval(checkForUpdates, 6 * 60 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -45,6 +49,57 @@ function UpdateBanner() {
     }
   };
 
+  const handleUpdateNow = async () => {
+    setUpdating(true);
+    setUpdateStatus({ message: 'Starting update...', step: 'init' });
+
+    try {
+      const token = api.getToken();
+      const response = await fetch('/api/update', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.data) {
+        const status = data.data;
+        setUpdateStatus(status);
+
+        if (status.success) {
+          // Service will restart in 2 seconds
+          setTimeout(() => {
+            setUpdateStatus({
+              message: 'Restarting service... Please refresh this page in a few seconds.',
+              step: 'restarting'
+            });
+            // Auto-reload after 5 seconds
+            setTimeout(() => {
+              window.location.reload();
+            }, 5000);
+          }, 2000);
+        }
+      } else {
+        setUpdateStatus({
+          message: data.error || 'Update failed',
+          step: 'error',
+          success: false
+        });
+        setUpdating(false);
+      }
+    } catch (error) {
+      setUpdateStatus({
+        message: `Update failed: ${error.message}`,
+        step: 'error',
+        success: false
+      });
+      setUpdating(false);
+    }
+  };
+
   if (!versionInfo || !versionInfo.update_available || dismissed) {
     return null;
   }
@@ -56,7 +111,7 @@ function UpdateBanner() {
         top: 0,
         left: 0,
         right: 0,
-        backgroundColor: '#10b981',
+        backgroundColor: '#5bc0de',
         color: 'white',
         padding: '12px 20px',
         display: 'flex',
@@ -80,7 +135,7 @@ function UpdateBanner() {
             onClick={() => setShowModal(true)}
             style={{
               backgroundColor: 'white',
-              color: '#10b981',
+              color: '#5bc0de',
               border: 'none',
               padding: '6px 16px',
               borderRadius: '4px',
@@ -122,7 +177,7 @@ function UpdateBanner() {
           justifyContent: 'center',
           zIndex: 10000,
           padding: '20px'
-        }} onClick={() => setShowModal(false)}>
+        }} onClick={() => !updating && setShowModal(false)}>
           <div style={{
             backgroundColor: 'white',
             borderRadius: '8px',
@@ -172,6 +227,24 @@ function UpdateBanner() {
               </div>
             )}
 
+            {updateStatus && (
+              <div style={{
+                backgroundColor: updateStatus.success === false ? '#fee2e2' : '#eff6ff',
+                border: `1px solid ${updateStatus.success === false ? '#ef4444' : '#3b82f6'}`,
+                borderRadius: '4px',
+                padding: '16px',
+                marginBottom: '20px'
+              }}>
+                <p style={{
+                  margin: 0,
+                  color: updateStatus.success === false ? '#991b1b' : '#1e40af',
+                  fontSize: '14px'
+                }}>
+                  {updateStatus.message}
+                </p>
+              </div>
+            )}
+
             <div style={{
               backgroundColor: '#eff6ff',
               border: '1px solid #3b82f6',
@@ -180,24 +253,22 @@ function UpdateBanner() {
               marginBottom: '20px'
             }}>
               <h4 style={{ margin: '0 0 10px 0', color: '#1e40af', fontSize: '14px' }}>
-                💡 How to Update
+                💡 Automatic Update
               </h4>
-              <ol style={{ margin: 0, paddingLeft: '20px', color: '#1e40af', fontSize: '14px' }}>
-                <li style={{ marginBottom: '8px' }}>Download the latest release from GitHub</li>
-                <li style={{ marginBottom: '8px' }}>Stop the igra-cli server</li>
-                <li style={{ marginBottom: '8px' }}>Replace the binary: <code style={{ backgroundColor: 'white', padding: '2px 6px', borderRadius: '3px' }}>sudo cp igra-cli /usr/local/bin/</code></li>
-                <li>Restart the server</li>
-              </ol>
+              <p style={{ margin: 0, color: '#1e40af', fontSize: '14px' }}>
+                Click "Update Now" to automatically download and install the latest version.
+                The service will restart automatically.
+              </p>
             </div>
 
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-              {versionInfo.release_url && (
+              {!updating && versionInfo.release_url && (
                 <a
                   href={versionInfo.release_url}
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{
-                    backgroundColor: '#10b981',
+                    backgroundColor: '#6b7280',
                     color: 'white',
                     padding: '10px 20px',
                     borderRadius: '4px',
@@ -206,24 +277,42 @@ function UpdateBanner() {
                     fontSize: '14px'
                   }}
                 >
-                  Download Update
+                  View on GitHub
                 </a>
               )}
               <button
-                onClick={() => setShowModal(false)}
+                onClick={handleUpdateNow}
+                disabled={updating}
                 style={{
-                  backgroundColor: '#e5e7eb',
-                  color: '#374151',
+                  backgroundColor: updating ? '#9ca3af' : '#5bc0de',
+                  color: 'white',
                   border: 'none',
                   padding: '10px 20px',
                   borderRadius: '4px',
-                  cursor: 'pointer',
+                  cursor: updating ? 'not-allowed' : 'pointer',
                   fontWeight: '600',
                   fontSize: '14px'
                 }}
               >
-                Close
+                {updating ? 'Updating...' : 'Update Now'}
               </button>
+              {!updating && (
+                <button
+                  onClick={() => setShowModal(false)}
+                  style={{
+                    backgroundColor: '#e5e7eb',
+                    color: '#374151',
+                    border: 'none',
+                    padding: '10px 20px',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '14px'
+                  }}
+                >
+                  Close
+                </button>
+              )}
             </div>
           </div>
         </div>
