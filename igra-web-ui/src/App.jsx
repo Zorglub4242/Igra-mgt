@@ -5,6 +5,7 @@ import WalletsPanel from './components/WalletsPanel'
 import StoragePanel from './components/StoragePanel'
 import TransactionsPanel from './components/TransactionsPanel'
 import MonitoringPanel from './components/MonitoringPanel'
+import ConfigPanel from './components/ConfigPanel'
 import LoginPage from './components/LoginPage'
 import UpdateBanner from './components/UpdateBanner'
 import { api } from './services/api'
@@ -130,6 +131,12 @@ function App() {
         >
           🔍 Monitoring
         </button>
+        <button
+          className={`tab ${activeTab === 'settings' ? 'active' : ''}`}
+          onClick={() => setActiveTab('settings')}
+        >
+          ⚙️ Settings
+        </button>
       </nav>
 
       <main className="main-content">
@@ -138,6 +145,7 @@ function App() {
         {activeTab === 'wallets' && <WalletsPanel />}
         {activeTab === 'storage' && <StoragePanel />}
         {activeTab === 'monitoring' && <MonitoringPanel />}
+        {activeTab === 'settings' && <ConfigPanel />}
       </main>
 
       <footer className="footer">

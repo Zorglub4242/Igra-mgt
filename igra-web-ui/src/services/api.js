@@ -189,6 +189,11 @@ class IgraApiClient {
 
     return ws;
   }
+
+  // Service Management
+  async restartService() {
+    return this.request('/api/service/restart', { method: 'POST' });
+  }
 }
 
 export const api = new IgraApiClient();

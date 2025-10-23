@@ -758,3 +758,29 @@ systemctl start igra-web-ui 2>/dev/null || sudo systemctl start igra-web-ui
         }
     }
 }
+
+/// Restart the igra-web-ui systemd service
+pub async fn restart_igra_service() -> Result<Json<ApiResponse<UpdateStatus>>, StatusCode> {
+    use std::process::Command;
+
+    // Schedule the restart to run in 2 seconds
+    // This allows the response to be sent before we kill ourselves
+    tokio::spawn(async {
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        // Try with and without sudo
+        let _ = Command::new("systemctl")
+            .args(&["restart", "igra-web-ui"])
+            .spawn()
+            .or_else(|_| {
+                Command::new("sudo")
+                    .args(&["systemctl", "restart", "igra-web-ui"])
+                    .spawn()
+            });
+    });
+
+    Ok(Json(ApiResponse::ok(UpdateStatus {
+        message: "Service will restart in 2 seconds... Please refresh this page in a few seconds.".to_string(),
+        step: "restarting".to_string(),
+        success: true,
+    })))
+}

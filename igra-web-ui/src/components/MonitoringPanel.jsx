@@ -1,8 +1,18 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+
+const DEFAULT_MONITORING_URL = 'https://grafana.igralabs.com/public-dashboards/5de66581390e434a823a2206237f793b'
 
 export default function MonitoringPanel() {
   const [iframeError, setIframeError] = useState(false)
-  const grafanaUrl = 'https://grafana.igralabs.com/public-dashboards/5de66581390e434a823a2206237f793b'
+  const [grafanaUrl, setGrafanaUrl] = useState(DEFAULT_MONITORING_URL)
+
+  useEffect(() => {
+    // Load monitoring URL from localStorage
+    const savedUrl = localStorage.getItem('monitoring_url')
+    if (savedUrl) {
+      setGrafanaUrl(savedUrl)
+    }
+  }, [])
 
   return (
     <div className="card" style={{ height: 'calc(100vh - 200px)', display: 'flex', flexDirection: 'column' }}>

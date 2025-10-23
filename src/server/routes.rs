@@ -23,6 +23,7 @@ pub fn create_router(enable_cors: bool) -> Router {
         .route("/api/profiles/:name/start", post(handlers::start_profile))
         .route("/api/profiles/:name/stop", post(handlers::stop_profile))
         .route("/api/update", post(handlers::trigger_update))
+        .route("/api/service/restart", post(handlers::restart_igra_service))
         .layer(middleware::from_fn(auth::auth_middleware));
 
     // Public routes (read-only, no auth required)

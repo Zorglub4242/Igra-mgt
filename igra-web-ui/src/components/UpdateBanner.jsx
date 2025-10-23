@@ -100,7 +100,10 @@ function UpdateBanner() {
     }
   };
 
-  if (!versionInfo || !versionInfo.update_available || dismissed) {
+  // Check if auto-update is disabled
+  const autoUpdateEnabled = localStorage.getItem('auto_update_enabled') !== 'false'
+
+  if (!versionInfo || !versionInfo.update_available || dismissed || !autoUpdateEnabled) {
     return null;
   }
 
