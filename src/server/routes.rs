@@ -43,6 +43,7 @@ pub fn create_router(enable_cors: bool) -> Router {
         .route("/api/transactions/stats", get(handlers::get_transaction_stats))
         .route("/api/health", get(handlers::health_check))
         .route("/api/metrics", get(handlers::get_metrics))
+        .route("/api/version", get(handlers::get_version_info))
         .route("/ws/logs/:service", get(websocket::ws_logs_handler))
         .route("/ws/metrics", get(websocket::ws_metrics_handler));
 

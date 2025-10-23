@@ -70,6 +70,7 @@ pub async fn run(host: String, port: u16, enable_cors: bool) -> anyhow::Result<(
     println!("   GET  /api/wallets                - List wallets");
     println!("   GET  /api/storage                - Get storage info");
     println!("   GET  /api/config                 - Get configuration");
+    println!("   GET  /api/version                - Check for updates");
     println!("   GET  /api/health                 - Health check");
     println!("   GET  /ws/logs/:service           - WebSocket log stream");
     println!();

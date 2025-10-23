@@ -15,6 +15,7 @@ use crate::core::{
     wallet::WalletManager,
     storage,
     log_parser,
+    updater,
 };
 
 // ============================================================================
@@ -635,4 +636,17 @@ pub async fn get_transaction_stats() -> Result<Json<ApiResponse<TransactionStats
     let stats = monitor.get_statistics().await;
 
     Ok(Json(ApiResponse::ok(stats.into())))
+}
+
+// ============================================================================
+// Version Management Handler
+// ============================================================================
+
+/// Check for updates from GitHub releases
+/// Uses core::updater module - same business logic as TUI and CLI
+pub async fn get_version_info() -> Result<Json<ApiResponse<updater::VersionInfo>>, StatusCode> {
+    let version_info = updater::check_for_updates().await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(ApiResponse::ok(version_info)))
 }

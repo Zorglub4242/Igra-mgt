@@ -1,6 +1,6 @@
 [package]
 name = "igra-cli"
-version = "0.10.0"
+version = "0.10.1"
 edition = "2021"
 authors = ["Merlin"]
 description = "Terminal-based management CLI for IGRA Orchestra nodes"
@@ -21,21 +21,22 @@ path = "src/lib.rs"
 name = "igra-cli"
 path = "src/main.rs"
 
-[[bin]]
-name = "test_wallet_grpc"
-path = "test_wallet_grpc.rs"
+# Test binaries commented out - uncomment when needed
+# [[bin]]
+# name = "test_wallet_grpc"
+# path = "test_wallet_grpc.rs"
 
-[[bin]]
-name = "test_balance_only"
-path = "test_balance_only.rs"
+# [[bin]]
+# name = "test_balance_only"
+# path = "test_balance_only.rs"
 
-[[bin]]
-name = "kaswallet-cli"
-path = "kaswallet_cli.rs"
+# [[bin]]
+# name = "kaswallet-cli"
+# path = "kaswallet_cli.rs"
 
-[[bin]]
-name = "test_utxo"
-path = "test_utxo.rs"
+# [[bin]]
+# name = "test_utxo"
+# path = "test_utxo.rs"
 
 [dependencies]
 # TUI Framework
@@ -99,6 +100,9 @@ indicatif = "0.17"
 # System
 sysinfo = "0.30"
 rand = "0.8"
+
+# Version Comparison
+semver = "1.0"
 
 [dev-dependencies]
 tempfile = "3.10"

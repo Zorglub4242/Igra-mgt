@@ -1,0 +1,235 @@
+import { useState, useEffect } from 'react';
+
+/**
+ * Update notification banner
+ * Displays when a new version is available
+ * Fetches from /api/version endpoint
+ */
+function UpdateBanner() {
+  const [versionInfo, setVersionInfo] = useState(null);
+  const [dismissed, setDismissed] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+
+  useEffect(() => {
+    checkForUpdates();
+    // Check every 30 minutes
+    const interval = setInterval(checkForUpdates, 30 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const checkForUpdates = async () => {
+    try {
+      const response = await fetch('/api/version');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data) {
+          setVersionInfo(data.data);
+          // Reset dismissed state when new version appears
+          if (data.data.update_available) {
+            const dismissedVersion = localStorage.getItem('dismissedVersion');
+            if (dismissedVersion !== data.data.latest_version) {
+              setDismissed(false);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to check for updates:', error);
+    }
+  };
+
+  const handleDismiss = () => {
+    setDismissed(true);
+    if (versionInfo?.latest_version) {
+      localStorage.setItem('dismissedVersion', versionInfo.latest_version);
+    }
+  };
+
+  if (!versionInfo || !versionInfo.update_available || dismissed) {
+    return null;
+  }
+
+  return (
+    <>
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: '#10b981',
+        color: 'white',
+        padding: '12px 20px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        zIndex: 9999,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span style={{ fontSize: '20px' }}>🎉</span>
+          <div>
+            <strong>Update Available!</strong>
+            <span style={{ marginLeft: '10px', opacity: 0.9 }}>
+              v{versionInfo.current_version} → v{versionInfo.latest_version}
+            </span>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button
+            onClick={() => setShowModal(true)}
+            style={{
+              backgroundColor: 'white',
+              color: '#10b981',
+              border: 'none',
+              padding: '6px 16px',
+              borderRadius: '4px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              fontSize: '14px'
+            }}
+          >
+            View Details
+          </button>
+          <button
+            onClick={handleDismiss}
+            style={{
+              backgroundColor: 'transparent',
+              color: 'white',
+              border: '1px solid rgba(255,255,255,0.5)',
+              padding: '6px 12px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px'
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+
+      {/* Modal */}
+      {showModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000,
+          padding: '20px'
+        }} onClick={() => setShowModal(false)}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '8px',
+            maxWidth: '600px',
+            width: '100%',
+            maxHeight: '80vh',
+            overflow: 'auto',
+            padding: '24px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+          }} onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ marginTop: 0, color: '#1f2937' }}>
+              Version {versionInfo.latest_version} Available
+            </h2>
+
+            <div style={{ marginBottom: '20px' }}>
+              <p style={{ color: '#6b7280', margin: '8px 0' }}>
+                <strong>Current version:</strong> {versionInfo.current_version}
+              </p>
+              <p style={{ color: '#6b7280', margin: '8px 0' }}>
+                <strong>Latest version:</strong> {versionInfo.latest_version}
+              </p>
+              {versionInfo.published_at && (
+                <p style={{ color: '#6b7280', margin: '8px 0' }}>
+                  <strong>Released:</strong> {new Date(versionInfo.published_at).toLocaleDateString()}
+                </p>
+              )}
+            </div>
+
+            {versionInfo.release_notes && (
+              <div style={{ marginBottom: '20px' }}>
+                <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#374151' }}>
+                  Release Notes
+                </h3>
+                <div style={{
+                  backgroundColor: '#f9fafb',
+                  padding: '12px',
+                  borderRadius: '4px',
+                  border: '1px solid #e5e7eb',
+                  whiteSpace: 'pre-wrap',
+                  fontSize: '14px',
+                  color: '#4b5563',
+                  maxHeight: '300px',
+                  overflow: 'auto'
+                }}>
+                  {versionInfo.release_notes}
+                </div>
+              </div>
+            )}
+
+            <div style={{
+              backgroundColor: '#eff6ff',
+              border: '1px solid #3b82f6',
+              borderRadius: '4px',
+              padding: '16px',
+              marginBottom: '20px'
+            }}>
+              <h4 style={{ margin: '0 0 10px 0', color: '#1e40af', fontSize: '14px' }}>
+                💡 How to Update
+              </h4>
+              <ol style={{ margin: 0, paddingLeft: '20px', color: '#1e40af', fontSize: '14px' }}>
+                <li style={{ marginBottom: '8px' }}>Download the latest release from GitHub</li>
+                <li style={{ marginBottom: '8px' }}>Stop the igra-cli server</li>
+                <li style={{ marginBottom: '8px' }}>Replace the binary: <code style={{ backgroundColor: 'white', padding: '2px 6px', borderRadius: '3px' }}>sudo cp igra-cli /usr/local/bin/</code></li>
+                <li>Restart the server</li>
+              </ol>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              {versionInfo.release_url && (
+                <a
+                  href={versionInfo.release_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    backgroundColor: '#10b981',
+                    color: 'white',
+                    padding: '10px 20px',
+                    borderRadius: '4px',
+                    textDecoration: 'none',
+                    fontWeight: '600',
+                    fontSize: '14px'
+                  }}
+                >
+                  Download Update
+                </a>
+              )}
+              <button
+                onClick={() => setShowModal(false)}
+                style={{
+                  backgroundColor: '#e5e7eb',
+                  color: '#374151',
+                  border: 'none',
+                  padding: '10px 20px',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  fontSize: '14px'
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+export default UpdateBanner;

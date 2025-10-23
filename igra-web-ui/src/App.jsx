@@ -6,6 +6,7 @@ import StoragePanel from './components/StoragePanel'
 import TransactionsPanel from './components/TransactionsPanel'
 import MonitoringPanel from './components/MonitoringPanel'
 import LoginPage from './components/LoginPage'
+import UpdateBanner from './components/UpdateBanner'
 import { api } from './services/api'
 
 function App() {
@@ -71,6 +72,7 @@ function App() {
 
   return (
     <div className="app">
+      <UpdateBanner />
       <header className="header">
         <div className="header-content">
           <h1>⚡ IGRA Orchestra Management</h1>

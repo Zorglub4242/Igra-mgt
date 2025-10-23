@@ -11,6 +11,7 @@ pub mod versions;
 pub mod reth_metrics;
 pub mod l2_monitor;
 pub mod storage;
+pub mod updater;
 
 pub use docker::DockerManager;
 pub use config::ConfigManager;
