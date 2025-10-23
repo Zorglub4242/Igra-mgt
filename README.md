@@ -4,6 +4,14 @@ A comprehensive management tool for IGRA Orchestra node operators. Built with Ru
 
 ![IGRA CLI Dashboard](https://img.shields.io/badge/version-0.10.0-blue) ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange) ![License](https://img.shields.io/badge/license-MIT-green)
 
+## Quick Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Zorglub4242/Igra-mgt/main/quick-install.sh | bash
+```
+
+Interactive setup with auto-detection, Web UI configuration, and optional systemd service.
+
 ## Overview
 
 `igra-cli` provides both a terminal user interface (TUI) and a modern web-based UI for real-time monitoring and management of your IGRA Orchestra node infrastructure. It replaces multiple Docker and CLI commands with intuitive, easy-to-use interfaces.
