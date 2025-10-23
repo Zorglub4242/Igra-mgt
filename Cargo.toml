@@ -1,6 +1,6 @@
 [package]
 name = "igra-cli"
-version = "0.11.0"
+version = "0.11.1"
 edition = "2021"
 authors = ["Merlin"]
 description = "Terminal-based management CLI for IGRA Orchestra nodes"
