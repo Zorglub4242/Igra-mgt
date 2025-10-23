@@ -12,6 +12,7 @@ pub struct StorageAnalysis {
     pub docker_volumes: Vec<VolumeUsage>,
     pub docker_containers: DockerStorageInfo,
     pub docker_build_cache: DockerStorageInfo,
+    pub container_logs: Vec<ContainerLogInfo>,
     pub reclaimable_space: u64,
     pub growth_rate: Option<GrowthRate>,
 }
@@ -44,6 +45,15 @@ pub struct VolumeUsage {
     pub mount_point: String,
     pub in_use: bool,
     pub critical: bool, // Mark critical volumes like viaduct_data
+}
+
+/// Docker container log file information
+#[derive(Debug, Clone, Serialize)]
+pub struct ContainerLogInfo {
+    pub container_id: String,
+    pub container_name: String,
+    pub log_size_bytes: u64,
+    pub log_path: String,
 }
 
 /// Growth rate analysis
@@ -177,6 +187,7 @@ pub async fn analyze_storage() -> Result<StorageAnalysis> {
     let system_disk = get_system_disk_usage()?;
     let docker_summary = get_docker_system_df()?;
     let volumes = get_docker_volumes_usage()?;
+    let container_logs = get_container_log_sizes().await?;
 
     let reclaimable = docker_summary.images_reclaimable
         + docker_summary.build_cache_total
@@ -207,6 +218,7 @@ pub async fn analyze_storage() -> Result<StorageAnalysis> {
             active_count: 0,
             total_count: docker_summary.build_cache_count,
         },
+        container_logs,
         reclaimable_space: reclaimable,
         growth_rate,
     })
@@ -499,6 +511,87 @@ fn parse_size_from_reclaimable(s: &str) -> u64 {
         return 0;
     }
     parse_size_string(parts[0])
+}
+
+/// Get container log sizes for all running containers
+pub async fn get_container_log_sizes() -> Result<Vec<ContainerLogInfo>> {
+    use bollard::Docker;
+    use bollard::container::ListContainersOptions;
+    use std::collections::HashMap;
+
+    let docker = Docker::connect_with_local_defaults()
+        .context("Failed to connect to Docker daemon")?;
+
+    let mut filters = HashMap::new();
+    filters.insert("status".to_string(), vec!["running".to_string(), "exited".to_string(), "paused".to_string()]);
+
+    let options = Some(ListContainersOptions {
+        all: true,
+        filters,
+        ..Default::default()
+    });
+
+    let containers = docker.list_containers(options).await?;
+    let mut log_infos = Vec::new();
+
+    for container in containers {
+        let container_id = match &container.id {
+            Some(id) => id.clone(),
+            None => continue,
+        };
+
+        let container_name = container
+            .names
+            .as_ref()
+            .and_then(|names| names.first())
+            .map(|n| n.trim_start_matches('/').to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        // Construct log file path: /var/lib/docker/containers/{id}/{id}-json.log
+        let log_path = format!("/var/lib/docker/containers/{}/{}-json.log", container_id, container_id);
+
+        // Get log file size using std::fs::metadata (doesn't require sudo for size check)
+        let log_size_bytes = std::fs::metadata(&log_path)
+            .ok()
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+
+        log_infos.push(ContainerLogInfo {
+            container_id,
+            container_name,
+            log_size_bytes,
+            log_path,
+        });
+    }
+
+    // Sort by size descending (largest first)
+    log_infos.sort_by(|a, b| b.log_size_bytes.cmp(&a.log_size_bytes));
+
+    Ok(log_infos)
+}
+
+/// Truncate a container's log file (requires sudo privileges)
+pub async fn truncate_container_log(container_id: &str) -> Result<()> {
+    let log_path = format!("/var/lib/docker/containers/{}/{}-json.log", container_id, container_id);
+
+    // Verify log file exists
+    if !std::path::Path::new(&log_path).exists() {
+        anyhow::bail!("Log file not found: {}", log_path);
+    }
+
+    // Use sudo truncate command to reset log file to 0 bytes
+    // This preserves the file (important for Docker log rotation config)
+    let output = Command::new("sudo")
+        .args(&["truncate", "-s", "0", &log_path])
+        .output()
+        .context("Failed to execute truncate command")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Failed to truncate log file: {}", stderr);
+    }
+
+    Ok(())
 }
 
 /// Format bytes to human-readable string

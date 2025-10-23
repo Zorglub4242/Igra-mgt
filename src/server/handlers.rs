@@ -361,6 +361,19 @@ pub async fn prune_storage() -> Result<Json<ApiResponse<String>>, StatusCode> {
     }
 }
 
+pub async fn truncate_container_log(
+    Path(container_id): Path<String>,
+) -> Result<Json<ApiResponse<String>>, StatusCode> {
+    storage::truncate_container_log(&container_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(ApiResponse::ok(format!(
+        "Container log truncated successfully: {}",
+        container_id
+    ))))
+}
+
 // ============================================================================
 // Configuration Handlers
 // ============================================================================

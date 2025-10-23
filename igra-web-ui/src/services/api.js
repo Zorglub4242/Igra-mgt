@@ -97,6 +97,10 @@ class IgraApiClient {
     return this.request('/api/storage/prune', { method: 'POST' });
   }
 
+  async truncateContainerLog(containerId) {
+    return this.request(`/api/storage/container-logs/${containerId}/truncate`, { method: 'POST' });
+  }
+
   // Configuration
   async getConfig() {
     return this.request('/api/config');

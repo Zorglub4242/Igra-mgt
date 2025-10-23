@@ -32,6 +32,8 @@ export default function StoragePanel() {
   const [error, setError] = useState(null)
   const [pruning, setPruning] = useState(false)
   const [chartDays, setChartDays] = useState(30)
+  const [truncatingLogs, setTruncatingLogs] = useState(new Set())
+  const [showLogsDetail, setShowLogsDetail] = useState(false)
 
   useEffect(() => {
     loadStorage()
@@ -73,6 +75,27 @@ export default function StoragePanel() {
       alert(`Error: ${err.message}`)
     } finally {
       setPruning(false)
+    }
+  }
+
+  async function handleTruncateLog(containerId, containerName) {
+    if (!confirm(`Truncate log for container "${containerName}"?\n\nThis will clear all log data for this container. This action cannot be undone.`)) {
+      return
+    }
+
+    setTruncatingLogs(prev => new Set(prev).add(containerId))
+    try {
+      await api.truncateContainerLog(containerId)
+      await loadStorage()
+      alert(`Log truncated successfully for ${containerName}`)
+    } catch (err) {
+      alert(`Error truncating log: ${err.message}`)
+    } finally {
+      setTruncatingLogs(prev => {
+        const next = new Set(prev)
+        next.delete(containerId)
+        return next
+      })
     }
   }
 
@@ -169,6 +192,7 @@ export default function StoragePanel() {
 
   const chartData = prepareChartData()
   const totalVolumesSize = storage.docker_volumes.reduce((sum, v) => sum + v.size_bytes, 0)
+  const totalContainerLogsSize = storage.container_logs.reduce((sum, log) => sum + log.log_size_bytes, 0)
 
   return (
     <div>
@@ -255,12 +279,72 @@ export default function StoragePanel() {
               <td><strong>{formatBytes(storage.docker_build_cache.total_bytes)} GB</strong></td>
               <td style={{ color: '#10b981' }}>{formatBytes(storage.docker_build_cache.reclaimable_bytes)} GB</td>
             </tr>
+            <tr>
+              <td>Container Logs</td>
+              <td>{storage.container_logs.length}</td>
+              <td><strong>{formatBytes(totalContainerLogsSize)} GB</strong></td>
+              <td>
+                <button
+                  className="btn"
+                  onClick={() => setShowLogsDetail(!showLogsDetail)}
+                  style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem' }}
+                >
+                  {showLogsDetail ? '▲ Hide' : '▼ Details'}
+                </button>
+              </td>
+            </tr>
             <tr style={{ borderTop: '2px solid #334155' }}>
               <td colSpan="2"><strong>Total Reclaimable</strong></td>
               <td colSpan="2"><strong style={{ color: '#10b981' }}>{formatBytes(storage.reclaimable_space)} GB</strong></td>
             </tr>
           </tbody>
         </table>
+
+        {/* Container Logs Detail */}
+        {showLogsDetail && storage.container_logs.length > 0 && (
+          <div style={{ marginTop: '1rem', background: 'rgba(51, 65, 85, 0.3)', padding: '1rem', borderRadius: '0.5rem' }}>
+            <h3 style={{ marginTop: 0, marginBottom: '1rem', fontSize: '1rem', color: '#e2e8f0' }}>Container Logs Detail</h3>
+            <table className="table" style={{ marginBottom: 0 }}>
+              <thead>
+                <tr>
+                  <th>Container</th>
+                  <th>Log Size</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {storage.container_logs
+                  .filter(log => log.log_size_bytes > 0)
+                  .map((log, idx) => (
+                    <tr key={idx}>
+                      <td>
+                        <span style={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                          {log.container_name}
+                        </span>
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>
+                          {log.container_id.substring(0, 12)}
+                        </div>
+                      </td>
+                      <td><strong>{formatBytes(log.log_size_bytes)} GB</strong></td>
+                      <td>
+                        <button
+                          className="btn btn-warning"
+                          onClick={() => handleTruncateLog(log.container_id, log.container_name)}
+                          disabled={truncatingLogs.has(log.container_id)}
+                          style={{ padding: '0.25rem 0.75rem', fontSize: '0.875rem' }}
+                        >
+                          {truncatingLogs.has(log.container_id) ? '⏳ Truncating...' : '🗑️ Truncate'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+            <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '0.5rem', border: '1px solid #ef4444', fontSize: '0.875rem' }}>
+              <strong style={{ color: '#ef4444' }}>⚠️ Warning:</strong> Truncating logs will permanently delete all log data for that container. This action cannot be undone. Consider using this only if log rotation is enabled in docker-compose.yml.
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Growth Rate Prediction */}
