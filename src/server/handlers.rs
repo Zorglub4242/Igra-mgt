@@ -77,6 +77,8 @@ pub struct ServiceInfo {
     is_healthy_metric: bool,
     // Project identification
     project_name: Option<String>,  // Docker Compose project name
+    // Metrics availability
+    has_metrics: bool,  // Whether a plugin is available for this service
 }
 
 // WalletInfo is now imported from crate::core::wallet module
@@ -85,6 +87,18 @@ pub struct ServiceInfo {
 pub struct ServicesQuery {
     #[serde(default)]
     show_all: bool,  // Show all containers (not just IGRA)
+
+    #[serde(default)]
+    profiles: Option<String>,  // Comma-separated list of profiles to filter by
+
+    #[serde(default)]
+    statuses: Option<String>,  // Comma-separated list of statuses to filter by (healthy, running, stopped, unhealthy)
+
+    #[serde(default)]
+    project: Option<String>,  // Filter by project name
+
+    #[serde(default)]
+    name: Option<String>,  // Filter by container name (partial match, case-insensitive)
 }
 
 #[derive(Deserialize)]
@@ -179,6 +193,9 @@ pub async fn get_services(
                 (None, None, None, true)
             };
 
+            // Check if a metrics plugin is available for this service
+            let has_metrics = docker.metrics_registry.find_plugin(&c.name, &c.image).is_some();
+
             Some(ServiceInfo {
                 name: c.name,
                 status: c.status,
@@ -197,6 +214,7 @@ pub async fn get_services(
                 secondary_metric,
                 is_healthy_metric,
                 project_name: c.project_name,
+                has_metrics,
             })
         })
     }).collect();
@@ -207,6 +225,71 @@ pub async fn get_services(
         if let Ok(Some(service)) = task.await {
             services.push(service);
         }
+    }
+
+    // Apply filters
+    if params.profiles.is_some() || params.statuses.is_some() || params.project.is_some() || params.name.is_some() {
+        services = services.into_iter().filter(|service| {
+            // Filter by profiles (requires checking docker-compose labels)
+            if let Some(ref profiles_str) = params.profiles {
+                let requested_profiles: Vec<&str> = profiles_str.split(',').collect();
+                // TODO: This requires getting profile information from docker labels
+                // For now, we skip profile filtering in backend and rely on frontend filtering
+                // A full implementation would query docker labels: com.docker.compose.profile
+            }
+
+            // Filter by status
+            if let Some(ref statuses_str) = params.statuses {
+                let requested_statuses: Vec<&str> = statuses_str.split(',').collect();
+                let mut status_match = false;
+
+                for status in &requested_statuses {
+                    match *status {
+                        "healthy" => {
+                            if service.status.contains("Up") && service.status.contains("healthy") {
+                                status_match = true;
+                            }
+                        },
+                        "running" => {
+                            if service.status.contains("Up") && !service.status.contains("healthy") {
+                                status_match = true;
+                            }
+                        },
+                        "stopped" => {
+                            if service.status.contains("Exited") {
+                                status_match = true;
+                            }
+                        },
+                        "unhealthy" => {
+                            if service.status.contains("Up") && !service.status.contains("healthy") && !service.is_healthy_metric {
+                                status_match = true;
+                            }
+                        },
+                        _ => {}
+                    }
+                }
+
+                if !status_match {
+                    return false;
+                }
+            }
+
+            // Filter by project name
+            if let Some(ref project) = params.project {
+                if service.project_name.as_ref() != Some(project) {
+                    return false;
+                }
+            }
+
+            // Filter by container name (partial match, case-insensitive)
+            if let Some(ref name) = params.name {
+                if !service.name.to_lowercase().contains(&name.to_lowercase()) {
+                    return false;
+                }
+            }
+
+            true
+        }).collect();
     }
 
     Ok(Json(ApiResponse::ok(services)))

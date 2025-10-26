@@ -22,7 +22,27 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Show service status
-    Status,
+    Status {
+        /// Filter by profiles (comma-separated, e.g. kaspad,backend)
+        #[arg(short, long)]
+        profiles: Option<String>,
+
+        /// Filter by status (comma-separated: healthy,running,stopped,unhealthy)
+        #[arg(short, long)]
+        status: Option<String>,
+
+        /// Filter by project name
+        #[arg(long)]
+        project: Option<String>,
+
+        /// Filter by container name (partial match)
+        #[arg(short, long)]
+        name: Option<String>,
+
+        /// Show all containers (not just current project)
+        #[arg(short, long)]
+        all: bool,
+    },
 
     /// Start services or profiles
     Start {
@@ -148,6 +168,14 @@ pub enum Commands {
         /// Enable CORS for cross-origin requests
         #[arg(long)]
         cors: bool,
+
+        /// Path to TLS certificate file (enables HTTPS)
+        #[arg(long)]
+        tls_cert: Option<String>,
+
+        /// Path to TLS private key file
+        #[arg(long)]
+        tls_key: Option<String>,
     },
 
     /// Install web UI as a systemd service

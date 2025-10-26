@@ -191,7 +191,7 @@ pub struct DockerManager {
     project_root: PathBuf,
     compose_file: PathBuf,
     network: String,
-    metrics_registry: Arc<PluginRegistry>,
+    pub metrics_registry: Arc<PluginRegistry>,
 }
 
 impl DockerManager {
@@ -839,17 +839,24 @@ impl DockerManager {
             .ports
             .as_ref()
             .map(|ports| {
+                use std::collections::HashSet;
+                let mut seen = HashSet::new();
                 ports
                     .iter()
                     .filter_map(|p| {
                         p.public_port.map(|pub_port| {
-                            format!(
-                                "{}:{}->{}",
-                                p.ip.as_deref().unwrap_or("0.0.0.0"),
-                                pub_port,
-                                p.private_port
-                            )
-                        })
+                            // Create a unique key to deduplicate (port mapping, not IP)
+                            let key = format!("{}:{}", pub_port, p.private_port);
+                            if seen.insert(key) {
+                                Some(format!(
+                                    "0.0.0.0:{}->{}",
+                                    pub_port,
+                                    p.private_port
+                                ))
+                            } else {
+                                None
+                            }
+                        }).flatten()
                     })
                     .collect()
             })

@@ -2,7 +2,7 @@
 
 A comprehensive management tool for KASPA L2 node operators. Built with Rust for performance, reliability, and single-binary distribution.
 
-![IGRA CLI Dashboard](https://img.shields.io/badge/version-0.10.0-blue) ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange) ![License](https://img.shields.io/badge/license-MIT-green)
+![IGRA CLI Dashboard](https://img.shields.io/badge/version-0.12.0-blue) ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Quick Install
 
@@ -18,10 +18,13 @@ Interactive setup with auto-detection, Web UI configuration, and optional system
 
 ## Features
 
-### 🌐 Web Management UI (v0.10.0)
+### 🌐 Web Management UI (v0.12.0)
 - Browser-based remote management with modern React interface
-- **NEW:** Clickable service names open detailed service information pages
-- **NEW:** Service Details page with 5 tabs showing comprehensive info
+- **NEW in v0.12.0:** Improved metrics display with plugin-aware visibility
+- **NEW in v0.12.0:** Smart metrics detection - services with plugin-based metrics now display correctly
+- **NEW in v0.12.0:** Fixed port display deduplication for better clarity
+- Clickable service names open detailed service information pages
+- Service Details page with 5 tabs showing comprehensive info
 - Real-time monitoring with auto-refresh
 - Service control (start, stop, restart) with one click
 - Wallet viewer with balances and transaction history
@@ -369,6 +372,6 @@ Built for the IGRA Orchestra project by the community.
 
 ---
 
-**Version:** 0.10.0
+**Version:** 0.12.0
 **Repository:** https://github.com/Zorglub4242/Igra-mgt
 **Documentation:** [docs/](docs/)

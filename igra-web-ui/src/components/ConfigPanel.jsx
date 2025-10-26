@@ -21,7 +21,6 @@ export default function ConfigPanel() {
   const [editingKey, setEditingKey] = useState(null)
   const [editValue, setEditValue] = useState('')
   const [saving, setSaving] = useState(false)
-  const [showAllContainers, setShowAllContainers] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -32,9 +31,6 @@ export default function ConfigPanel() {
     const savedUrl = localStorage.getItem('monitoring_url') || 'https://grafana.igralabs.com/public-dashboards/5de66581390e434a823a2206237f793b'
     setMonitoringUrl(savedUrl)
     setTempMonitoringUrl(savedUrl)
-
-    const showAll = localStorage.getItem('show_all_containers')
-    setShowAllContainers(showAll === 'true')
   }, [])
 
   async function loadData() {
@@ -143,13 +139,6 @@ export default function ConfigPanel() {
     setAutoUpdateEnabled(enabled)
     localStorage.setItem('auto_update_enabled', enabled ? 'true' : 'false')
     alert(`Auto-update ${enabled ? 'enabled' : 'disabled'}. ${enabled ? 'Update notifications will appear automatically.' : 'You can still manually update from this page.'}`)
-  }
-
-  function handleShowAllContainersToggle(enabled) {
-    setShowAllContainers(enabled)
-    localStorage.setItem('show_all_containers', enabled.toString())
-    // Emit event to refresh services with new setting
-    window.dispatchEvent(new CustomEvent('showAllContainersChanged', { detail: { enabled } }))
   }
 
   function handleSaveMonitoringUrl() {
@@ -391,31 +380,6 @@ export default function ConfigPanel() {
                 />
                 <span style={{ color: '#e2e8f0', fontSize: '0.875rem' }}>
                   {autoUpdateEnabled ? 'Enabled' : 'Disabled'}
-                </span>
-              </label>
-            </div>
-          </div>
-
-          {/* Show All Containers Toggle */}
-          <div style={{ marginBottom: '1.5rem', padding: '1rem', background: '#0f172a', borderRadius: '0.5rem', border: '1px solid #334155' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#e2e8f0', marginBottom: '0.25rem' }}>
-                  Show All Docker Containers
-                </div>
-                <div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>
-                  Display containers from all projects (IGRA, Kasplex, etc.) instead of only IGRA containers
-                </div>
-              </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={showAllContainers}
-                  onChange={(e) => handleShowAllContainersToggle(e.target.checked)}
-                  style={{ width: '20px', height: '20px', cursor: 'pointer' }}
-                />
-                <span style={{ color: '#e2e8f0', fontSize: '0.875rem' }}>
-                  {showAllContainers ? 'Enabled' : 'Disabled'}
                 </span>
               </label>
             </div>

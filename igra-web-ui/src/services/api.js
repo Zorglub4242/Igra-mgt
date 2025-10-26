@@ -56,9 +56,31 @@ class IgraApiClient {
   }
 
   // Service Management
-  async getServices(showAll = false) {
-    const query = showAll ? '?show_all=true' : '';
-    return this.request(`/api/services${query}`);
+  async getServices(options = {}) {
+    const query = new URLSearchParams();
+
+    // Legacy support for showAll parameter
+    if (typeof options === 'boolean') {
+      if (options) query.append('show_all', 'true');
+    } else {
+      // New filter parameters
+      if (options.showAll) query.append('show_all', 'true');
+      if (options.profiles && options.profiles.length > 0) {
+        query.append('profiles', options.profiles.join(','));
+      }
+      if (options.statuses && options.statuses.length > 0) {
+        query.append('statuses', options.statuses.join(','));
+      }
+      if (options.project) {
+        query.append('project', options.project);
+      }
+      if (options.name) {
+        query.append('name', options.name);
+      }
+    }
+
+    const queryString = query.toString();
+    return this.request(`/api/services${queryString ? '?' + queryString : ''}`);
   }
 
   async startService(name) {

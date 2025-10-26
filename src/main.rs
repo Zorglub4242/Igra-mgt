@@ -27,8 +27,8 @@ async fn main() -> Result<()> {
             let mut app = App::new()?;
             app.run().await?;
         }
-        Some(Commands::Status) => {
-            handle_status().await?;
+        Some(Commands::Status { profiles, status, project, name, all }) => {
+            handle_status(profiles, status, project, name, all).await?;
         }
         Some(Commands::Start { profile, service }) => {
             handle_start(profile, service).await?;
@@ -84,8 +84,8 @@ async fn main() -> Result<()> {
             handle_watch(filter, record, format).await?;
         }
         #[cfg(feature = "server")]
-        Some(Commands::Serve { port, host, cors }) => {
-            server::run(host, port, cors).await?;
+        Some(Commands::Serve { port, host, cors, tls_cert, tls_key }) => {
+            server::run(host, port, cors, tls_cert, tls_key).await?;
         }
         #[cfg(feature = "server")]
         Some(Commands::InstallService { port, host, cors, user }) => {
@@ -96,11 +96,73 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn handle_status() -> Result<()> {
+async fn handle_status(
+    profiles: Option<String>,
+    status: Option<String>,
+    project: Option<String>,
+    name: Option<String>,
+    all: bool,
+) -> Result<()> {
     let docker = DockerManager::new().await?;
-    let containers = docker.list_containers().await?;
+    let mut containers = docker.list_containers_filtered(all).await?;
 
-    println!("IGRA Orchestra Status\n");
+    // Apply filters
+    if profiles.is_some() || status.is_some() || project.is_some() || name.is_some() {
+        containers.retain(|container| {
+            // Filter by profiles (would need docker label inspection - skipped for now)
+            // Filter by status
+            if let Some(ref status_filter) = status {
+                let statuses: Vec<&str> = status_filter.split(',').collect();
+                let mut status_match = false;
+                for s in statuses {
+                    match s {
+                        "healthy" => {
+                            if container.status.contains("Up") && container.status.contains("healthy") {
+                                status_match = true;
+                            }
+                        }
+                        "running" => {
+                            if container.status.contains("Up") && !container.status.contains("healthy") {
+                                status_match = true;
+                            }
+                        }
+                        "stopped" => {
+                            if container.status.contains("Exited") {
+                                status_match = true;
+                            }
+                        }
+                        "unhealthy" => {
+                            if container.status.contains("Up") && !container.status.contains("healthy") {
+                                status_match = true;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if !status_match {
+                    return false;
+                }
+            }
+
+            // Filter by project
+            if let Some(ref proj) = project {
+                if container.project_name.as_ref() != Some(proj) {
+                    return false;
+                }
+            }
+
+            // Filter by name
+            if let Some(ref n) = name {
+                if !container.name.to_lowercase().contains(&n.to_lowercase()) {
+                    return false;
+                }
+            }
+
+            true
+        });
+    }
+
+    println!("Node Status\n");
     println!("{:<25} {:<15} {:<15}", "Service", "Status", "Health");
     println!("{}", "-".repeat(60));
 

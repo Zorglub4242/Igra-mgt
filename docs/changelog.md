@@ -2,6 +2,33 @@
 
 All notable changes to `igra-cli` will be documented in this file.
 
+## [0.12.0] - 2025-10-26
+
+### Added
+- **API Enhancement**: Added `has_metrics` boolean field to service API responses
+  - Backend now indicates which services have metrics plugins available
+  - Enables smart metrics detection on the frontend
+  - Improves accuracy of metrics visibility decisions
+
+### Improved
+- **Metrics Display Logic**: Services with plugin-based metrics now correctly show metrics sections
+  - Fixed issue where services like geth weren't showing metrics despite having plugin support
+  - Metrics section now displays for services with either log-parsed metrics OR plugin-based metrics
+  - Empty metrics sections are properly hidden for services without any metrics support
+- **Port Display**: Fixed port deduplication to properly handle multiple host:container port mappings
+  - Prevents showing duplicate port entries in service details
+  - Maintains accurate port mapping information
+
+### Technical
+- Made `metrics_registry` public in `DockerManager` to enable plugin detection
+- Updated frontend logic to use `has_metrics` API field
+- Improved metrics visibility decision tree for better UX
+
+## [0.11.0] - 2025-10-23
+
+### Added
+- Additional features and improvements
+
 ## [0.10.0] - 2025-10-22
 
 ### Added

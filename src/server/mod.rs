@@ -20,7 +20,13 @@ pub mod auth;
 pub use routes::create_router;
 
 #[cfg(feature = "server")]
-pub async fn run(host: String, port: u16, enable_cors: bool) -> anyhow::Result<()> {
+pub async fn run(
+    host: String,
+    port: u16,
+    enable_cors: bool,
+    tls_cert: Option<String>,
+    tls_key: Option<String>,
+) -> anyhow::Result<()> {
     use std::net::SocketAddr;
     use std::io::{self, Write};
 
@@ -48,11 +54,20 @@ pub async fn run(host: String, port: u16, enable_cors: bool) -> anyhow::Result<(
     }
 
     let app = create_router(enable_cors);
-
     let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
+
+    // Check if TLS is configured
+    let use_tls = tls_cert.is_some() && tls_key.is_some();
+
     println!("🚀 IGRA Management Server");
-    println!("   📍 Web UI: http://{}", addr);
-    println!("   🔌 API:    http://{}/api", addr);
+    if use_tls {
+        println!("   📍 Web UI: https://{}", addr);
+        println!("   🔌 API:    https://{}/api", addr);
+        println!("   🔒 TLS:    Enabled");
+    } else {
+        println!("   📍 Web UI: http://{}", addr);
+        println!("   🔌 API:    http://{}/api", addr);
+    }
 
     if std::env::var("IGRA_WEB_TOKEN").is_ok() {
         println!("   🔒 Auth:   Enabled (token required)");
@@ -75,8 +90,32 @@ pub async fn run(host: String, port: u16, enable_cors: bool) -> anyhow::Result<(
     println!("   GET  /ws/logs/:service           - WebSocket log stream");
     println!();
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    if use_tls {
+        // HTTPS mode with TLS
+        let cert_path = tls_cert.unwrap();
+        let key_path = tls_key.unwrap();
+
+        println!("📜 Loading TLS certificates...");
+        println!("   Certificate: {}", cert_path);
+        println!("   Private Key: {}", key_path);
+
+        use axum_server::tls_rustls::RustlsConfig;
+
+        let config = RustlsConfig::from_pem_file(&cert_path, &key_path)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to load TLS certificates: {}", e))?;
+
+        println!("✓ TLS certificates loaded successfully");
+        println!();
+
+        axum_server::bind_rustls(addr, config)
+            .serve(app.into_make_service())
+            .await?;
+    } else {
+        // HTTP mode without TLS
+        let listener = tokio::net::TcpListener::bind(addr).await?;
+        axum::serve(listener, app).await?;
+    }
 
     Ok(())
 }
