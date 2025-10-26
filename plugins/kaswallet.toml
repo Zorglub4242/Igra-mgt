@@ -1,0 +1,53 @@
+[plugin]
+name = "kaswallet"
+description = "Kaspa wallet daemon metrics"
+
+# Container matching rules
+[[match]]
+type = "image_contains"
+value = "kaswallet"
+
+[[match]]
+type = "name_contains"
+value = "kaswallet"
+
+# Fetcher configuration
+[fetcher]
+type = "logs"
+
+# Metrics from log parsing
+[[metrics]]
+name = "wallet_balance"
+log_pattern = "Balance: ([\\d\\.]+) KAS"
+display_format = "{value} KAS"
+display_priority = "primary"
+category = "wallet"
+refresh_interval_secs = 10
+cache_duration_secs = 10
+
+[[metrics]]
+name = "utxo_count"
+log_pattern = "(\\d+) UTXOs"
+display_format = "{value} UTXOs"
+display_priority = "secondary"
+category = "wallet"
+refresh_interval_secs = 15
+cache_duration_secs = 15
+
+[[metrics]]
+name = "transactions_sent"
+log_pattern = "Sent transaction ([0-9a-f]+)"
+display_format = "{value} sent"
+display_priority = "detail"
+category = "transactions"
+refresh_interval_secs = 10
+cache_duration_secs = 10
+
+[[metrics]]
+name = "wallet_status"
+log_pattern = "Wallet status: ([\\w]+)"
+display_format = "Status: {value}"
+display_priority = "detail"
+category = "status"
+refresh_interval_secs = 30
+cache_duration_secs = 30

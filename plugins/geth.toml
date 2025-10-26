@@ -1,0 +1,131 @@
+# Geth Ethereum Execution Client Metrics Plugin
+
+[plugin]
+name = "geth"
+description = "Geth (go-ethereum) execution client metrics from Prometheus endpoint"
+
+# Container matching rules (any match = plugin applies)
+[[match]]
+type = "image_contains"
+value = "geth"
+
+# Fetcher configuration
+[fetcher]
+type = "prometheus"
+method = "docker_exec"
+port = 6060
+path = "/debug/metrics/prometheus"
+
+# Metric definitions
+
+# Block/Chain metrics
+[[metrics]]
+name = "block_height"
+prometheus_metric = "chain_head_block"
+display_format = "Block #{value}"
+display_priority = "primary"
+category = "blockchain"
+refresh_interval_secs = 2
+cache_duration_secs = 2
+
+[[metrics]]
+name = "finalized_block"
+prometheus_metric = "chain_head_finalized"
+display_format = "Finalized: {value}"
+display_priority = "detail"
+category = "blockchain"
+refresh_interval_secs = 5
+cache_duration_secs = 5
+
+[[metrics]]
+name = "header_height"
+prometheus_metric = "chain_head_header"
+display_format = "Header: {value}"
+display_priority = "detail"
+category = "blockchain"
+refresh_interval_secs = 5
+cache_duration_secs = 5
+
+# Network metrics
+[[metrics]]
+name = "peers_connected"
+prometheus_metric = "p2p_peers"
+display_format = "{value} peers"
+display_priority = "secondary"
+category = "network"
+refresh_interval_secs = 10
+cache_duration_secs = 10
+
+[[metrics]]
+name = "network_ingress"
+prometheus_metric = "p2p_ingress"
+display_format = "{value_mb} MB in"
+display_priority = "detail"
+category = "network"
+refresh_interval_secs = 15
+cache_duration_secs = 15
+
+[[metrics]]
+name = "network_egress"
+prometheus_metric = "p2p_egress"
+display_format = "{value_mb} MB out"
+display_priority = "detail"
+category = "network"
+refresh_interval_secs = 15
+cache_duration_secs = 15
+
+# Transaction pool metrics
+[[metrics]]
+name = "txpool_pending"
+prometheus_metric = "txpool_pending"
+display_format = "Pending: {value}"
+display_priority = "detail"
+category = "transactions"
+refresh_interval_secs = 3
+cache_duration_secs = 3
+
+[[metrics]]
+name = "txpool_queued"
+prometheus_metric = "txpool_queued"
+display_format = "Queued: {value}"
+display_priority = "detail"
+category = "transactions"
+refresh_interval_secs = 5
+cache_duration_secs = 5
+
+[[metrics]]
+name = "txpool_local"
+prometheus_metric = "txpool_local"
+display_format = "Local: {value}"
+display_priority = "detail"
+category = "transactions"
+refresh_interval_secs = 5
+cache_duration_secs = 5
+
+# System metrics
+[[metrics]]
+name = "cpu_percent"
+prometheus_metric = "system_cpu_sysload"
+display_format = "CPU: {value_pct}"
+display_priority = "detail"
+category = "performance"
+refresh_interval_secs = 30
+cache_duration_secs = 30
+
+[[metrics]]
+name = "memory_allocs"
+prometheus_metric = "system_memory_allocs"
+display_format = "{value_mb} MB allocs"
+display_priority = "detail"
+category = "performance"
+refresh_interval_secs = 30
+cache_duration_secs = 30
+
+[[metrics]]
+name = "memory_used"
+prometheus_metric = "system_memory_used"
+display_format = "{value_mb} MB used"
+display_priority = "detail"
+category = "performance"
+refresh_interval_secs = 30
+cache_duration_secs = 30

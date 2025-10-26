@@ -6,9 +6,50 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+/// Represents a detected project with its compose configuration
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ProjectConfig {
+    pub name: String,              // "igra" or "kasplex" or "other"
+    pub compose_file: String,      // path to docker-compose.yml
+    pub working_dir: String,       // docker compose project directory
+    pub env_file: Option<String>,  // optional .env file
+}
+
+impl ProjectConfig {
+    pub fn new(
+        name: impl Into<String>,
+        compose_file: impl Into<String>,
+        working_dir: impl Into<String>,
+        env_file: Option<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            compose_file: compose_file.into(),
+            working_dir: working_dir.into(),
+            env_file,
+        }
+    }
+
+    pub fn compose_file_path(&self) -> PathBuf {
+        PathBuf::from(&self.compose_file)
+    }
+
+    pub fn working_dir_path(&self) -> PathBuf {
+        PathBuf::from(&self.working_dir)
+    }
+
+    pub fn env_file_path(&self) -> Option<PathBuf> {
+        self.env_file.as_ref().map(PathBuf::from)
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppConfig {
     pub project_root: Option<String>,
+    #[serde(default)]
+    pub show_all_containers: bool,  // Show containers from all projects
+    #[serde(default)]
+    pub projects: Vec<ProjectConfig>,  // Detected projects
 }
 
 impl AppConfig {
@@ -32,6 +73,8 @@ impl AppConfig {
         if !path.exists() {
             return Ok(Self {
                 project_root: None,
+                show_all_containers: false,
+                projects: Vec::new(),
             });
         }
 

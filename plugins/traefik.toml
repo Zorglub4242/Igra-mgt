@@ -1,0 +1,65 @@
+[plugin]
+name = "traefik"
+description = "Traefik reverse proxy and load balancer metrics"
+
+# Container matching rules
+[[match]]
+type = "image_contains"
+value = "traefik"
+
+[[match]]
+type = "name_equals"
+value = "traefik"
+
+# Fetcher configuration
+[fetcher]
+type = "prometheus"
+method = "docker_exec"
+port = 8080
+path = "/metrics"
+
+# Metrics
+[[metrics]]
+name = "requests_total"
+prometheus_metric = "traefik_service_requests_total"
+display_format = "{value} requests"
+display_priority = "primary"
+category = "requests"
+refresh_interval_secs = 5
+cache_duration_secs = 5
+
+[[metrics]]
+name = "routers_active"
+prometheus_metric = "traefik_router_requests_total"
+display_format = "{value} routers"
+display_priority = "secondary"
+category = "routing"
+refresh_interval_secs = 15
+cache_duration_secs = 15
+
+[[metrics]]
+name = "services_up"
+prometheus_metric = "traefik_service_server_up"
+display_format = "{value} services up"
+display_priority = "detail"
+category = "health"
+refresh_interval_secs = 10
+cache_duration_secs = 10
+
+[[metrics]]
+name = "requests_duration_seconds"
+prometheus_metric = "traefik_service_request_duration_seconds_sum"
+display_format = "{value}s avg"
+display_priority = "detail"
+category = "performance"
+refresh_interval_secs = 10
+cache_duration_secs = 10
+
+[[metrics]]
+name = "tls_certs_not_after"
+prometheus_metric = "traefik_tls_certs_not_after"
+display_format = "TLS expires: {value}"
+display_priority = "detail"
+category = "security"
+refresh_interval_secs = 3600
+cache_duration_secs = 3600

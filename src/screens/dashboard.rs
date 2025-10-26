@@ -114,7 +114,7 @@ pub struct Dashboard {
 impl Dashboard {
     pub fn new() -> Self {
         Self {
-            title: "IGRA Orchestra Dashboard".to_string(),
+            title: "KASPA L2 Management".to_string(),
             containers: Vec::new(),
             container_stats: HashMap::new(),
             image_versions: HashMap::new(),
@@ -346,6 +346,9 @@ impl Dashboard {
             Screen::Watch => self.render_watch(frame, chunks[2], watch_stats, watch_transactions, watch_filter, watch_scroll_offset),
             Screen::Config => self.render_config(frame, chunks[2], config_section, selected_index, edit_mode, edit_buffer, filtered_indices),
             Screen::Storage => self.render_storage(frame, chunks[2], storage_analysis, storage_scroll_offset, storage_chart_days, storage_show_details),
+            Screen::ServiceDetails(_) => {
+                // Service details screen rendered separately, not by dashboard
+            }
         }
 
         // Footer with status message or help
@@ -362,6 +365,7 @@ impl Dashboard {
                 Screen::Watch => "[← →] Next screen | [↑↓] Scroll | [f] Filter | [r] Record | [?] Help | [q]uit".to_string(),
                 Screen::Config => "[Tab] Switch tab | [← →] Next screen | [↑↓] Select | [e]dit | [g]enerate | [c]heck | [n]ew cert | [q]uit".to_string(),
                 Screen::Storage => "[← →] Next screen | [r]efresh | [[/t/]] Chart | [D]etails | [p]rune | [I]mages | [?] Help | [q]uit".to_string(),
+                Screen::ServiceDetails(_) => "[Tab/Shift+Tab] Switch tabs | [↑↓] Scroll | [Esc/q] Back | [r] Refresh".to_string(),
             }
         };
 
@@ -1953,7 +1957,7 @@ impl Dashboard {
         // Build help text based on current screen
         let mut help_text = vec![
             Line::from(Span::styled(
-                "IGRA Orchestra - Keyboard Shortcuts",
+                "KASPA L2 Management - Keyboard Shortcuts",
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
@@ -2043,6 +2047,22 @@ impl Dashboard {
                 help_text.push(Line::from("  Yellow line:   Docker images"));
                 help_text.push(Line::from(""));
                 help_text.push(Line::from("Note: Storage analysis requires sudo access for volume sizes"));
+            }
+            Screen::ServiceDetails(_) => {
+                help_text.push(Line::from(Span::styled("Service Details Screen:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+                help_text.push(Line::from("  [Tab]          Next tab"));
+                help_text.push(Line::from("  [Shift+Tab]    Previous tab"));
+                help_text.push(Line::from("  [↑↓]           Scroll content"));
+                help_text.push(Line::from("  [r]            Refresh service details"));
+                help_text.push(Line::from("  [Esc] / [q]    Back to services list"));
+                help_text.push(Line::from(""));
+                help_text.push(Line::from(Span::styled("Available Tabs:", Style::default().fg(Color::Cyan))));
+                help_text.push(Line::from("  Overview       Basic info, resource usage, description"));
+                help_text.push(Line::from("  Metrics        Plugin metrics (DAA score, TPS, requests, etc.)"));
+                help_text.push(Line::from("  Configuration  Environment variables, command, entrypoint"));
+                help_text.push(Line::from("  Storage        Volume mounts and bind paths"));
+                help_text.push(Line::from("  Network        Networks, IP addresses, port mappings"));
+                help_text.push(Line::from("  Logs           Service logs (future enhancement)"));
             }
         }
 

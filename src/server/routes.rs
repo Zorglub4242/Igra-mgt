@@ -2,7 +2,7 @@
 
 use axum::{
     Router,
-    routing::{get, post},
+    routing::{get, post, put},
     middleware,
 };
 use tower_http::cors::CorsLayer;
@@ -19,6 +19,7 @@ pub fn create_router(enable_cors: bool) -> Router {
         .route("/api/services/:name/start", post(handlers::start_service))
         .route("/api/services/:name/stop", post(handlers::stop_service))
         .route("/api/services/:name/restart", post(handlers::restart_service))
+        .route("/api/services/:name/note", put(handlers::update_service_note))
         .route("/api/storage/prune", post(handlers::prune_storage))
         .route("/api/storage/container-logs/:container_id/truncate", post(handlers::truncate_container_log))
         .route("/api/profiles/:name/start", post(handlers::start_profile))
@@ -30,6 +31,8 @@ pub fn create_router(enable_cors: bool) -> Router {
     // Public routes (read-only, no auth required)
     let public_routes = Router::new()
         .route("/api/services", get(handlers::get_services))
+        .route("/api/services/:name/details", get(handlers::get_service_details))
+        .route("/api/services/:name/note", get(handlers::get_service_note))
         .route("/api/services/:name/logs", get(handlers::get_logs))
         .route("/api/services/:name/logs/parsed", get(handlers::get_logs_parsed))
         .route("/api/wallets", get(handlers::get_wallets))

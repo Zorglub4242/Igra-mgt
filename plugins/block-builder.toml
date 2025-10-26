@@ -1,0 +1,53 @@
+[plugin]
+name = "block-builder"
+description = "Block builder service metrics"
+
+# Container matching rules
+[[match]]
+type = "image_contains"
+value = "block-builder"
+
+[[match]]
+type = "name_equals"
+value = "block-builder"
+
+# Fetcher configuration
+[fetcher]
+type = "logs"
+
+# Metrics from log parsing
+[[metrics]]
+name = "latest_block"
+log_pattern = "Built block #(\\d+)"
+display_format = "Block #{value}"
+display_priority = "primary"
+category = "blockchain"
+refresh_interval_secs = 2
+cache_duration_secs = 2
+
+[[metrics]]
+name = "transactions_included"
+log_pattern = "Included (\\d+) transactions"
+display_format = "{value} txs"
+display_priority = "secondary"
+category = "transactions"
+refresh_interval_secs = 5
+cache_duration_secs = 5
+
+[[metrics]]
+name = "entries_received"
+log_pattern = "Received (\\d+) entry transactions"
+display_format = "{value} entries"
+display_priority = "detail"
+category = "transactions"
+refresh_interval_secs = 10
+cache_duration_secs = 10
+
+[[metrics]]
+name = "builder_status"
+log_pattern = "Status: ([\\w]+)"
+display_format = "Status: {value}"
+display_priority = "detail"
+category = "status"
+refresh_interval_secs = 15
+cache_duration_secs = 15

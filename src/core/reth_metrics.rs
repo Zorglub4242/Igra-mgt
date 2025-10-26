@@ -204,6 +204,6 @@ reth_transaction_pool_transactions 10
         let metrics = parse_prometheus_metrics(sample);
         assert_eq!(metrics.blocks_processed, Some(123456));
         assert_eq!(metrics.peers_connected, Some(42));
-        assert_eq!(metrics.transactions_processed, Some(10));
+        assert_eq!(metrics.transactions_inserted, Some(10));
     }
 }

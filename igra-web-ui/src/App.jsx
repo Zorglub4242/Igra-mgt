@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import './App.css'
 import ServicesPanel from './components/ServicesPanel'
+import ServiceDetails from './components/ServiceDetails'
 import WalletsPanel from './components/WalletsPanel'
 import StoragePanel from './components/StoragePanel'
 import TransactionsPanel from './components/TransactionsPanel'
@@ -72,90 +74,99 @@ function App() {
   }
 
   return (
-    <div className="app">
-      <UpdateBanner />
-      <header className="header">
-        <div className="header-content">
-          <h1>⚡ IGRA Orchestra Management</h1>
-          <div className="header-subtitle">
-            {nodeInfo ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                <div>
-                  <strong style={{ color: '#818cf8' }}>Node:</strong> {nodeInfo.node_id || 'Unknown'} •
-                  <strong style={{ color: '#818cf8', marginLeft: '0.5rem' }}>CPU:</strong> {nodeInfo.cpu_info || 'N/A'} •
-                  <strong style={{ color: '#818cf8', marginLeft: '0.5rem' }}>RAM:</strong> {nodeInfo.total_memory ? `${nodeInfo.total_memory.toFixed(1)} GB` : 'N/A'} •
-                  <strong style={{ color: '#818cf8', marginLeft: '0.5rem' }}>Disk:</strong> {nodeInfo.disk_free && nodeInfo.disk_total ? `${nodeInfo.disk_free.toFixed(1)}/${nodeInfo.disk_total.toFixed(1)} GB` : 'N/A'}
+    <Router>
+      <div className="app">
+        <UpdateBanner />
+        <header className="header">
+          <div className="header-content">
+            <h1>⚡ KASPA L2 Management</h1>
+            <div className="header-subtitle">
+              {nodeInfo ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <div>
+                    <strong style={{ color: '#818cf8' }}>Node:</strong> {nodeInfo.node_id || 'Unknown'} •
+                    <strong style={{ color: '#818cf8', marginLeft: '0.5rem' }}>CPU:</strong> {nodeInfo.cpu_info || 'N/A'} •
+                    <strong style={{ color: '#818cf8', marginLeft: '0.5rem' }}>RAM:</strong> {nodeInfo.total_memory ? `${nodeInfo.total_memory.toFixed(1)} GB` : 'N/A'} •
+                    <strong style={{ color: '#818cf8', marginLeft: '0.5rem' }}>Disk:</strong> {nodeInfo.disk_free && nodeInfo.disk_total ? `${nodeInfo.disk_free.toFixed(1)}/${nodeInfo.disk_total.toFixed(1)} GB` : 'N/A'}
+                  </div>
+                  <div style={{ fontSize: '0.875rem', color: '#9ca3af' }}>
+                    {nodeInfo.os_name || 'Unknown OS'} • Network: {nodeInfo.network || 'Unknown'}
+                  </div>
                 </div>
-                <div style={{ fontSize: '0.875rem', color: '#9ca3af' }}>
-                  {nodeInfo.os_name || 'Unknown OS'} • Network: {nodeInfo.network || 'Unknown'}
-                </div>
-              </div>
-            ) : (
-              'Layer 2 Node Operations'
-            )}
+              ) : (
+                'Layer 2 Node Operations'
+              )}
+            </div>
           </div>
-        </div>
-        <button className="logout-button" onClick={handleLogout}>
-          🚪 Logout
-        </button>
-      </header>
+          <button className="logout-button" onClick={handleLogout}>
+            🚪 Logout
+          </button>
+        </header>
 
-      <nav className="tabs">
-        <button
-          className={`tab ${activeTab === 'services' ? 'active' : ''}`}
-          onClick={() => setActiveTab('services')}
-        >
-          🐳 Services
-        </button>
-        <button
-          className={`tab ${activeTab === 'transactions' ? 'active' : ''}`}
-          onClick={() => setActiveTab('transactions')}
-        >
-          📊 Transactions
-        </button>
-        <button
-          className={`tab ${activeTab === 'wallets' ? 'active' : ''}`}
-          onClick={() => setActiveTab('wallets')}
-        >
-          💼 Wallets
-        </button>
-        <button
-          className={`tab ${activeTab === 'storage' ? 'active' : ''}`}
-          onClick={() => setActiveTab('storage')}
-        >
-          🗄️ Storage
-        </button>
-        <button
-          className={`tab ${activeTab === 'monitoring' ? 'active' : ''}`}
-          onClick={() => setActiveTab('monitoring')}
-        >
-          🔍 Monitoring
-        </button>
-        <button
-          className={`tab ${activeTab === 'settings' ? 'active' : ''}`}
-          onClick={() => setActiveTab('settings')}
-        >
-          ⚙️ Settings
-        </button>
-      </nav>
+        <nav className="tabs">
+          <button
+            className={`tab ${activeTab === 'services' ? 'active' : ''}`}
+            onClick={() => setActiveTab('services')}
+          >
+            🐳 Services
+          </button>
+          <button
+            className={`tab ${activeTab === 'transactions' ? 'active' : ''}`}
+            onClick={() => setActiveTab('transactions')}
+          >
+            📊 Transactions
+          </button>
+          <button
+            className={`tab ${activeTab === 'wallets' ? 'active' : ''}`}
+            onClick={() => setActiveTab('wallets')}
+          >
+            💼 Wallets
+          </button>
+          <button
+            className={`tab ${activeTab === 'storage' ? 'active' : ''}`}
+            onClick={() => setActiveTab('storage')}
+          >
+            🗄️ Storage
+          </button>
+          <button
+            className={`tab ${activeTab === 'monitoring' ? 'active' : ''}`}
+            onClick={() => setActiveTab('monitoring')}
+          >
+            🔍 Monitoring
+          </button>
+          <button
+            className={`tab ${activeTab === 'settings' ? 'active' : ''}`}
+            onClick={() => setActiveTab('settings')}
+          >
+            ⚙️ Settings
+          </button>
+        </nav>
 
-      <main className="main-content">
-        {activeTab === 'services' && <ServicesPanel />}
-        {activeTab === 'transactions' && <TransactionsPanel />}
-        {activeTab === 'wallets' && <WalletsPanel />}
-        {activeTab === 'storage' && <StoragePanel />}
-        {activeTab === 'monitoring' && <MonitoringPanel />}
-        {activeTab === 'settings' && <ConfigPanel />}
-      </main>
+        <main className="main-content">
+          <Routes>
+            <Route path="/" element={
+              <>
+                {activeTab === 'services' && <ServicesPanel />}
+                {activeTab === 'transactions' && <TransactionsPanel />}
+                {activeTab === 'wallets' && <WalletsPanel />}
+                {activeTab === 'storage' && <StoragePanel />}
+                {activeTab === 'monitoring' && <MonitoringPanel />}
+                {activeTab === 'settings' && <ConfigPanel />}
+              </>
+            } />
+            <Route path="/service/:serviceName" element={<ServiceDetails />} />
+          </Routes>
+        </main>
 
-      <footer className="footer">
-        <span>Powered by igra-cli v0.10.0</span>
-        <span>•</span>
-        <a href="/api/health" target="_blank" rel="noopener noreferrer">
-          API Health
-        </a>
-      </footer>
-    </div>
+        <footer className="footer">
+          <span>Powered by igra-cli v0.10.0</span>
+          <span>•</span>
+          <a href="/api/health" target="_blank" rel="noopener noreferrer">
+            API Health
+          </a>
+        </footer>
+      </div>
+    </Router>
   )
 }
 

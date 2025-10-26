@@ -1,0 +1,53 @@
+[plugin]
+name = "viaduct"
+description = "Viaduct L1→L2 bridge metrics"
+
+# Container matching rules
+[[match]]
+type = "image_contains"
+value = "viaduct"
+
+[[match]]
+type = "name_equals"
+value = "viaduct"
+
+# Fetcher configuration
+[fetcher]
+type = "logs"
+
+# Metrics from log parsing
+[[metrics]]
+name = "current_daa_score"
+log_pattern = "Current DAA Score: (\\d+)"
+display_format = "DAA #{value}"
+display_priority = "primary"
+category = "blockchain"
+refresh_interval_secs = 5
+cache_duration_secs = 5
+
+[[metrics]]
+name = "entries_processed"
+log_pattern = "Processed (\\d+) entries"
+display_format = "{value} entries"
+display_priority = "secondary"
+category = "transactions"
+refresh_interval_secs = 10
+cache_duration_secs = 10
+
+[[metrics]]
+name = "blocks_synced"
+log_pattern = "Synced to block (\\d+)"
+display_format = "Block #{value}"
+display_priority = "detail"
+category = "blockchain"
+refresh_interval_secs = 10
+cache_duration_secs = 10
+
+[[metrics]]
+name = "sync_status"
+log_pattern = "Sync: ([\\w]+)"
+display_format = "Sync: {value}"
+display_priority = "detail"
+category = "status"
+refresh_interval_secs = 15
+cache_duration_secs = 15

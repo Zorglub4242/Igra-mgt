@@ -1,0 +1,136 @@
+# Kaspad (Kaspa Node) Metrics Plugin
+
+[plugin]
+name = "kaspad"
+description = "Kaspad node metrics from Prometheus endpoint"
+
+# Container matching rules (any match = plugin applies)
+[[match]]
+type = "image_contains"
+value = "kaspad"
+
+[[match]]
+type = "name_contains"
+value = "kaspad"
+
+# Fetcher configuration
+[fetcher]
+type = "prometheus"
+method = "docker_exec"
+port = 8084
+path = "/metrics"
+
+# Metric definitions
+
+# Block/DAG metrics
+[[metrics]]
+name = "blue_score"
+prometheus_metric = "kaspad_virtual_daa_score"
+display_format = "DAA: {value}"
+display_priority = "primary"
+category = "blockchain"
+refresh_interval_secs = 2
+cache_duration_secs = 2
+
+[[metrics]]
+name = "tips_count"
+prometheus_metric = "kaspad_block_counts"
+display_format = "{value} tips"
+display_priority = "detail"
+category = "blockchain"
+refresh_interval_secs = 5
+cache_duration_secs = 5
+
+[[metrics]]
+name = "virtual_parents"
+prometheus_metric = "kaspad_virtual_parent_hashes_len"
+display_format = "{value} parents"
+display_priority = "detail"
+category = "blockchain"
+refresh_interval_secs = 5
+cache_duration_secs = 5
+
+# Network metrics
+[[metrics]]
+name = "peers_connected"
+prometheus_metric = "kaspad_p2p_node_counts"
+display_format = "{value} peers"
+display_priority = "secondary"
+category = "network"
+refresh_interval_secs = 10
+cache_duration_secs = 10
+
+[[metrics]]
+name = "network_bandwidth_in"
+prometheus_metric = "kaspad_bandwidth_rx_total"
+display_format = "{value_mb} MB in"
+display_priority = "detail"
+category = "network"
+refresh_interval_secs = 15
+cache_duration_secs = 15
+
+[[metrics]]
+name = "network_bandwidth_out"
+prometheus_metric = "kaspad_bandwidth_tx_total"
+display_format = "{value_mb} MB out"
+display_priority = "detail"
+category = "network"
+refresh_interval_secs = 15
+cache_duration_secs = 15
+
+# Mempool/Transaction metrics
+[[metrics]]
+name = "mempool_transactions"
+prometheus_metric = "kaspad_mempool_tx"
+display_format = "Mempool: {value}"
+display_priority = "detail"
+category = "transactions"
+refresh_interval_secs = 5
+cache_duration_secs = 5
+
+[[metrics]]
+name = "mempool_orphans"
+prometheus_metric = "kaspad_mempool_orphan_tx"
+display_format = "Orphans: {value}"
+display_priority = "detail"
+category = "transactions"
+refresh_interval_secs = 10
+cache_duration_secs = 10
+
+# Sync/Storage metrics
+[[metrics]]
+name = "ibd_progress"
+prometheus_metric = "kaspad_ibd_progress"
+display_format = "IBD: {value_pct}"
+display_priority = "detail"
+category = "sync"
+refresh_interval_secs = 5
+cache_duration_secs = 5
+
+[[metrics]]
+name = "utxo_set_size"
+prometheus_metric = "kaspad_utxo_set_size"
+display_format = "{value_k}K UTXOs"
+display_priority = "detail"
+category = "storage"
+refresh_interval_secs = 30
+cache_duration_secs = 30
+
+# Performance metrics
+[[metrics]]
+name = "process_memory"
+prometheus_metric = "kaspad_process_memory_bytes"
+display_format = "{value_mb} MB"
+display_priority = "detail"
+category = "performance"
+refresh_interval_secs = 30
+cache_duration_secs = 30
+
+[[metrics]]
+name = "cpu_usage"
+prometheus_metric = "kaspad_process_cpu_seconds_total"
+display_format = "CPU: {value}s"
+display_priority = "detail"
+category = "performance"
+refresh_interval_secs = 30
+cache_duration_secs = 30

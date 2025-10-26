@@ -37,7 +37,7 @@ export default function LoginPage({ onLogin }) {
     <div className="login-page">
       <div className="login-card">
         <div className="login-header">
-          <h1>⚡ IGRA Orchestra</h1>
+          <h1>⚡ KASPA L2 Management</h1>
           <p>Management Console</p>
         </div>
 

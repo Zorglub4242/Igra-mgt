@@ -1,0 +1,53 @@
+[plugin]
+name = "rpc-provider"
+description = "RPC provider worker metrics"
+
+# Container matching rules
+[[match]]
+type = "image_contains"
+value = "rpc-provider"
+
+[[match]]
+type = "name_contains"
+value = "rpc-provider"
+
+# Fetcher configuration
+[fetcher]
+type = "logs"
+
+# Metrics from log parsing
+[[metrics]]
+name = "requests_processed"
+log_pattern = "Processed (\\d+) RPC requests"
+display_format = "{value} requests"
+display_priority = "primary"
+category = "requests"
+refresh_interval_secs = 5
+cache_duration_secs = 5
+
+[[metrics]]
+name = "active_connections"
+log_pattern = "(\\d+) active connections"
+display_format = "{value} connections"
+display_priority = "secondary"
+category = "network"
+refresh_interval_secs = 10
+cache_duration_secs = 10
+
+[[metrics]]
+name = "errors_count"
+log_pattern = "(\\d+) errors"
+display_format = "{value} errors"
+display_priority = "detail"
+category = "errors"
+refresh_interval_secs = 10
+cache_duration_secs = 10
+
+[[metrics]]
+name = "provider_status"
+log_pattern = "Provider status: ([\\w]+)"
+display_format = "Status: {value}"
+display_priority = "detail"
+category = "status"
+refresh_interval_secs = 15
+cache_duration_secs = 15

@@ -1,5 +1,6 @@
 pub mod dashboard;
 pub mod watch;
+pub mod service_details;
 
 // All screens are implemented in dashboard.rs as a unified TUI interface:
 // - Screen 1: Services (container management)
@@ -17,3 +18,4 @@ pub mod watch;
 // - Real-time auto-refresh
 
 pub use dashboard::Dashboard;
+pub use service_details::ServiceDetailsScreen;

@@ -1,6 +1,6 @@
-# IGRA Orchestra CLI
+# KASPA L2 Management CLI
 
-A comprehensive management tool for IGRA Orchestra node operators. Built with Rust for performance, reliability, and single-binary distribution.
+A comprehensive management tool for KASPA L2 node operators. Built with Rust for performance, reliability, and single-binary distribution.
 
 ![IGRA CLI Dashboard](https://img.shields.io/badge/version-0.10.0-blue) ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange) ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -14,12 +14,14 @@ Interactive setup with auto-detection, Web UI configuration, and optional system
 
 ## Overview
 
-`igra-cli` provides both a terminal user interface (TUI) and a modern web-based UI for real-time monitoring and management of your IGRA Orchestra node infrastructure. It replaces multiple Docker and CLI commands with intuitive, easy-to-use interfaces.
+`igra-cli` provides both a terminal user interface (TUI) and a modern web-based UI for real-time monitoring and management of your KASPA L2 node infrastructure. It replaces multiple Docker and CLI commands with intuitive, easy-to-use interfaces.
 
 ## Features
 
 ### 🌐 Web Management UI (v0.10.0)
 - Browser-based remote management with modern React interface
+- **NEW:** Clickable service names open detailed service information pages
+- **NEW:** Service Details page with 5 tabs showing comprehensive info
 - Real-time monitoring with auto-refresh
 - Service control (start, stop, restart) with one click
 - Wallet viewer with balances and transaction history
@@ -30,9 +32,11 @@ Interactive setup with auto-detection, Web UI configuration, and optional system
 
 ### 🖥️ Terminal User Interface (TUI)
 - 8 full-featured screens for comprehensive management
+- **NEW:** Service Details screen with 6 tabs (Overview, Metrics, Configuration, Storage, Network, Logs)
 - Real-time updates every 2 seconds
-- Keyboard-driven navigation
+- Keyboard-driven navigation (press Enter on any service to view details)
 - Service monitoring with resource metrics
+- Plugin-based metrics system with customizable TOML configs
 - Enhanced log viewer with intelligent parsing
 - Storage analysis and disk monitoring
 - Configuration management
@@ -102,9 +106,14 @@ See **[Web UI Guide](docs/web-ui.md)** for features and systemd service setup.
 
 ### Service Management
 - Monitor Docker container status and health
+- **NEW:** Comprehensive service details with tabbed interface
+- **NEW:** Plugin-based metrics system (8 built-in plugins: execution-layer, block-builder, viaduct, traefik, kaswallet, rpc-provider, kaspad, kaspa-miner)
+- **NEW:** Customizable metrics via TOML configuration files
+- **NEW:** User-editable service notes/descriptions
 - Real-time CPU, memory, and network metrics
 - Start, stop, restart services
 - View detailed logs with filtering
+- Configuration inspection (environment variables, volumes, networks, ports)
 
 ### Wallet Management
 - Display wallet addresses from key files
@@ -263,6 +272,41 @@ igra-cli watch [OPTIONS]
   --record <FILE>           # Record transactions to file
   --format <FORMAT>         # Output format: json, csv, text (default: text)
 ```
+
+### Service Details & Metrics
+
+**TUI:**
+- Press `Enter` on any service in the Services screen to view detailed information
+- Navigate tabs with `Tab` / `Shift+Tab`
+- Scroll content with `↑` / `↓` arrows
+- Press `Esc` or `q` to return to services list
+
+**Web UI:**
+- Click on any service name to open the service details page
+- View tabs: Overview, Metrics, Configuration, Storage, Network
+- Auto-refreshes every 5 seconds
+- Use back button to return to services list
+
+**Plugin System:**
+```bash
+# Plugins are automatically loaded from plugins/ directory
+# 8 built-in plugins included:
+#   - execution-layer.toml
+#   - block-builder.toml
+#   - viaduct.toml
+#   - traefik.toml
+#   - kaswallet.toml
+#   - rpc-provider.toml
+#   - kaspad.toml
+#   - kaspa-miner.toml
+
+# Create custom plugin (no code changes needed):
+# 1. Create plugins/my-service.toml
+# 2. Define matchers, fetcher, and metrics
+# 3. Restart igra-cli
+```
+
+See **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** for plugin configuration details.
 
 ### Other
 

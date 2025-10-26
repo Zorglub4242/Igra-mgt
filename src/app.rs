@@ -23,13 +23,14 @@ const MAX_LOG_LINES: usize = 10_000;  // Maximum lines to keep in memory
 const INITIAL_LOG_FETCH: usize = 1000;  // Lines to fetch on initial load
 const LIVE_LOG_FETCH: usize = 100;  // Lines to fetch in live mode updates
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Screen {
     Services,
     Wallets,
     Watch,
     Config,
     Storage,
+    ServiceDetails(String), // Service name
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,18 +47,19 @@ pub enum ConfigSection {
 }
 
 impl Screen {
-    pub fn title(&self) -> &'static str {
+    pub fn title(&self) -> String {
         match self {
-            Screen::Services => "Services",
-            Screen::Wallets => "Wallets",
-            Screen::Watch => "Watch",
-            Screen::Config => "Configuration",
-            Screen::Storage => "Storage",
+            Screen::Services => "Services".to_string(),
+            Screen::Wallets => "Wallets".to_string(),
+            Screen::Watch => "Watch".to_string(),
+            Screen::Config => "Configuration".to_string(),
+            Screen::Storage => "Storage".to_string(),
+            Screen::ServiceDetails(name) => format!("Service: {}", name),
         }
     }
 
-    pub fn all() -> &'static [Screen] {
-        &[
+    pub fn all() -> Vec<Screen> {
+        vec![
             Screen::Services,
             Screen::Wallets,
             Screen::Watch,
@@ -166,6 +168,7 @@ pub struct App {
     // New v0.5.0 dashboard reorganization states
     services_view: ServicesView, // Services/Profiles tab view
     config_section: ConfigSection, // Config multi-tab section
+    show_all_containers: bool, // Show all Docker containers (not just IGRA)
     // Watch screen state
     watch_monitor: Option<std::sync::Arc<crate::core::l2_monitor::TransactionMonitor>>,
     watch_transactions: Vec<crate::core::l2_monitor::TransactionInfo>,
@@ -180,6 +183,9 @@ pub struct App {
     storage_scroll_offset: usize,
     storage_chart_days: u32,        // Time range for chart: 7, 30, or 90 days
     storage_show_details: bool,     // Toggle details table view
+    // Service details screen state
+    service_details_screen: crate::screens::ServiceDetailsScreen,
+    service_details_data: Option<crate::core::docker::ServiceDetails>,
 }
 
 impl App {
@@ -410,6 +416,7 @@ impl App {
             // New v0.5.0 dashboard reorganization initializations
             services_view: ServicesView::Services,
             config_section: ConfigSection::Environment,
+            show_all_containers: false,  // Default to showing only IGRA containers
             watch_monitor: None,
             watch_transactions: Vec::new(),
             watch_statistics: None,
@@ -422,6 +429,8 @@ impl App {
             storage_scroll_offset: 0,
             storage_chart_days: 90,        // Default to 90 days
             storage_show_details: false,   // Details table hidden by default
+            service_details_screen: crate::screens::ServiceDetailsScreen::new(),
+            service_details_data: None,
             detail_logs_live_tx,
             detail_logs_live_rx,
             detail_logs_live_task_handle: None,
@@ -539,6 +548,9 @@ impl App {
             }
             Screen::Storage => {
                 // Storage screen doesn't need separate update (handled in refresh_data)
+            }
+            Screen::ServiceDetails(_) => {
+                // Service details screen doesn't need dashboard update
             }
         }
     }
@@ -673,6 +685,9 @@ impl App {
                         }
                     }
                 }
+            }
+            Screen::ServiceDetails(_) => {
+                // Service details data refresh handled separately when screen is opened
             }
         }
 
@@ -875,6 +890,11 @@ impl App {
                 // Close detail views, help, or quit (in priority order)
                 if self.show_help {
                     self.show_help = false;
+                } else if matches!(self.current_screen, Screen::ServiceDetails(_)) {
+                    // Close service details screen, return to Services
+                    self.current_screen = Screen::Services;
+                    self.service_details_data = None;
+                    self.update_dashboard_for_current_screen();
                 } else if self.detail_view_service.is_some() {
                     // Close service logs detail view
                     self.detail_view_service = None;
@@ -935,6 +955,10 @@ impl App {
                         };
                         self.selected_index = 0;
                     }
+                    Screen::ServiceDetails(_) => {
+                        // Next tab in service details screen
+                        self.service_details_screen.next_tab();
+                    }
                     _ => {
                         // On other screens, Tab does nothing
                     }
@@ -957,6 +981,10 @@ impl App {
                             ConfigSection::SslCerts => ConfigSection::RpcTokens,
                         };
                         self.selected_index = 0;
+                    }
+                    Screen::ServiceDetails(_) => {
+                        // Previous tab in service details screen
+                        self.service_details_screen.prev_tab();
                     }
                     _ => {
                         // On other screens, Shift+Tab does nothing
@@ -1052,6 +1080,10 @@ impl App {
                         self.storage_scroll_offset -= 1;
                     }
                 }
+                // Scroll content in ServiceDetails screen
+                else if matches!(self.current_screen, Screen::ServiceDetails(_)) {
+                    self.service_details_screen.scroll_up();
+                }
                 // Move selection
                 else if self.selected_index > 0 {
                     self.selected_index -= 1;
@@ -1100,6 +1132,10 @@ impl App {
                             self.storage_scroll_offset += 1;
                         }
                     }
+                }
+                // Scroll content in ServiceDetails screen
+                else if matches!(self.current_screen, Screen::ServiceDetails(_)) {
+                    self.service_details_screen.scroll_down();
                 }
                 // Move selection
                 else {
@@ -1186,6 +1222,15 @@ impl App {
                 // Quick action: Restart (capital R)
                 if self.current_screen == Screen::Services {
                     self.handle_service_restart().await?;
+                }
+            }
+            KeyCode::Char('A') => {
+                // Toggle show All containers (capital A)
+                if self.current_screen == Screen::Services && self.services_view == ServicesView::Services {
+                    self.show_all_containers = !self.show_all_containers;
+                    let mode = if self.show_all_containers { "all projects" } else { "IGRA only" };
+                    self.set_status(format!("✓ Container view: {}", mode));
+                    self.refresh_data().await?;
                 }
             }
             KeyCode::Char('d') => {
@@ -1363,6 +1408,7 @@ impl App {
                 }
             }
             Screen::Storage => 0, // No selection in Storage screen
+            Screen::ServiceDetails(_) => 0, // No selection in service details (tab-based navigation)
         }
     }
 
@@ -1381,6 +1427,10 @@ impl App {
                     _ => Ok(()),
                 }
             }
+            Screen::ServiceDetails(_) => {
+                // No action on service details screen (uses Tab for navigation)
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -1393,28 +1443,19 @@ impl App {
         let service = self.containers[self.selected_index].name.clone();
         self.set_status(format!("Loading details for {}...", service));
 
-        // Load logs (initial fetch) - parse once on load
-        match self.docker.get_logs(&service, Some(INITIAL_LOG_FETCH)).await {
-            Ok(logs) => {
-                self.detail_logs = logs.lines()
-                    .map(|s| crate::core::parse_docker_log_line(s))
-                    .collect();
+        // Fetch service details from API
+        match self.docker.get_service_details(&service).await {
+            Ok(details) => {
+                self.service_details_data = Some(details);
+                self.current_screen = Screen::ServiceDetails(service.clone());
+                self.service_details_screen.scroll_offset = 0; // Reset scroll
+                self.update_dashboard_for_current_screen();
+                self.clear_status();
             }
-            Err(_) => {
-                self.detail_logs = vec![crate::core::ParsedLogLine {
-                    timestamp: String::new(),
-                    service: service.clone(),
-                    module_path: String::new(),
-                    module_short: String::new(),
-                    level: crate::core::LogLevel::Error,
-                    message: "Failed to load logs".to_string(),
-                    raw_line: "Failed to load logs".to_string(),
-                }];
+            Err(e) => {
+                self.set_status(format!("✗ Failed to load service details: {}", e));
             }
         }
-
-        self.detail_view_service = Some(service);
-        self.clear_status();
 
         Ok(())
     }
@@ -2456,7 +2497,7 @@ impl App {
         let screens = Screen::all();
         let current_idx = screens.iter().position(|s| *s == self.current_screen).unwrap_or(0);
         let next_idx = (current_idx + 1) % screens.len();
-        self.current_screen = screens[next_idx];
+        self.current_screen = screens[next_idx].clone();
     }
 
     fn prev_screen(&mut self) {
@@ -2467,7 +2508,7 @@ impl App {
         } else {
             current_idx - 1
         };
-        self.current_screen = screens[prev_idx];
+        self.current_screen = screens[prev_idx].clone();
     }
 
     async fn handle_search_key(&mut self, key: KeyCode) -> Result<()> {
@@ -2621,6 +2662,14 @@ impl App {
     }
 
     fn render(&self, frame: &mut ratatui::Frame) {
+        // Render ServiceDetails screen directly if we're on it
+        if let Screen::ServiceDetails(_) = self.current_screen {
+            if let Some(ref details) = self.service_details_data {
+                self.service_details_screen.render(frame, frame.size(), details);
+                return;
+            }
+        }
+
         // Get container info for detail view
         let detail_container = self.detail_view_service.as_ref().and_then(|service_name| {
             self.containers.iter().find(|c| &c.name == service_name)
@@ -2633,7 +2682,7 @@ impl App {
 
         self.dashboard.render(
             frame,
-            self.current_screen,
+            self.current_screen.clone(),
             self.services_view,
             self.config_section,
             self.selected_index,

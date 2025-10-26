@@ -1,0 +1,163 @@
+# Reth Ethereum Execution Client Metrics Plugin
+
+[plugin]
+name = "reth"
+description = "Reth Ethereum execution client metrics from Prometheus endpoint"
+
+# Container matching rules (any match = plugin applies)
+[[match]]
+type = "image_contains"
+value = "reth"
+
+[[match]]
+type = "name_equals"
+value = "execution-layer"
+
+# Fetcher configuration
+[fetcher]
+type = "prometheus"
+method = "docker_exec"
+port = 9001
+path = "/metrics"
+
+# Metric definitions
+
+# Block/Chain metrics
+[[metrics]]
+name = "block_height"
+prometheus_metric = "reth_blockchain_tree_canonical_chain_height"
+display_format = "Block #{value}"
+display_priority = "primary"
+category = "blockchain"
+refresh_interval_secs = 2
+cache_duration_secs = 2
+
+[[metrics]]
+name = "blocks_processed"
+prometheus_metric = "reth_payloads_resolved_block"
+display_format = "{value} blocks"
+display_priority = "detail"
+category = "blockchain"
+refresh_interval_secs = 5
+cache_duration_secs = 5
+
+[[metrics]]
+name = "headers_synced"
+prometheus_metric = "reth_static_files_segment_entries"
+display_format = "{value} headers"
+display_priority = "detail"
+category = "blockchain"
+refresh_interval_secs = 5
+cache_duration_secs = 5
+
+[[metrics]]
+name = "sync_checkpoint"
+prometheus_metric = "reth_sync_checkpoint"
+display_format = "Checkpoint: {value}"
+display_priority = "detail"
+category = "blockchain"
+refresh_interval_secs = 10
+cache_duration_secs = 10
+
+# Network metrics
+[[metrics]]
+name = "peers_connected"
+prometheus_metric = "reth_network_connected_peers"
+display_format = "{value} peers"
+display_priority = "secondary"
+category = "network"
+refresh_interval_secs = 10
+cache_duration_secs = 10
+
+[[metrics]]
+name = "peers_tracked"
+prometheus_metric = "reth_network_tracked_peers"
+display_format = "{value} tracked"
+display_priority = "detail"
+category = "network"
+refresh_interval_secs = 15
+cache_duration_secs = 15
+
+# Transaction metrics
+[[metrics]]
+name = "transactions_pending"
+prometheus_metric = "reth_transaction_pool_pending_pool_transactions"
+display_format = "Pending: {value}"
+display_priority = "detail"
+category = "transactions"
+refresh_interval_secs = 3
+cache_duration_secs = 3
+
+[[metrics]]
+name = "transactions_blob"
+prometheus_metric = "reth_transaction_pool_blob_pool_transactions"
+display_format = "Blob: {value}"
+display_priority = "detail"
+category = "transactions"
+refresh_interval_secs = 5
+cache_duration_secs = 5
+
+[[metrics]]
+name = "transactions_inserted"
+prometheus_metric = "reth_transaction_pool_inserted_transactions"
+display_format = "{value} inserted"
+display_priority = "detail"
+category = "transactions"
+refresh_interval_secs = 5
+cache_duration_secs = 5
+
+# Performance metrics
+[[metrics]]
+name = "memory_bytes"
+prometheus_metric = "reth_process_resident_memory_bytes"
+display_format = "{value_mb} MB"
+display_priority = "detail"
+category = "performance"
+refresh_interval_secs = 30
+cache_duration_secs = 30
+
+[[metrics]]
+name = "gas_processed"
+prometheus_metric = "reth_sync_execution_gas_processed_total"
+display_format = "{value_m}M gas"
+display_priority = "detail"
+category = "performance"
+refresh_interval_secs = 10
+cache_duration_secs = 10
+
+[[metrics]]
+name = "payloads_initiated"
+prometheus_metric = "reth_payloads_initiated_jobs"
+display_format = "{value} jobs"
+display_priority = "detail"
+category = "performance"
+refresh_interval_secs = 5
+cache_duration_secs = 5
+
+# Blockchain tree metrics
+[[metrics]]
+name = "in_mem_blocks"
+prometheus_metric = "reth_blockchain_tree_in_mem_state_num_blocks"
+display_format = "{value} in-mem"
+display_priority = "detail"
+category = "blockchain"
+refresh_interval_secs = 10
+cache_duration_secs = 10
+
+[[metrics]]
+name = "reorgs_total"
+prometheus_metric = "reth_blockchain_tree_reorgs"
+display_format = "{value} reorgs"
+display_priority = "detail"
+category = "blockchain"
+refresh_interval_secs = 30
+cache_duration_secs = 30
+
+[[metrics]]
+name = "reorg_depth"
+prometheus_metric = "reth_blockchain_tree_latest_reorg_depth"
+display_format = "Depth: {value}"
+display_priority = "detail"
+category = "blockchain"
+refresh_interval_secs = 30
+cache_duration_secs = 30

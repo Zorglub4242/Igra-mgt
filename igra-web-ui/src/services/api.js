@@ -43,16 +43,22 @@ class IgraApiClient {
 
     const data = await response.json();
 
-    if (!data.success) {
-      throw new Error(data.error || 'Unknown error');
+    // Handle both wrapped ({success, data}) and unwrapped responses
+    if (data.success !== undefined) {
+      if (!data.success) {
+        throw new Error(data.error || 'Unknown error');
+      }
+      return data.data;
     }
 
-    return data.data;
+    // If not wrapped, return data directly
+    return data;
   }
 
   // Service Management
-  async getServices() {
-    return this.request('/api/services');
+  async getServices(showAll = false) {
+    const query = showAll ? '?show_all=true' : '';
+    return this.request(`/api/services${query}`);
   }
 
   async startService(name) {
@@ -69,6 +75,10 @@ class IgraApiClient {
 
   async getServiceLogs(name, tail = 100) {
     return this.request(`/api/services/${name}/logs?tail=${tail}`);
+  }
+
+  async getServiceDetails(name) {
+    return this.request(`/api/services/${name}/details`);
   }
 
   // Wallet Management

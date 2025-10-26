@@ -9,9 +9,11 @@ pub mod metrics;
 pub mod log_parser;
 pub mod versions;
 pub mod reth_metrics;
+pub mod geth_metrics;
 pub mod l2_monitor;
 pub mod storage;
 pub mod updater;
+pub mod service_notes;
 
 pub use docker::DockerManager;
 pub use config::ConfigManager;
@@ -28,5 +30,3 @@ pub use rpc::RpcTester;
 pub use wallet::WalletManager;
 #[allow(unused_imports)]
 pub use ssl::SslManager;
-#[allow(unused_imports)]
-pub use metrics::MetricsCollector;

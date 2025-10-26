@@ -75,9 +75,17 @@ pub struct ServiceInfo {
     primary_metric: Option<String>,
     secondary_metric: Option<String>,
     is_healthy_metric: bool,
+    // Project identification
+    project_name: Option<String>,  // Docker Compose project name
 }
 
 // WalletInfo is now imported from crate::core::wallet module
+
+#[derive(Deserialize)]
+pub struct ServicesQuery {
+    #[serde(default)]
+    show_all: bool,  // Show all containers (not just IGRA)
+}
 
 #[derive(Deserialize)]
 pub struct LogsQuery {
@@ -113,11 +121,13 @@ pub struct ParsedLogsQuery {
 // Service Management Handlers
 // ============================================================================
 
-pub async fn get_services() -> Result<Json<ApiResponse<Vec<ServiceInfo>>>, StatusCode> {
+pub async fn get_services(
+    Query(params): Query<ServicesQuery>,
+) -> Result<Json<ApiResponse<Vec<ServiceInfo>>>, StatusCode> {
     let docker = DockerManager::new().await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let containers = docker.list_containers().await
+    let containers = docker.list_containers_filtered(params.show_all).await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Process all containers in parallel for speed
@@ -186,6 +196,7 @@ pub async fn get_services() -> Result<Json<ApiResponse<Vec<ServiceInfo>>>, Statu
                 primary_metric,
                 secondary_metric,
                 is_healthy_metric,
+                project_name: c.project_name,
             })
         })
     }).collect();
@@ -796,4 +807,65 @@ pub async fn restart_igra_service() -> Result<Json<ApiResponse<UpdateStatus>>, S
         step: "restarting".to_string(),
         success: true,
     })))
+}
+
+// ============================================================================
+// Service Details & Notes Endpoints
+// ============================================================================
+
+#[derive(Deserialize)]
+pub struct UpdateNoteRequest {
+    note: String,
+}
+
+/// GET /api/services/:name/details - Get comprehensive service details
+pub async fn get_service_details(
+    Path(service_name): Path<String>,
+) -> Result<Json<crate::core::docker::ServiceDetails>, StatusCode> {
+    let docker = DockerManager::new().await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let details = docker.get_service_details(&service_name).await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    Ok(Json(details))
+}
+
+/// GET /api/services/:name/note - Get service note
+pub async fn get_service_note(
+    Path(service_name): Path<String>,
+) -> Result<Json<ApiResponse<String>>, StatusCode> {
+    let docker = DockerManager::new().await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Get container to determine image
+    let containers = docker.list_containers().await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let container = containers.iter()
+        .find(|c| c.name == service_name || c.name.trim_start_matches('/') == service_name)
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let notes = crate::core::service_notes::ServiceNotes::load()
+        .unwrap_or_default();
+
+    let note = notes.get_note(&service_name, &container.image);
+
+    Ok(Json(ApiResponse::ok(note)))
+}
+
+/// PUT /api/services/:name/note - Update service note
+pub async fn update_service_note(
+    Path(service_name): Path<String>,
+    Json(payload): Json<UpdateNoteRequest>,
+) -> Result<Json<ApiResponse<String>>, StatusCode> {
+    let mut notes = crate::core::service_notes::ServiceNotes::load()
+        .unwrap_or_default();
+
+    notes.set_note(service_name.clone(), payload.note.clone());
+
+    notes.save()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(ApiResponse::ok("Note updated successfully".to_string())))
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../services/api'
 import LogViewer from './LogViewer'
 
@@ -10,17 +11,34 @@ export default function ServicesPanel() {
   const [actionLoading, setActionLoading] = useState({})
   const [profileLoading, setProfileLoading] = useState({})
   const [selectedService, setSelectedService] = useState(null)
+  const [showAllContainers, setShowAllContainers] = useState(false)
+
+  useEffect(() => {
+    // Load show_all preference from localStorage
+    const showAll = localStorage.getItem('show_all_containers')
+    setShowAllContainers(showAll === 'true')
+
+    // Listen for changes from ConfigPanel
+    const handleShowAllChanged = (event) => {
+      setShowAllContainers(event.detail.enabled)
+    }
+    window.addEventListener('showAllContainersChanged', handleShowAllChanged)
+
+    return () => {
+      window.removeEventListener('showAllContainersChanged', handleShowAllChanged)
+    }
+  }, [])
 
   useEffect(() => {
     loadData()
     const interval = setInterval(loadData, 5000) // Refresh every 5s
     return () => clearInterval(interval)
-  }, [])
+  }, [showAllContainers])
 
   async function loadData() {
     try {
       const [servicesData, profilesData] = await Promise.all([
-        api.getServices(),
+        api.getServices(showAllContainers),
         api.getProfiles()
       ])
 
@@ -52,7 +70,7 @@ export default function ServicesPanel() {
 
   async function loadServices() {
     try {
-      const data = await api.getServices()
+      const data = await api.getServices(showAllContainers)
       setServices(data)
       setError(null)
     } catch (err) {
@@ -140,7 +158,7 @@ export default function ServicesPanel() {
   // Group services by primary profile (use main profiles: kaspad, backend, frontend-w*)
   const primaryProfiles = ['kaspad', 'backend', 'frontend-w1', 'frontend-w2', 'frontend-w3', 'frontend-w4', 'frontend-w5']
   const groupedServices = {}
-  const ungrouped = []
+  const otherProjectServices = {}
 
   services.forEach(service => {
     const serviceProfiles = serviceToProfiles[service.name] || []
@@ -152,12 +170,20 @@ export default function ServicesPanel() {
       }
       groupedServices[primaryProfile].push(service)
     } else {
-      ungrouped.push(service)
+      // Group non-IGRA services by their project_name
+      const projectName = service.project_name || 'Other'
+      if (!otherProjectServices[projectName]) {
+        otherProjectServices[projectName] = []
+      }
+      otherProjectServices[projectName].push(service)
     }
   })
 
   // Sort groups by profile order
   const sortedGroups = primaryProfiles.filter(p => groupedServices[p])
+
+  // Sort other projects alphabetically
+  const sortedOtherProjects = Object.keys(otherProjectServices).sort()
 
   if (loading) {
     return <div className="loading">Loading services...</div>
@@ -167,10 +193,38 @@ export default function ServicesPanel() {
     return <div className="error">Error: {error}</div>
   }
 
-  const renderServiceRow = (service) => (
+  // Helper function to format project name for display
+  function formatProjectName(projectName) {
+    if (!projectName) return 'Unknown'
+
+    // Remove only _default suffix
+    let name = projectName.replace(/_default$/, '')
+
+    // Convert to title case and replace dashes with spaces
+    return name.split('-')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ')
+  }
+
+  const renderServiceRow = (service) => {
+    // Determine if service is from a non-IGRA project
+    const isIgraProject = service.project_name?.includes('igra-orchestra')
+
+    return (
               <tr key={service.name}>
                 <td>
-                  <strong>{service.name}</strong>
+                  <Link
+                    to={`/service/${service.name}`}
+                    style={{
+                      color: '#818cf8',
+                      textDecoration: 'none',
+                      fontWeight: 'bold'
+                    }}
+                    onMouseOver={(e) => e.target.style.textDecoration = 'underline'}
+                    onMouseOut={(e) => e.target.style.textDecoration = 'none'}
+                  >
+                    {service.name}
+                  </Link>
                 </td>
                 <td>
                   {getStatusBadge(service.status)}
@@ -187,7 +241,7 @@ export default function ServicesPanel() {
                   )}
                 </td>
                 <td>
-                  <div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>
+                  <div style={{ fontSize: '0.875rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {service.image}
                   </div>
                 </td>
@@ -239,39 +293,43 @@ export default function ServicesPanel() {
                   </div>
                 </td>
                 <td>
-                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: '0', flexWrap: 'wrap' }}>
                     <button
-                      className="btn btn-sm btn-success"
+                      className="btn btn-sm"
                       onClick={() => handleServiceAction(service.name, 'start')}
                       disabled={actionLoading[service.name] || service.status.includes('Up')}
+                      style={{ background: '#047857', color: '#fff', padding: '0.15rem', minWidth: '1.5rem', width: '1.5rem', height: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '0', fontSize: '0.75rem', border: 'none' }}
                     >
                       {actionLoading[service.name] === 'start' ? '...' : '▶'}
                     </button>
                     <button
-                      className="btn btn-sm btn-danger"
+                      className="btn btn-sm"
                       onClick={() => handleServiceAction(service.name, 'stop')}
                       disabled={actionLoading[service.name] || !service.status.includes('Up')}
+                      style={{ background: '#b91c1c', color: '#fff', padding: '0.15rem', minWidth: '1.5rem', width: '1.5rem', height: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '0', fontSize: '0.75rem', border: 'none' }}
                     >
                       {actionLoading[service.name] === 'stop' ? '...' : '⏹'}
                     </button>
                     <button
-                      className="btn btn-sm btn-warning"
+                      className="btn btn-sm"
                       onClick={() => handleServiceAction(service.name, 'restart')}
                       disabled={actionLoading[service.name]}
+                      style={{ background: '#c2410c', color: '#fff', padding: '0.15rem', minWidth: '1.5rem', width: '1.5rem', height: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '0', fontSize: '0.75rem', border: 'none' }}
                     >
                       {actionLoading[service.name] === 'restart' ? '...' : '🔄'}
                     </button>
                     <button
                       className="btn btn-sm"
                       onClick={() => setSelectedService(service.name)}
-                      style={{ background: '#6366f1' }}
+                      style={{ background: '#4f46e5', color: '#fff', padding: '0.15rem', minWidth: '1.5rem', width: '1.5rem', height: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '0', fontSize: '0.75rem', border: 'none' }}
                     >
                       📋
                     </button>
                   </div>
                 </td>
               </tr>
-  )
+    )
+  }
 
   return (
     <>
@@ -326,18 +384,18 @@ export default function ServicesPanel() {
                 </div>
               </div>
 
-              <table className="table">
+              <table className="table" style={{ tableLayout: 'fixed', width: '100%' }}>
                 <thead>
                   <tr>
-                    <th>Service</th>
-                    <th>Status</th>
-                    <th>Image</th>
-                    <th>Ports</th>
-                    <th>CPU</th>
-                    <th>Memory</th>
-                    <th>Storage</th>
-                    <th>Network (RX/TX)</th>
-                    <th>Actions</th>
+                    <th style={{ width: '15%' }}>Service</th>
+                    <th style={{ width: '12%' }}>Status</th>
+                    <th style={{ width: '16%' }}>Image</th>
+                    <th style={{ width: '10%' }}>Ports</th>
+                    <th style={{ width: '6%' }}>CPU</th>
+                    <th style={{ width: '8%' }}>Memory</th>
+                    <th style={{ width: '8%' }}>Storage</th>
+                    <th style={{ width: '12%' }}>Network (RX/TX)</th>
+                    <th style={{ width: '13%' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -348,39 +406,47 @@ export default function ServicesPanel() {
           )
         })}
 
-        {ungrouped.length > 0 && (
-          <div style={{ marginBottom: '1rem' }}>
-            <div style={{
-              background: 'rgba(100, 116, 139, 0.1)',
-              padding: '0.75rem 1rem',
-              borderLeft: '4px solid #64748b',
-              marginTop: '1rem'
-            }}>
-              <strong style={{ color: '#94a3b8', fontSize: '1rem' }}>
-                Other Services
-              </strong>
-            </div>
+        {sortedOtherProjects.map(projectName => {
+          const projectServices = otherProjectServices[projectName]
+          const displayName = formatProjectName(projectName)
 
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Service</th>
-                  <th>Status</th>
-                  <th>Image</th>
-                  <th>Ports</th>
-                  <th>CPU</th>
-                  <th>Memory</th>
-                  <th>Storage</th>
-                  <th>Network (RX/TX)</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ungrouped.map(service => renderServiceRow(service))}
-              </tbody>
-            </table>
-          </div>
-        )}
+          return (
+            <div key={projectName} style={{ marginBottom: '1rem' }}>
+              <div style={{
+                background: 'rgba(100, 116, 139, 0.1)',
+                padding: '0.75rem 1rem',
+                borderLeft: '4px solid #64748b',
+                marginTop: '1rem'
+              }}>
+                <strong style={{ color: '#94a3b8', fontSize: '1rem' }}>
+                  {displayName}
+                </strong>
+                <span style={{ marginLeft: '0.5rem', color: '#64748b', fontSize: '0.875rem' }}>
+                  ({projectServices.length} {projectServices.length === 1 ? 'service' : 'services'})
+                </span>
+              </div>
+
+              <table className="table" style={{ tableLayout: 'fixed', width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: '15%' }}>Service</th>
+                    <th style={{ width: '12%' }}>Status</th>
+                    <th style={{ width: '16%' }}>Image</th>
+                    <th style={{ width: '10%' }}>Ports</th>
+                    <th style={{ width: '6%' }}>CPU</th>
+                    <th style={{ width: '8%' }}>Memory</th>
+                    <th style={{ width: '8%' }}>Storage</th>
+                    <th style={{ width: '12%' }}>Network (RX/TX)</th>
+                    <th style={{ width: '13%' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {projectServices.map(service => renderServiceRow(service))}
+                </tbody>
+              </table>
+            </div>
+          )
+        })}
       </div>
 
       {selectedService && (
