@@ -23,6 +23,7 @@ fi
 # Parse command line arguments
 CLEAN=false
 BUILD_TYPE="release"
+BUILD_WINDOWS=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -34,9 +35,18 @@ while [[ $# -gt 0 ]]; do
             BUILD_TYPE="debug"
             shift
             ;;
+        --windows)
+            BUILD_WINDOWS=true
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--clean] [--debug]"
+            echo "Usage: $0 [--clean] [--debug] [--windows]"
+            echo ""
+            echo "Options:"
+            echo "  --clean     Clean build artifacts before building"
+            echo "  --debug     Build in debug mode (faster compile, larger binary)"
+            echo "  --windows   Cross-compile for Windows (x86_64-pc-windows-gnu)"
             exit 1
             ;;
     esac
@@ -101,12 +111,44 @@ fi
 # Build Rust binary
 echo "🔨 Building Rust binary..."
 
+# Setup target and binary paths
+if [ "$BUILD_WINDOWS" = true ]; then
+    CARGO_TARGET="x86_64-pc-windows-gnu"
+    BINARY_NAME="igra-cli.exe"
+    echo "   Target: Windows (${CARGO_TARGET})"
+
+    # Check if target is installed
+    if ! rustup target list --installed | grep -q "$CARGO_TARGET"; then
+        echo "   Installing Windows target..."
+        rustup target add "$CARGO_TARGET"
+    fi
+
+    # Check for mingw-w64 cross-compiler
+    if ! command -v x86_64-w64-mingw32-gcc &> /dev/null; then
+        echo "⚠️  Warning: mingw-w64 not found. Install with:"
+        echo "   Ubuntu/Debian: sudo apt install mingw-w64"
+        echo "   Fedora: sudo dnf install mingw64-gcc"
+        echo "   Arch: sudo pacman -S mingw-w64-gcc"
+        echo ""
+        echo "Attempting build anyway..."
+    fi
+else
+    CARGO_TARGET=""
+    BINARY_NAME="igra-cli"
+    echo "   Target: Native ($(uname -m)-$(uname -s | tr '[:upper:]' '[:lower:]'))"
+fi
+
 # CRITICAL: Clean specific build artifacts to force rust-embed to re-process assets
 # This prevents rust-embed from using cached assets when dist files change
 if [ "$BUILD_WEB_UI" = true ] && [ "$BUILD_TYPE" = "release" ]; then
     echo "   Cleaning rust-embed cache..."
-    rm -f target/release/.fingerprint/*igra-cli*/lib-igra_cli* 2>/dev/null || true
-    rm -f target/release/deps/libigra_cli* 2>/dev/null || true
+    if [ -n "$CARGO_TARGET" ]; then
+        rm -f target/${CARGO_TARGET}/release/.fingerprint/*igra-cli*/lib-igra_cli* 2>/dev/null || true
+        rm -f target/${CARGO_TARGET}/release/deps/libigra_cli* 2>/dev/null || true
+    else
+        rm -f target/release/.fingerprint/*igra-cli*/lib-igra_cli* 2>/dev/null || true
+        rm -f target/release/deps/libigra_cli* 2>/dev/null || true
+    fi
 fi
 
 # Build with server feature if Web UI assets exist
@@ -114,11 +156,21 @@ if [ "$BUILD_WEB_UI" = true ]; then
     echo "   Building with Web UI (--features server)..."
 
     if [ "$BUILD_TYPE" = "debug" ]; then
-        cargo build --features server
-        BINARY_PATH="target/debug/igra-cli"
+        if [ -n "$CARGO_TARGET" ]; then
+            cargo build --target "$CARGO_TARGET" --features server
+            BINARY_PATH="target/${CARGO_TARGET}/debug/${BINARY_NAME}"
+        else
+            cargo build --features server
+            BINARY_PATH="target/debug/${BINARY_NAME}"
+        fi
     else
-        cargo build --release --features server
-        BINARY_PATH="target/release/igra-cli"
+        if [ -n "$CARGO_TARGET" ]; then
+            cargo build --target "$CARGO_TARGET" --release --features server
+            BINARY_PATH="target/${CARGO_TARGET}/release/${BINARY_NAME}"
+        else
+            cargo build --release --features server
+            BINARY_PATH="target/release/${BINARY_NAME}"
+        fi
     fi
 
     # Verify the correct assets were embedded
@@ -142,11 +194,21 @@ else
     echo "   Building TUI only (no Web UI)..."
 
     if [ "$BUILD_TYPE" = "debug" ]; then
-        cargo build
-        BINARY_PATH="target/debug/igra-cli"
+        if [ -n "$CARGO_TARGET" ]; then
+            cargo build --target "$CARGO_TARGET"
+            BINARY_PATH="target/${CARGO_TARGET}/debug/${BINARY_NAME}"
+        else
+            cargo build
+            BINARY_PATH="target/debug/${BINARY_NAME}"
+        fi
     else
-        cargo build --release
-        BINARY_PATH="target/release/igra-cli"
+        if [ -n "$CARGO_TARGET" ]; then
+            cargo build --target "$CARGO_TARGET" --release
+            BINARY_PATH="target/${CARGO_TARGET}/release/${BINARY_NAME}"
+        else
+            cargo build --release
+            BINARY_PATH="target/release/${BINARY_NAME}"
+        fi
     fi
 fi
 
@@ -160,11 +222,24 @@ fi
 echo ""
 
 if [ "$BUILD_TYPE" = "release" ]; then
-    echo "To install, run: ./install.sh"
-    echo "Or copy manually: sudo cp $BINARY_PATH /usr/local/bin/"
-    echo ""
-    echo "To create a release package:"
-    echo "  tar -czf igra-cli-linux-x86_64.tar.gz -C target/release igra-cli"
+    if [ "$BUILD_WINDOWS" = true ]; then
+        echo "Windows executable built successfully!"
+        echo ""
+        echo "To create a release package:"
+        echo "  tar -czf igra-cli-windows-x86_64.tar.gz -C target/${CARGO_TARGET}/release igra-cli.exe"
+        echo ""
+        echo "Or create a ZIP file:"
+        echo "  cd target/${CARGO_TARGET}/release && zip ../../../igra-cli-windows-x86_64.zip igra-cli.exe"
+        echo ""
+        echo "⚠️  Note: Windows binary requires Microsoft Visual C++ Redistributable"
+        echo "    Download: https://aka.ms/vs/17/release/vc_redist.x64.exe"
+    else
+        echo "To install, run: ./install.sh"
+        echo "Or copy manually: sudo cp $BINARY_PATH /usr/local/bin/"
+        echo ""
+        echo "To create a release package:"
+        echo "  tar -czf igra-cli-linux-x86_64.tar.gz -C target/release igra-cli"
+    fi
 else
     echo "Debug build complete. Use --release for production builds."
 fi

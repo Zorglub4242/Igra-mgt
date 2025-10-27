@@ -184,12 +184,21 @@ igra-cli serve [OPTIONS]
   --host <HOST>             # Bind address (default: 127.0.0.1)
   --cors                    # Enable CORS
 
-# Install as systemd service (requires 'server' feature)
+# Install as system service (requires 'server' feature)
+# Linux (systemd):
 sudo igra-cli install-service [OPTIONS]
   --port <PORT>             # Port number (default: 3000)
   --host <HOST>             # Bind address (default: 0.0.0.0)
   --cors                    # Enable CORS
   --user <USER>             # Service user (default: current user)
+
+# Windows (Windows Service):
+igra-cli.exe install-service [OPTIONS]  # Run as Administrator
+  --port <PORT>             # Port number (default: 3000)
+  --host <HOST>             # Bind address (default: 0.0.0.0)
+  --cors                    # Enable CORS
+  # Service name: IgraWebUI
+  # Manage with: sc start/stop/query IgraWebUI
 ```
 
 ### RPC Management
@@ -292,9 +301,9 @@ igra-cli watch [OPTIONS]
 
 **Plugin System:**
 ```bash
-# Plugins are automatically loaded from plugins/ directory
-# 8 built-in plugins included:
-#   - execution-layer.toml
+# 8 built-in plugins embedded in binary:
+#   - reth.toml (execution-layer)
+#   - geth.toml
 #   - block-builder.toml
 #   - viaduct.toml
 #   - traefik.toml
@@ -303,8 +312,18 @@ igra-cli watch [OPTIONS]
 #   - kaspad.toml
 #   - kaspa-miner.toml
 
+# Plugins are auto-extracted on first run to:
+# Linux:   ~/.config/igra-cli/plugins/
+# Windows: %APPDATA%\igra-cli\plugins\
+
+# System-wide locations (optional):
+# Linux:   /etc/igra-cli/plugins/
+# Windows: %PROGRAMDATA%\igra-cli\plugins\
+
+# Development fallback: ./plugins/
+
 # Create custom plugin (no code changes needed):
-# 1. Create plugins/my-service.toml
+# 1. Add my-service.toml to your plugins directory
 # 2. Define matchers, fetcher, and metrics
 # 3. Restart igra-cli
 ```

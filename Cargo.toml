@@ -1,6 +1,6 @@
 [package]
 name = "igra-cli"
-version = "0.12.0"
+version = "0.13.0"
 edition = "2021"
 authors = ["Merlin"]
 description = "Terminal-based management CLI for KASPA L2 nodes"
@@ -69,7 +69,7 @@ axum-server = { version = "0.6", features = ["tls-rustls"], optional = true }
 tower = { version = "0.4", optional = true }
 tower-http = { version = "0.5", features = ["cors", "fs", "trace"], optional = true }
 hyper = { version = "1.0", optional = true }
-rust-embed = { version = "8.0", optional = true }
+rust-embed = { version = "8.0", features = ["include-exclude"] }  # Used for Web UI and embedded plugins
 mime_guess = { version = "2.0", optional = true }
 
 # Ethereum RPC client for L2 monitoring
@@ -105,6 +105,10 @@ rand = "0.8"
 # Version Comparison
 semver = "1.0"
 
+# Windows Service (Windows only)
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.7"
+
 [dev-dependencies]
 tempfile = "3.10"
 mockall = "0.12"
@@ -116,7 +120,7 @@ chrono = "0.4"
 [features]
 default = ["tui", "server"]
 tui = []      # TUI mode with ratatui
-server = ["axum", "axum-server", "tower", "tower-http", "hyper", "rust-embed", "mime_guess"]  # HTTP API server mode
+server = ["axum", "axum-server", "tower", "tower-http", "hyper", "mime_guess"]  # HTTP API server mode (rust-embed always available)
 
 [profile.release]
 opt-level = 3

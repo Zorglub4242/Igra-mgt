@@ -28,6 +28,7 @@
 pub mod plugin;
 pub mod registry;
 pub mod fetchers;
+pub mod embedded;
 
 // Re-export commonly used types
 pub use plugin::{PluginConfig, MetricDefinition, DisplayPriority};

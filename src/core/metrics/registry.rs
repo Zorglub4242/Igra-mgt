@@ -78,27 +78,81 @@ impl PluginRegistry {
     /// Load plugins from standard system locations
     ///
     /// Tries the following locations in order:
-    /// 1. ~/.config/l2-mgt/plugins/
-    /// 2. /etc/l2-mgt/plugins/
-    /// 3. ./plugins/ (development fallback)
+    /// - Linux: ~/.config/igra-cli/plugins/, /etc/igra-cli/plugins/, ./plugins/
+    /// - Windows: %APPDATA%/igra-cli/plugins/, %PROGRAMDATA%/igra-cli/plugins/, ./plugins/
+    ///
+    /// If no plugin directory exists, embedded plugins will be extracted to the user config directory.
     pub fn load_from_standard_locations() -> Result<Self> {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
+        use crate::core::metrics::embedded;
+        use dirs::config_dir;
 
-        let search_paths = vec![
-            format!("{}/.config/l2-mgt/plugins", home),
-            "/etc/l2-mgt/plugins".to_string(),
-            "./plugins".to_string(),
-        ];
+        let mut search_paths: Vec<String> = Vec::new();
+        let mut user_config_path: Option<String> = None;
 
+        // Get platform-specific config directories
+        #[cfg(target_os = "windows")]
+        {
+            // Windows: %APPDATA%/igra-cli/plugins and %PROGRAMDATA%/igra-cli/plugins
+            if let Some(config_dir) = config_dir() {
+                let user_path = config_dir.join("igra-cli").join("plugins");
+                user_config_path = Some(user_path.display().to_string());
+                search_paths.push(user_path.display().to_string());
+            }
+
+            // %PROGRAMDATA%/igra-cli/plugins (system-wide)
+            if let Ok(programdata) = std::env::var("PROGRAMDATA") {
+                search_paths.push(format!("{}\\igra-cli\\plugins", programdata));
+            }
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            // Linux/Unix: ~/.config/igra-cli/plugins and /etc/igra-cli/plugins
+            if let Some(config_dir) = config_dir() {
+                let user_path = config_dir.join("igra-cli").join("plugins");
+                user_config_path = Some(user_path.display().to_string());
+                search_paths.push(user_path.display().to_string());
+            }
+
+            // Fallback to HOME-based path if dirs crate fails
+            if let Ok(home) = std::env::var("HOME") {
+                if user_config_path.is_none() {
+                    user_config_path = Some(format!("{}/.config/igra-cli/plugins", home));
+                }
+            }
+
+            search_paths.push("/etc/igra-cli/plugins".to_string());
+        }
+
+        // Development fallback (current directory)
+        search_paths.push("./plugins".to_string());
+
+        // Try to find existing plugin directory
         for path in &search_paths {
             let p = Path::new(path);
-            if p.exists() && p.is_dir() {
+            if p.exists() && p.is_dir() && embedded::has_plugins(p) {
                 eprintln!("[INFO] Loading plugins from: {}", path);
                 return Self::load_from_directory(path);
             }
         }
 
-        eprintln!("[WARN] No plugin directory found in standard locations");
+        // No plugin directory found - extract embedded plugins to user config
+        if let Some(ref config_path) = user_config_path {
+            eprintln!("[INFO] No plugin directory found, extracting embedded plugins...");
+            eprintln!("[INFO] Target directory: {}", config_path);
+
+            match embedded::extract_plugins_to_dir(config_path) {
+                Ok(count) => {
+                    eprintln!("[INFO] Extracted {} plugin(s) to {}", count, config_path);
+                    return Self::load_from_directory(config_path);
+                }
+                Err(e) => {
+                    eprintln!("[WARN] Failed to extract embedded plugins: {}", e);
+                }
+            }
+        }
+
+        eprintln!("[WARN] No plugin directory found and could not extract embedded plugins");
         eprintln!("[WARN] Tried: {}", search_paths.join(", "));
 
         // Return empty registry if no directories found

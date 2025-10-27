@@ -2,6 +2,47 @@
 
 All notable changes to `igra-cli` will be documented in this file.
 
+## [0.13.0] - TBD
+
+### Added
+- **Windows Service Support**: Native Windows Service integration for Web UI
+  - `install-service` command now works on Windows
+  - Service name: "IgraWebUI" (IGRA Orchestra Web Management UI)
+  - Configuration via Windows Registry environment variables
+  - Full lifecycle management (start, stop, restart)
+  - Automatic startup on system boot
+  - Integration with Windows Event Log for logging
+  - Manage with standard Windows `sc` commands
+  - Cross-platform service installation (Linux systemd, Windows Service)
+
+- **Windows Cross-Compilation**: Build script now supports building Windows executables
+  - Added `--windows` flag to build.sh for cross-compilation
+  - Automatic Windows target installation (x86_64-pc-windows-gnu)
+  - Generates igra-cli.exe with full feature parity
+
+- **Embedded Plugins with Auto-Deployment**: Plugins now embedded in binary
+  - All 8 default plugins embedded using rust-embed
+  - Auto-extracted to config directory on first run
+  - Cross-platform plugin paths (Linux: ~/.config/igra-cli/plugins, Windows: %APPDATA%\igra-cli\plugins)
+  - System-wide plugin support (/etc/igra-cli/plugins, %PROGRAMDATA%\igra-cli\plugins)
+  - Zero configuration required - plugins work out of the box
+  - Existing plugin files preserved (no overwriting user customizations)
+
+### Improved
+- **Cross-Platform Support**: Enhanced platform detection and paths
+  - Plugin system uses `dirs` crate for platform-appropriate config directories
+  - Conditional compilation for Windows/Linux-specific code paths
+  - Single codebase for all platforms
+
+### Technical
+- Added `windows-service` crate dependency for Windows targets
+- Created `windows_service.rs` module with conditional compilation
+- Platform-specific service installers in main.rs
+- Made `rust-embed` always available (was optional with server feature)
+- Created `embedded.rs` module for embedded plugin management
+- Updated `registry.rs` with cross-platform path detection
+- Updated documentation for Windows support
+
 ## [0.12.0] - 2025-10-26
 
 ### Added
