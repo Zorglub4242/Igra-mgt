@@ -37,7 +37,8 @@ The Web Management UI provides a modern browser-based interface for managing IGR
 
 To install and run the Web UI, see the **[Installation Guide](installation.md#web-ui-installation-optional)**.
 
-Quick reference:
+### Linux
+
 ```bash
 # Run temporarily
 IGRA_WEB_TOKEN=your-secret-token igra-cli serve --host 0.0.0.0 --port 3000 --cors
@@ -46,9 +47,38 @@ IGRA_WEB_TOKEN=your-secret-token igra-cli serve --host 0.0.0.0 --port 3000 --cor
 sudo igra-cli install-service --port 3000 --host 0.0.0.0 --cors
 ```
 
+### Windows
+
+```powershell
+# Run temporarily
+$env:IGRA_WEB_TOKEN="your-secret-token"
+igra-cli.exe serve --host 0.0.0.0 --port 3000 --cors
+
+# Install as Windows Service (production) - requires Administrator privileges
+igra-cli.exe install-service --port 3000 --host 0.0.0.0 --cors
+```
+
+**Windows Service Management:**
+```powershell
+# Check service status
+sc query IgraWebUI
+
+# Start service
+sc start IgraWebUI
+
+# Stop service
+sc stop IgraWebUI
+
+# Uninstall service
+sc delete IgraWebUI
+
+# View service logs (Event Viewer)
+Get-EventLog -LogName System -Source IgraWebUI -Newest 20
+```
+
 Access at `http://your-server:3000` and login with your token.
 
-For detailed installation instructions, systemd service setup, and troubleshooting, see [Installation Guide](installation.md#web-ui-installation-optional).
+For detailed installation instructions, service setup, and troubleshooting, see [Installation Guide](installation.md#web-ui-installation-optional).
 
 ## API Endpoints
 

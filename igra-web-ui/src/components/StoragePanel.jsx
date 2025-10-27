@@ -12,6 +12,7 @@ import {
   Filler
 } from 'chart.js'
 import { api } from '../services/api'
+import LogRotationModal from './LogRotationModal'
 
 // Register Chart.js components
 ChartJS.register(
@@ -34,10 +35,14 @@ export default function StoragePanel() {
   const [chartDays, setChartDays] = useState(30)
   const [truncatingLogs, setTruncatingLogs] = useState(new Set())
   const [showLogsDetail, setShowLogsDetail] = useState(false)
+  const [logRotationConfig, setLogRotationConfig] = useState(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [modalContainerName, setModalContainerName] = useState(null)
 
   useEffect(() => {
     loadStorage()
     loadHistory()
+    loadLogRotationConfig()
   }, [])
 
   async function loadStorage() {
@@ -58,6 +63,34 @@ export default function StoragePanel() {
       setHistory(data)
     } catch (err) {
       console.error('Failed to load storage history:', err)
+    }
+  }
+
+  async function loadLogRotationConfig() {
+    try {
+      const data = await api.getLogRotationConfig()
+      setLogRotationConfig(data)
+    } catch (err) {
+      console.error('Failed to load log rotation config:', err)
+    }
+  }
+
+  function openGlobalModal() {
+    setModalContainerName(null)
+    setModalOpen(true)
+  }
+
+  function openContainerModal(containerName) {
+    setModalContainerName(containerName)
+    setModalOpen(true)
+  }
+
+  function handleModalClose(wasSuccessful) {
+    setModalOpen(false)
+    setModalContainerName(null)
+    if (wasSuccessful) {
+      loadLogRotationConfig()
+      loadStorage()
     }
   }
 
@@ -280,7 +313,21 @@ export default function StoragePanel() {
               <td style={{ color: '#10b981' }}>{formatBytes(storage.docker_build_cache.reclaimable_bytes)} GB</td>
             </tr>
             <tr>
-              <td>Container Logs</td>
+              <td>
+                Container Logs
+                {logRotationConfig && (
+                  <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>
+                    Global Rotation: {logRotationConfig.global.max_size} / {logRotationConfig.global.max_file} files
+                    <button
+                      className="btn"
+                      onClick={openGlobalModal}
+                      style={{ marginLeft: '0.5rem', padding: '0.125rem 0.375rem', fontSize: '0.75rem' }}
+                    >
+                      ⚙️ Config
+                    </button>
+                  </div>
+                )}
+              </td>
               <td>{storage.container_logs.length}</td>
               <td><strong>{formatBytes(totalContainerLogsSize)} GB</strong></td>
               <td>
@@ -299,6 +346,7 @@ export default function StoragePanel() {
             </tr>
           </tbody>
         </table>
+
 
         {/* Container Logs Detail */}
         {showLogsDetail && storage.container_logs.length > 0 && (
@@ -327,6 +375,13 @@ export default function StoragePanel() {
                       </td>
                       <td><strong>{formatBytes(log.log_size_bytes)} GB</strong></td>
                       <td>
+                        <button
+                          className="btn"
+                          onClick={() => openContainerModal(log.container_name)}
+                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem', marginRight: '0.5rem' }}
+                        >
+                          ⚙️ Config
+                        </button>
                         <button
                           className="btn btn-warning"
                           onClick={() => handleTruncateLog(log.container_id, log.container_name)}
@@ -456,6 +511,14 @@ export default function StoragePanel() {
           </p>
         </div>
       </div>
+
+      {/* Log Rotation Modal */}
+      <LogRotationModal
+        isOpen={modalOpen}
+        onClose={handleModalClose}
+        containerName={modalContainerName}
+        globalSettings={logRotationConfig?.global}
+      />
     </div>
   )
 }

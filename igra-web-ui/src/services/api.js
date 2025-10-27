@@ -133,6 +133,34 @@ class IgraApiClient {
     return this.request(`/api/storage/container-logs/${containerId}/truncate`, { method: 'POST' });
   }
 
+  async getLogRotationConfig() {
+    return this.request('/api/storage/log-rotation');
+  }
+
+  async updateGlobalLogRotation(settings) {
+    return this.request('/api/storage/log-rotation/global', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
+  }
+
+  async getContainerLogRotation(containerName) {
+    return this.request(`/api/storage/log-rotation/container/${containerName}`);
+  }
+
+  async updateContainerLogRotation(containerName, settings) {
+    return this.request(`/api/storage/log-rotation/container/${containerName}`, {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
+  }
+
+  async deleteContainerLogRotation(containerName) {
+    return this.request(`/api/storage/log-rotation/container/${containerName}`, {
+      method: 'DELETE',
+    });
+  }
+
   // Configuration
   async getConfig() {
     return this.request('/api/config');

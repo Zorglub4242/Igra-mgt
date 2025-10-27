@@ -2,7 +2,7 @@
 
 use axum::{
     Router,
-    routing::{get, post, put},
+    routing::{get, post, put, delete},
     middleware,
 };
 use tower_http::cors::CorsLayer;
@@ -22,6 +22,9 @@ pub fn create_router(enable_cors: bool) -> Router {
         .route("/api/services/:name/note", put(handlers::update_service_note))
         .route("/api/storage/prune", post(handlers::prune_storage))
         .route("/api/storage/container-logs/:container_id/truncate", post(handlers::truncate_container_log))
+        .route("/api/storage/log-rotation/global", put(handlers::update_global_log_rotation))
+        .route("/api/storage/log-rotation/container/:name", put(handlers::update_container_log_rotation))
+        .route("/api/storage/log-rotation/container/:name", delete(handlers::delete_container_log_rotation))
         .route("/api/profiles/:name/start", post(handlers::start_profile))
         .route("/api/profiles/:name/stop", post(handlers::stop_profile))
         .route("/api/update", post(handlers::trigger_update))
@@ -40,6 +43,8 @@ pub fn create_router(enable_cors: bool) -> Router {
         .route("/api/wallets/:id/detail", get(handlers::get_wallet_detail))
         .route("/api/storage", get(handlers::get_storage))
         .route("/api/storage/history", get(handlers::get_storage_history))
+        .route("/api/storage/log-rotation", get(handlers::get_log_rotation_config))
+        .route("/api/storage/log-rotation/container/:name", get(handlers::get_container_log_rotation))
         .route("/api/config", get(handlers::get_config))
         .route("/api/system", get(handlers::get_system_info))
         .route("/api/rpc/tokens", get(handlers::get_rpc_tokens))

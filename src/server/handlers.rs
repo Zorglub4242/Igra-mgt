@@ -8,7 +8,6 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use sysinfo::System;
 
 use crate::core::{
     ConfigManager, DockerManager,
@@ -468,6 +467,56 @@ pub async fn truncate_container_log(
     ))))
 }
 
+pub async fn get_log_rotation_config() -> Result<Json<ApiResponse<storage::LogRotationConfig>>, StatusCode> {
+    let config = storage::get_log_rotation_config()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(ApiResponse::ok(config)))
+}
+
+pub async fn update_global_log_rotation(
+    Json(settings): Json<storage::LogRotationSettings>,
+) -> Result<Json<ApiResponse<String>>, StatusCode> {
+    storage::update_global_log_rotation(&settings)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(ApiResponse::ok(
+        "Global log rotation settings updated. Restart containers to apply changes.".to_string()
+    )))
+}
+
+pub async fn get_container_log_rotation(
+    axum::extract::Path(container_name): axum::extract::Path<String>,
+) -> Result<Json<ApiResponse<storage::LogRotationSettings>>, StatusCode> {
+    let settings = storage::get_container_log_rotation(&container_name)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(ApiResponse::ok(settings)))
+}
+
+pub async fn update_container_log_rotation(
+    axum::extract::Path(container_name): axum::extract::Path<String>,
+    Json(settings): Json<storage::LogRotationSettings>,
+) -> Result<Json<ApiResponse<String>>, StatusCode> {
+    storage::update_container_log_rotation(&container_name, Some(&settings))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(ApiResponse::ok(
+        format!("Log rotation settings updated for '{}'. Restart container to apply changes.", container_name)
+    )))
+}
+
+pub async fn delete_container_log_rotation(
+    axum::extract::Path(container_name): axum::extract::Path<String>,
+) -> Result<Json<ApiResponse<String>>, StatusCode> {
+    storage::update_container_log_rotation(&container_name, None)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(ApiResponse::ok(
+        format!("'{}' will now use global log rotation settings. Restart container to apply changes.", container_name)
+    )))
+}
+
 // ============================================================================
 // Configuration Handlers
 // ============================================================================
@@ -541,19 +590,60 @@ pub struct MetricsInfo {
 }
 
 pub async fn get_metrics() -> Result<Json<ApiResponse<MetricsInfo>>, StatusCode> {
+    use sysinfo::{System, Disks, CpuRefreshKind, MemoryRefreshKind, RefreshKind};
+
     let docker = DockerManager::new().await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Get system metrics (simplified - you can expand this)
+    // Get Docker container count
     let containers = docker.list_containers().await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    // Initialize system info with CPU refresh
+    let mut sys = System::new_with_specifics(
+        RefreshKind::new()
+            .with_cpu(CpuRefreshKind::everything())
+            .with_memory(MemoryRefreshKind::everything())
+    );
+
+    // Refresh to get accurate metrics
+    sys.refresh_all();
+
+    // Get CPU usage (global)
+    let system_cpu = sys.global_cpu_info().cpu_usage() as f64;
+
+    // Get memory usage percentage
+    let memory_total = sys.total_memory() as f64;
+    let memory_used = sys.used_memory() as f64;
+    let system_memory_percent = if memory_total > 0.0 {
+        (memory_used / memory_total) * 100.0
+    } else {
+        0.0
+    };
+
+    // Get disk usage for root filesystem
+    let disks = Disks::new_with_refreshed_list();
+    let system_disk_percent = disks
+        .iter()
+        .find(|disk| disk.mount_point().to_str() == Some("/"))
+        .map(|disk| {
+            let total = disk.total_space() as f64;
+            let available = disk.available_space() as f64;
+            let used = total - available;
+            if total > 0.0 {
+                (used / total) * 100.0
+            } else {
+                0.0
+            }
+        })
+        .unwrap_or(0.0);
+
     let metrics = MetricsInfo {
-        system_cpu: 0.0, // TODO: Implement with sysinfo
-        system_memory_percent: 0.0,
-        system_disk_percent: 0.0,
+        system_cpu,
+        system_memory_percent,
+        system_disk_percent,
         docker_containers_running: containers.len(),
-        docker_images: 0, // TODO: Get from Docker
+        docker_images: 0, // Not used by frontend, can be implemented if needed
     };
 
     Ok(Json(ApiResponse::ok(metrics)))

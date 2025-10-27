@@ -80,6 +80,21 @@ pub struct StorageMeasurement {
     pub docker_images_bytes: u64,
 }
 
+/// Docker log rotation configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogRotationConfig {
+    pub global: LogRotationSettings,
+    pub overrides: std::collections::HashMap<String, LogRotationSettings>,
+}
+
+/// Log rotation settings for global or per-container
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogRotationSettings {
+    pub driver: String,
+    pub max_size: String,
+    pub max_file: String,
+}
+
 /// Storage history file format
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageHistory {
@@ -550,10 +565,21 @@ pub async fn get_container_log_sizes() -> Result<Vec<ContainerLogInfo>> {
         // Construct log file path: /var/lib/docker/containers/{id}/{id}-json.log
         let log_path = format!("/var/lib/docker/containers/{}/{}-json.log", container_id, container_id);
 
-        // Get log file size using std::fs::metadata (doesn't require sudo for size check)
-        let log_size_bytes = std::fs::metadata(&log_path)
+        // Get log file size using sudo stat command (requires sudo access)
+        let log_size_bytes = Command::new("sudo")
+            .args(&["stat", "-c", "%s", &log_path])
+            .output()
             .ok()
-            .map(|metadata| metadata.len())
+            .and_then(|output| {
+                if output.status.success() {
+                    String::from_utf8_lossy(&output.stdout)
+                        .trim()
+                        .parse::<u64>()
+                        .ok()
+                } else {
+                    None
+                }
+            })
             .unwrap_or(0);
 
         log_infos.push(ContainerLogInfo {
@@ -659,5 +685,230 @@ pub async fn check_and_save_snapshot_if_needed() -> bool {
             true
         }
         Err(_) => false,
+    }
+}
+
+/// Get current log rotation configuration from environment and docker-compose.yml
+pub fn get_log_rotation_config() -> Result<LogRotationConfig> {
+    use std::collections::HashMap;
+
+    // Read global settings from environment variables
+    let driver = std::env::var("LOGGING_DRIVER").unwrap_or_else(|_| "json-file".to_string());
+    let max_size = std::env::var("LOG_MAX_SIZE").unwrap_or_else(|_| "100m".to_string());
+    let max_file = std::env::var("LOG_MAX_FILE").unwrap_or_else(|_| "3".to_string());
+
+    let global = LogRotationSettings {
+        driver,
+        max_size,
+        max_file,
+    };
+
+    // Parse docker-compose.yml to find per-container overrides
+    let overrides = parse_compose_logging_overrides()?;
+
+    Ok(LogRotationConfig {
+        global,
+        overrides,
+    })
+}
+
+/// Parse docker-compose.yml to extract per-container logging configurations
+fn parse_compose_logging_overrides() -> Result<std::collections::HashMap<String, LogRotationSettings>> {
+    use std::collections::HashMap;
+    use std::fs;
+
+    let mut overrides = HashMap::new();
+
+    // Find docker-compose.yml
+    let compose_path = std::path::Path::new("docker-compose.yml");
+    if !compose_path.exists() {
+        // Not an error - just no overrides
+        return Ok(overrides);
+    }
+
+    // Read and parse YAML
+    let content = fs::read_to_string(compose_path)?;
+    let yaml: serde_yaml::Value = serde_yaml::from_str(&content)
+        .context("Failed to parse docker-compose.yml")?;
+
+    // Extract services
+    if let Some(services) = yaml.get("services").and_then(|s| s.as_mapping()) {
+        for (service_name, service_config) in services.iter() {
+            let name = service_name.as_str().unwrap_or_default().to_string();
+
+            // Check if this service has custom logging configuration
+            if let Some(logging) = service_config.get("logging").and_then(|l| l.as_mapping()) {
+                // Check if it's not using the anchor (custom config)
+                let driver = logging.get("driver")
+                    .and_then(|d| d.as_str())
+                    .unwrap_or("json-file")
+                    .to_string();
+
+                let options = logging.get("options").and_then(|o| o.as_mapping());
+
+                if let Some(opts) = options {
+                    let max_size = opts.get("max-size")
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("100m")
+                        .to_string();
+
+                    let max_file = opts.get("max-file")
+                        .and_then(|f| f.as_str())
+                        .map(|s| s.to_string())
+                        .or_else(|| opts.get("max-file").and_then(|f| f.as_i64()).map(|i| i.to_string()))
+                        .unwrap_or_else(|| "3".to_string());
+
+                    overrides.insert(name, LogRotationSettings {
+                        driver,
+                        max_size,
+                        max_file,
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(overrides)
+}
+
+/// Update global log rotation configuration in .env file
+/// Note: Requires container restart to take effect
+pub fn update_global_log_rotation(settings: &LogRotationSettings) -> Result<()> {
+    use std::fs;
+    use std::io::{BufRead, BufReader, Write};
+
+    // Find .env file
+    let env_path = std::path::Path::new(".env");
+    if !env_path.exists() {
+        anyhow::bail!(".env file not found");
+    }
+
+    // Read current .env file
+    let file = fs::File::open(env_path)?;
+    let reader = BufReader::new(file);
+    let mut lines: Vec<String> = reader.lines().collect::<Result<_, _>>()?;
+
+    // Update or add configuration lines
+    let mut found_driver = false;
+    let mut found_max_size = false;
+    let mut found_max_file = false;
+
+    for line in &mut lines {
+        if line.starts_with("LOGGING_DRIVER=") {
+            *line = format!("LOGGING_DRIVER={}", settings.driver);
+            found_driver = true;
+        } else if line.starts_with("LOG_MAX_SIZE=") {
+            *line = format!("LOG_MAX_SIZE={}", settings.max_size);
+            found_max_size = true;
+        } else if line.starts_with("LOG_MAX_FILE=") {
+            *line = format!("LOG_MAX_FILE={}", settings.max_file);
+            found_max_file = true;
+        }
+    }
+
+    // Add missing lines
+    if !found_driver {
+        lines.push(format!("LOGGING_DRIVER={}", settings.driver));
+    }
+    if !found_max_size {
+        lines.push(format!("LOG_MAX_SIZE={}", settings.max_size));
+    }
+    if !found_max_file {
+        lines.push(format!("LOG_MAX_FILE={}", settings.max_file));
+    }
+
+    // Write back to file
+    let mut file = fs::File::create(env_path)?;
+    for line in lines {
+        writeln!(file, "{}", line)?;
+    }
+
+    Ok(())
+}
+
+/// Update per-container log rotation configuration in docker-compose.yml
+/// If settings is None, removes the override (container will use global settings)
+pub fn update_container_log_rotation(container_name: &str, settings: Option<&LogRotationSettings>) -> Result<()> {
+    use std::fs;
+
+    let compose_path = std::path::Path::new("docker-compose.yml");
+    if !compose_path.exists() {
+        anyhow::bail!("docker-compose.yml not found");
+    }
+
+    // Read and parse YAML
+    let content = fs::read_to_string(compose_path)?;
+    let mut yaml: serde_yaml::Value = serde_yaml::from_str(&content)
+        .context("Failed to parse docker-compose.yml")?;
+
+    // Navigate to services
+    if let Some(services) = yaml.get_mut("services").and_then(|s| s.as_mapping_mut()) {
+        // Find the service
+        if let Some(service_name_key) = services.keys().find(|k| k.as_str() == Some(container_name)).cloned() {
+            if let Some(service_config) = services.get_mut(&service_name_key).and_then(|s| s.as_mapping_mut()) {
+                if let Some(settings) = settings {
+                    // Add or update logging configuration
+                    let mut logging_map = serde_yaml::Mapping::new();
+                    logging_map.insert(
+                        serde_yaml::Value::String("driver".to_string()),
+                        serde_yaml::Value::String(settings.driver.clone())
+                    );
+
+                    let mut options_map = serde_yaml::Mapping::new();
+                    options_map.insert(
+                        serde_yaml::Value::String("max-size".to_string()),
+                        serde_yaml::Value::String(settings.max_size.clone())
+                    );
+                    options_map.insert(
+                        serde_yaml::Value::String("max-file".to_string()),
+                        serde_yaml::Value::String(settings.max_file.clone())
+                    );
+
+                    logging_map.insert(
+                        serde_yaml::Value::String("options".to_string()),
+                        serde_yaml::Value::Mapping(options_map)
+                    );
+
+                    service_config.insert(
+                        serde_yaml::Value::String("logging".to_string()),
+                        serde_yaml::Value::Mapping(logging_map)
+                    );
+                } else {
+                    // Remove logging configuration (use global)
+                    service_config.remove(&serde_yaml::Value::String("logging".to_string()));
+
+                    // Add back the anchor reference
+                    service_config.insert(
+                        serde_yaml::Value::String("logging".to_string()),
+                        serde_yaml::Value::String("*default-logging".to_string())
+                    );
+                }
+            } else {
+                anyhow::bail!("Service '{}' not found in docker-compose.yml", container_name);
+            }
+        } else {
+            anyhow::bail!("Service '{}' not found in docker-compose.yml", container_name);
+        }
+    } else {
+        anyhow::bail!("No services section found in docker-compose.yml");
+    }
+
+    // Write back to file (preserving formatting as much as possible)
+    let yaml_str = serde_yaml::to_string(&yaml)?;
+    fs::write(compose_path, yaml_str)?;
+
+    Ok(())
+}
+
+/// Get log rotation settings for a specific container
+pub fn get_container_log_rotation(container_name: &str) -> Result<LogRotationSettings> {
+    let config = get_log_rotation_config()?;
+
+    // Check if there's an override for this container
+    if let Some(override_settings) = config.overrides.get(container_name) {
+        Ok(override_settings.clone())
+    } else {
+        // Use global settings
+        Ok(config.global.clone())
     }
 }

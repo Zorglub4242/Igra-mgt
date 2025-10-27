@@ -581,6 +581,26 @@ async fn handle_watch(filter: String, record: Option<String>, format: String) ->
 
 #[cfg(feature = "server")]
 async fn handle_install_service(port: u16, host: String, cors: bool, user: Option<String>) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        handle_install_service_linux(port, host, cors, user).await
+    }
+
+    #[cfg(windows)]
+    {
+        let _ = user; // user parameter not used on Windows
+        handle_install_service_windows(port, host, cors).await
+    }
+
+    #[cfg(not(any(target_os = "linux", windows)))]
+    {
+        let _ = (port, host, cors, user); // suppress unused warnings
+        anyhow::bail!("Service installation is only supported on Linux and Windows")
+    }
+}
+
+#[cfg(all(feature = "server", target_os = "linux"))]
+async fn handle_install_service_linux(port: u16, host: String, cors: bool, user: Option<String>) -> Result<()> {
     use std::io::{self, Write};
     use std::fs;
 
@@ -691,6 +711,62 @@ WantedBy=multi-user.target
     println!("   sudo journalctl -u igra-web-ui -f    - View logs");
     println!();
     println!("🌐 Access the web UI at: http://{}:{}", host, port);
+
+    Ok(())
+}
+
+#[cfg(all(feature = "server", windows))]
+async fn handle_install_service_windows(port: u16, host: String, cors: bool) -> Result<()> {
+    use std::io::{self, Write};
+    use igra_cli::windows_service;
+
+    // Get binary path
+    let binary_path = std::env::current_exe()?;
+    let binary_path_str = binary_path.to_string_lossy();
+
+    // Prompt for token
+    print!("Enter IGRA_WEB_TOKEN (required for API authentication): ");
+    io::stdout().flush()?;
+    let mut token = String::new();
+    io::stdin().read_line(&mut token)?;
+    let token = token.trim();
+
+    if token.is_empty() {
+        anyhow::bail!("Token is required for service installation");
+    }
+
+    println!();
+    println!("📝 Creating Windows Service...");
+    println!("   Service name: {}", windows_service::SERVICE_NAME);
+    println!("   Display name: {}", windows_service::SERVICE_DISPLAY_NAME);
+    println!("   Host: {}", host);
+    println!("   Port: {}", port);
+    println!("   CORS: {}", cors);
+    println!();
+
+    // Install the service
+    windows_service::install_service(
+        &binary_path_str,
+        port,
+        &host,
+        cors,
+        token,
+    )?;
+
+    println!();
+    println!("✅ IGRA Web UI service installed successfully!");
+    println!();
+    println!("📚 Useful commands:");
+    println!("   sc query {}                      - Check service status", windows_service::SERVICE_NAME);
+    println!("   sc stop {}                       - Stop service", windows_service::SERVICE_NAME);
+    println!("   sc start {}                      - Start service", windows_service::SERVICE_NAME);
+    println!("   sc delete {}                     - Uninstall service", windows_service::SERVICE_NAME);
+    println!("   Get-EventLog -LogName System -Source {} -Newest 20 - View logs", windows_service::SERVICE_NAME);
+    println!();
+    println!("🌐 Access the web UI at: http://{}:{}", host, port);
+    println!();
+    println!("⚠️  Note: The service will start automatically on system boot.");
+    println!("    To start it now, run: sc start {}", windows_service::SERVICE_NAME);
 
     Ok(())
 }
