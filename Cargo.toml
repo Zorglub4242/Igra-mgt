@@ -1,6 +1,6 @@
 [package]
 name = "igra-cli"
-version = "0.13.1"
+version = "0.14.0"
 edition = "2021"
 authors = ["Merlin"]
 description = "Terminal-based management CLI for KASPA L2 nodes"
@@ -64,10 +64,14 @@ clap = { version = "4", features = ["derive", "cargo"] }
 reqwest = { version = "0.11", features = ["json"] }
 
 # HTTP Server (for API mode)
-axum = { version = "0.7", features = ["ws"], optional = true }
+axum = { version = "0.8", features = ["ws"], optional = true }
 axum-server = { version = "0.6", features = ["tls-rustls"], optional = true }
+axum-login = { version = "0.18", optional = true }  # Session-based authentication
 tower = { version = "0.4", optional = true }
-tower-http = { version = "0.5", features = ["cors", "fs", "trace"], optional = true }
+tower-http = { version = "0.6", features = ["cors", "fs", "trace"], optional = true }
+tower-sessions = { version = "0.14", optional = true }  # Session management
+tower-sessions-memory-store = { version = "0.14", optional = true }  # In-memory session store
+tower-sessions-file-based-store = { version = "0.1", optional = true }  # File-based session store
 hyper = { version = "1.0", optional = true }
 rust-embed = { version = "8.0", features = ["include-exclude"] }  # Used for Web UI and embedded plugins
 mime_guess = { version = "2.0", optional = true }
@@ -105,6 +109,12 @@ rand = "0.8"
 # Version Comparison
 semver = "1.0"
 
+# Authentication & Security
+password-hash = { version = "0.5", features = ["std"], optional = true }
+argon2 = { version = "0.5", optional = true }
+ipnetwork = "0.20"  # IP/CIDR parsing for allowlisting
+async-trait = "0.1"  # Required for axum-login traits
+
 # Windows Service (Windows only)
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.7"
@@ -120,7 +130,7 @@ chrono = "0.4"
 [features]
 default = ["tui", "server"]
 tui = []      # TUI mode with ratatui
-server = ["axum", "axum-server", "tower", "tower-http", "hyper", "mime_guess"]  # HTTP API server mode (rust-embed always available)
+server = ["axum", "axum-server", "axum-login", "tower", "tower-http", "tower-sessions", "tower-sessions-memory-store", "tower-sessions-file-based-store", "hyper", "mime_guess", "password-hash", "argon2"]  # HTTP API server mode (rust-embed always available)
 
 [profile.release]
 opt-level = 3

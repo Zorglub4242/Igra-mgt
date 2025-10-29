@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import './App.css'
+import Sidebar from './components/Sidebar'
 import ServicesPanel from './components/ServicesPanel'
 import ServiceDetails from './components/ServiceDetails'
 import WalletsPanel from './components/WalletsPanel'
@@ -12,105 +13,129 @@ import LoginPage from './components/LoginPage'
 import UpdateBanner from './components/UpdateBanner'
 import { api } from './services/api'
 
-function AppContent({ isAuthenticated, handleLogout, nodeInfo }) {
-  const [activeTab, setActiveTab] = useState('services')
-  const navigate = useNavigate()
-  const location = useLocation()
-
-  function handleTabClick(tab) {
-    setActiveTab(tab)
-    // Navigate to home if not already there
-    if (location.pathname !== '/') {
-      navigate('/')
+function AppContent({ isAuthenticated, handleLogout, nodeInfo, user }) {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      const saved = localStorage.getItem('sidebar_collapsed')
+      return saved === 'true'
+    } catch (e) {
+      return false
     }
-  }
+  })
+
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+
+  // Save collapsed state to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('sidebar_collapsed', sidebarCollapsed.toString())
+  }, [sidebarCollapsed])
+
+  // Close user menu when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (userMenuOpen && !event.target.closest('.header-user-menu')) {
+        setUserMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [userMenuOpen])
 
   return (
     <div className="app">
       <UpdateBanner />
+
+      {/* Compact Header */}
       <header className="header">
-        <div className="header-content">
-          <h1>⚡ Node Management</h1>
-          <div className="header-subtitle">
-            {nodeInfo ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                <div>
-                  <strong style={{ color: '#818cf8' }}>Node:</strong> {nodeInfo.node_id || 'Unknown'} •
-                  <strong style={{ color: '#818cf8', marginLeft: '0.5rem' }}>CPU:</strong> {nodeInfo.cpu_info || 'N/A'} •
-                  <strong style={{ color: '#818cf8', marginLeft: '0.5rem' }}>RAM:</strong> {nodeInfo.total_memory ? `${nodeInfo.total_memory.toFixed(1)} GB` : 'N/A'} •
-                  <strong style={{ color: '#818cf8', marginLeft: '0.5rem' }}>Disk:</strong> {nodeInfo.disk_free && nodeInfo.disk_total ? `${nodeInfo.disk_free.toFixed(1)}/${nodeInfo.disk_total.toFixed(1)} GB` : 'N/A'}
-                </div>
-                <div style={{ fontSize: '0.875rem', color: '#9ca3af' }}>
-                  {nodeInfo.os_name || 'Unknown OS'} • Network: {nodeInfo.network || 'Unknown'}
+        <div className={`header-left ${sidebarCollapsed ? 'collapsed' : ''}`}>
+          <h1>⚡ Kaspa L2 Node</h1>
+          {/* Hamburger Menu Button - Part of header */}
+          <button
+            className="hamburger-button"
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            ☰
+          </button>
+        </div>
+        <div className="header-right">
+          {nodeInfo ? (
+            <div className="header-info">
+              <span className="header-info-item">
+                <strong>Node:</strong> {nodeInfo.node_id || 'Unknown'}
+              </span>
+              <span className="header-info-separator">•</span>
+              <span className="header-info-item">
+                <strong>CPU:</strong> {nodeInfo.cpu_info || 'N/A'}
+              </span>
+              <span className="header-info-separator">•</span>
+              <span className="header-info-item">
+                <strong>RAM:</strong> {nodeInfo.total_memory ? `${nodeInfo.total_memory.toFixed(1)} GB` : 'N/A'}
+              </span>
+              <span className="header-info-separator">•</span>
+              <span className="header-info-item">
+                <strong>Disk:</strong> {nodeInfo.disk_free && nodeInfo.disk_total ? `${nodeInfo.disk_free.toFixed(1)}/${nodeInfo.disk_total.toFixed(1)} GB` : 'N/A'}
+              </span>
+            </div>
+          ) : (
+            <div className="header-info">Layer 2 Node Operations</div>
+          )}
+
+          {/* User Menu */}
+          <div className="header-user-menu">
+            <button
+              className="header-user-button"
+              onClick={() => setUserMenuOpen(!userMenuOpen)}
+              title={user?.username}
+            >
+              <span>👤</span>
+              <span className="header-user-name">{user?.username}</span>
+            </button>
+
+            {userMenuOpen && (
+              <div className="header-user-dropdown">
+                <div
+                  className="header-user-dropdown-item logout"
+                  onClick={() => {
+                    setUserMenuOpen(false)
+                    handleLogout()
+                  }}
+                >
+                  <span>🚪</span>
+                  <span>Logout</span>
                 </div>
               </div>
-            ) : (
-              'Layer 2 Node Operations'
             )}
           </div>
         </div>
-        <button className="logout-button" onClick={handleLogout}>
-          🚪 Logout
-        </button>
       </header>
 
-      <nav className="tabs">
-        <button
-          className={`tab ${activeTab === 'services' ? 'active' : ''}`}
-          onClick={() => handleTabClick('services')}
-        >
-          🐳 Services
-        </button>
-        <button
-          className={`tab ${activeTab === 'transactions' ? 'active' : ''}`}
-          onClick={() => handleTabClick('transactions')}
-        >
-          📊 Transactions
-        </button>
-        <button
-          className={`tab ${activeTab === 'wallets' ? 'active' : ''}`}
-          onClick={() => handleTabClick('wallets')}
-        >
-          💼 Wallets
-        </button>
-        <button
-          className={`tab ${activeTab === 'storage' ? 'active' : ''}`}
-          onClick={() => handleTabClick('storage')}
-        >
-          🗄️ Storage
-        </button>
-        <button
-          className={`tab ${activeTab === 'monitoring' ? 'active' : ''}`}
-          onClick={() => handleTabClick('monitoring')}
-        >
-          🔍 Monitoring
-        </button>
-        <button
-          className={`tab ${activeTab === 'settings' ? 'active' : ''}`}
-          onClick={() => handleTabClick('settings')}
-        >
-          ⚙️ Settings
-        </button>
-      </nav>
+      {/* Sidebar */}
+      <Sidebar
+        user={user}
+        onLogout={handleLogout}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+      />
 
-      <main className="main-content">
-        <Routes>
-          <Route path="/" element={
-            <>
-              {activeTab === 'services' && <ServicesPanel />}
-              {activeTab === 'transactions' && <TransactionsPanel />}
-              {activeTab === 'wallets' && <WalletsPanel />}
-              {activeTab === 'storage' && <StoragePanel />}
-              {activeTab === 'monitoring' && <MonitoringPanel />}
-              {activeTab === 'settings' && <ConfigPanel />}
-            </>
-          } />
-          <Route path="/service/:serviceName" element={<ServiceDetails />} />
-        </Routes>
-      </main>
+      {/* Main Content Layout */}
+      <div className={`app-body ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+        <main className="main-content">
+          <Routes>
+            <Route path="/" element={<Navigate to="/services" replace />} />
+            <Route path="/services" element={<ServicesPanel />} />
+            <Route path="/service/:serviceName" element={<ServiceDetails />} />
+            <Route path="/transactions" element={<TransactionsPanel />} />
+            <Route path="/wallets" element={<WalletsPanel />} />
+            <Route path="/storage" element={<StoragePanel />} />
+            <Route path="/monitoring" element={<MonitoringPanel />} />
+            <Route path="/settings" element={<ConfigPanel user={user} />} />
+          </Routes>
+        </main>
+      </div>
 
       <footer className="footer">
-        <span>Powered by igra-cli v0.12.0</span>
+        <span>Powered by igra-cli v0.14.0</span>
         <span>•</span>
         <a href="/api/health" target="_blank" rel="noopener noreferrer">
           API Health
@@ -124,14 +149,11 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [authChecking, setAuthChecking] = useState(true)
   const [nodeInfo, setNodeInfo] = useState(null)
+  const [user, setUser] = useState(null)
 
   useEffect(() => {
-    // Check if user has a valid token
-    const token = api.getToken()
-    if (token) {
-      setIsAuthenticated(true)
-    }
-    setAuthChecking(false)
+    // Check if user has a valid session
+    checkSession()
   }, [])
 
   useEffect(() => {
@@ -140,6 +162,21 @@ function App() {
       loadNodeInfo()
     }
   }, [isAuthenticated])
+
+  async function checkSession() {
+    try {
+      const sessionData = await api.getSession()
+      if (sessionData && sessionData.username) {
+        setIsAuthenticated(true)
+        setUser(sessionData)
+      }
+    } catch (err) {
+      // No valid session - will show login page
+      console.log('No active session')
+    } finally {
+      setAuthChecking(false)
+    }
+  }
 
   async function loadNodeInfo() {
     try {
@@ -158,17 +195,28 @@ function App() {
       })
     } catch (err) {
       console.error('Failed to load node info:', err)
+      // If we get a 401, the session expired
+      if (err.message && err.message.includes('Unauthorized')) {
+        setIsAuthenticated(false)
+        setUser(null)
+      }
     }
   }
 
-  function handleLogin(token) {
-    api.setToken(token)
+  async function handleLoginSuccess(sessionData) {
     setIsAuthenticated(true)
+    setUser(sessionData)
   }
 
-  function handleLogout() {
-    api.clearToken()
-    setIsAuthenticated(false)
+  async function handleLogout() {
+    try {
+      await api.logout()
+    } catch (err) {
+      console.error('Logout error:', err)
+    } finally {
+      setIsAuthenticated(false)
+      setUser(null)
+    }
   }
 
   if (authChecking) {
@@ -176,7 +224,7 @@ function App() {
   }
 
   if (!isAuthenticated) {
-    return <LoginPage onLogin={handleLogin} />
+    return <LoginPage onLoginSuccess={handleLoginSuccess} />
   }
 
   return (
@@ -185,6 +233,7 @@ function App() {
         isAuthenticated={isAuthenticated}
         handleLogout={handleLogout}
         nodeInfo={nodeInfo}
+        user={user}
       />
     </Router>
   )
