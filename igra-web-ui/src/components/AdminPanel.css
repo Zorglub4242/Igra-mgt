@@ -1,0 +1,78 @@
+.admin-panel {
+  padding: 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.admin-header {
+  margin-bottom: 2rem;
+}
+
+.admin-header h1 {
+  margin: 0 0 0.5rem 0;
+  font-size: 2rem;
+  color: #f1f5f9;
+}
+
+.admin-header p {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 1rem;
+}
+
+.admin-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 2rem;
+  border-bottom: 2px solid #334155;
+  padding-bottom: 0;
+}
+
+.admin-tab {
+  padding: 0.875rem 1.5rem;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  transition: all 0.2s;
+}
+
+.admin-tab:hover {
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.admin-tab.active {
+  color: #818cf8;
+  border-bottom-color: #818cf8;
+}
+
+.admin-content {
+  background: #1e293b;
+  border-radius: 0.75rem;
+  padding: 2rem;
+  border: 1px solid #334155;
+}
+
+.access-denied {
+  text-align: center;
+  padding: 4rem 2rem;
+  background: #1e293b;
+  border-radius: 0.75rem;
+  border: 1px solid #334155;
+}
+
+.access-denied h2 {
+  margin: 0 0 1rem 0;
+  color: #ef4444;
+  font-size: 1.5rem;
+}
+
+.access-denied p {
+  margin: 0.5rem 0;
+  color: #94a3b8;
+}

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../services/api'
 
-export default function LogViewer({ serviceName, onClose }) {
+export default function LogViewer({ serviceName, serviceType = 'docker', onClose }) {
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -16,7 +16,7 @@ export default function LogViewer({ serviceName, onClose }) {
       const interval = setInterval(loadLogs, 5000)
       return () => clearInterval(interval)
     }
-  }, [serviceName, liveView])
+  }, [serviceName, serviceType, liveView])
 
   // Scroll to bottom when logs are loaded
   useEffect(() => {
@@ -27,7 +27,21 @@ export default function LogViewer({ serviceName, onClose }) {
 
   async function loadLogs() {
     try {
-      const data = await api.getServiceLogsParsed(serviceName, { tail: 500 })
+      let data
+      if (serviceType === 'systemd') {
+        // System services return plain text logs, convert to parsed format
+        const logsText = await api.getSystemServiceLogs(serviceName, 500)
+        // Split into lines and create a simple parsed format
+        data = logsText.split('\n').filter(line => line.trim()).map(line => ({
+          timestamp: '',
+          level: 'INFO',
+          module: serviceName,
+          message: line
+        }))
+      } else {
+        // Docker services return parsed logs
+        data = await api.getServiceLogsParsed(serviceName, { tail: 500 })
+      }
       setLogs(data)
       setError(null)
     } catch (err) {

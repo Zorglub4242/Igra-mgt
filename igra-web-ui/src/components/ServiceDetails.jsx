@@ -3,10 +3,27 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { api } from '../services/api'
 import LogViewer from './LogViewer'
 
+// Helper function to format uptime in seconds to human-readable string
+function formatUptime(seconds) {
+  if (!seconds || seconds === 0) return 'N/A'
+
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor((seconds % 86400) / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+
+  const parts = []
+  if (days > 0) parts.push(`${days}d`)
+  if (hours > 0) parts.push(`${hours}h`)
+  if (minutes > 0) parts.push(`${minutes}m`)
+
+  return parts.length > 0 ? parts.join(' ') : '< 1m'
+}
+
 export default function ServiceDetails() {
   const { serviceName } = useParams()
   const navigate = useNavigate()
   const [details, setDetails] = useState(null)
+  const [serviceType, setServiceType] = useState('docker') // Track service type
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [selectedTab, setSelectedTab] = useState('overview')
@@ -19,9 +36,67 @@ export default function ServiceDetails() {
     return () => clearInterval(interval)
   }, [serviceName])
 
+  // Detect service type from service name
+  function detectServiceType(name) {
+    return name.endsWith('.service') ? 'systemd' : 'docker'
+  }
+
   async function loadDetails() {
     try {
-      const data = await api.getServiceDetails(serviceName)
+      const detectedType = detectServiceType(serviceName)
+      setServiceType(detectedType)
+
+      let data
+      if (detectedType === 'systemd') {
+        // Fetch system service details
+        const systemData = await api.getSystemServiceDetails(serviceName)
+
+        // Get total system memory (approximately 80GB in this case)
+        // Use a fixed value since we can't easily query it from frontend
+        const memoryLimit = 84270850048 // ~78.5 GB (82264252 KB from /proc/meminfo)
+
+        // Transform to include safe defaults for Docker-specific fields
+        data = {
+          ...systemData,
+          state: systemData.status === 'running' ? 'running' :
+                 systemData.status === 'stopped' ? 'exited' :
+                 systemData.status || 'unknown',
+          cpu_stats: {
+            cpu_percent: systemData.cpu || 0
+          },
+          memory_stats: {
+            usage: systemData.memory || 0,
+            limit: memoryLimit,
+            percent: systemData.memory && memoryLimit
+              ? (systemData.memory / memoryLimit) * 100
+              : 0
+          },
+          network_stats: {
+            rx_bytes: systemData.network_rx || 0,
+            tx_bytes: systemData.network_tx || 0
+          },
+          // Include parsed metrics from logs
+          status_text: systemData.status_text,
+          primary_metric: systemData.primary_metric,
+          secondary_metric: systemData.secondary_metric,
+          is_healthy_metric: systemData.is_healthy_metric !== false,
+          metrics: systemData.metrics || [],
+          env_vars: {},
+          volumes: [],
+          networks: [],
+          ports: [],
+          note: systemData.description || '',
+          image: systemData.service_type || 'systemd',
+          created: systemData.uptime ? formatUptime(systemData.uptime.secs) : 'N/A',
+          started: systemData.uptime ? formatUptime(systemData.uptime.secs) : 'N/A',
+          command: null,
+          entrypoint: null
+        }
+      } else {
+        // Fetch Docker service details
+        data = await api.getServiceDetails(serviceName)
+      }
+
       setDetails(data)
       setError(null)
     } catch (err) {
@@ -39,12 +114,24 @@ export default function ServiceDetails() {
 
     setActionLoading(action)
     try {
-      if (action === 'start') {
-        await api.startService(serviceName)
-      } else if (action === 'stop') {
-        await api.stopService(serviceName)
-      } else if (action === 'restart') {
-        await api.restartService(serviceName)
+      if (serviceType === 'systemd') {
+        // System service actions
+        if (action === 'start') {
+          await api.startSystemService(serviceName)
+        } else if (action === 'stop') {
+          await api.stopSystemService(serviceName)
+        } else if (action === 'restart') {
+          await api.restartSystemService(serviceName)
+        }
+      } else {
+        // Docker service actions
+        if (action === 'start') {
+          await api.startService(serviceName)
+        } else if (action === 'stop') {
+          await api.stopService(serviceName)
+        } else if (action === 'restart') {
+          await api.restartService(serviceName)
+        }
       }
       await loadDetails()
     } catch (err) {
@@ -71,7 +158,7 @@ export default function ServiceDetails() {
         <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '0.375rem', padding: '1rem', color: '#991b1b' }}>
           <strong>Error:</strong> {error}
         </div>
-        <button onClick={() => navigate('/')} style={{ marginTop: '1rem' }} className="btn">
+        <button onClick={() => navigate('/services')} style={{ marginTop: '1rem' }} className="btn">
           ← Back to Services
         </button>
       </div>
@@ -82,13 +169,18 @@ export default function ServiceDetails() {
     return null
   }
 
-  const tabs = [
+  // Filter tabs based on service type
+  const allTabs = [
     { id: 'overview', label: 'Overview' },
     { id: 'metrics', label: 'Metrics' },
-    { id: 'config', label: 'Configuration' },
-    { id: 'storage', label: 'Storage' },
-    { id: 'network', label: 'Network' },
+    { id: 'config', label: 'Configuration', dockerOnly: true },
+    { id: 'storage', label: 'Storage', dockerOnly: true },
+    { id: 'network', label: 'Network', dockerOnly: true },
   ]
+
+  const tabs = serviceType === 'systemd'
+    ? allTabs.filter(tab => !tab.dockerOnly)
+    : allTabs
 
   const formatBytes = (bytes) => {
     const KB = 1024
@@ -110,24 +202,21 @@ export default function ServiceDetails() {
   return (
     <div style={{ padding: '1.5rem' }}>
       <div style={{ marginBottom: '1.5rem' }}>
-        <button onClick={() => navigate('/')} className="btn" style={{ marginBottom: '0.5rem' }}>
-          ← Back to Services
-        </button>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h1 style={{ fontSize: '1.875rem', fontWeight: 'bold' }}>
             {details.name}
           </h1>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <button
               onClick={() => handleServiceAction('start')}
-              disabled={actionLoading === 'start' || details.state === 'running'}
+              disabled={actionLoading === 'start' || details?.state === 'running'}
               className="btn btn-success btn-sm"
             >
               {actionLoading === 'start' ? '⏳' : '▶️'} Start
             </button>
             <button
               onClick={() => handleServiceAction('stop')}
-              disabled={actionLoading === 'stop' || details.state !== 'running'}
+              disabled={actionLoading === 'stop' || details?.state !== 'running'}
               className="btn btn-danger btn-sm"
             >
               {actionLoading === 'stop' ? '⏳' : '⏹️'} Stop
@@ -188,7 +277,7 @@ export default function ServiceDetails() {
                   <span>{details.status}</span>
                 </div>
                 <div style={{ marginTop: '0.5rem', color: '#94a3b8', fontSize: '0.875rem' }}>
-                  State: {details.state}
+                  State: {details?.state || 'unknown'}
                 </div>
               </div>
 
@@ -216,7 +305,7 @@ export default function ServiceDetails() {
 
             <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '0.375rem', border: '1px solid #334155', marginBottom: '1.5rem' }}>
               <h3 style={{ fontWeight: 'bold', marginBottom: '0.75rem' }}>Description</h3>
-              <p style={{ color: '#e2e8f0' }}>{details.note}</p>
+              <p style={{ color: '#e2e8f0' }}>{details?.note || 'No description available'}</p>
             </div>
 
             <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '0.375rem', border: '1px solid #334155' }}>
@@ -233,7 +322,7 @@ export default function ServiceDetails() {
         {selectedTab === 'metrics' && (
           <div>
             <h3 style={{ fontWeight: 'bold', marginBottom: '1rem' }}>Plugin Metrics</h3>
-            {details.metrics.length === 0 ? (
+            {!details?.metrics || details.metrics.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
                 No metrics available for this service
               </div>
@@ -257,7 +346,7 @@ export default function ServiceDetails() {
           <div>
             <h3 style={{ fontWeight: 'bold', marginBottom: '1rem' }}>Environment Variables</h3>
             <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '0.375rem', border: '1px solid #334155', marginBottom: '1.5rem', maxHeight: '400px', overflowY: 'auto' }}>
-              {Object.keys(details.env_vars).length === 0 ? (
+              {!details?.env_vars || Object.keys(details.env_vars).length === 0 ? (
                 <div style={{ color: '#94a3b8' }}>No environment variables</div>
               ) : (
                 <table style={{ width: '100%', fontSize: '0.875rem' }}>
@@ -279,7 +368,7 @@ export default function ServiceDetails() {
               )}
             </div>
 
-            {details.command && (
+            {details?.command && (
               <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '0.375rem', border: '1px solid #334155', marginBottom: '1rem' }}>
                 <h4 style={{ fontWeight: 'bold', marginBottom: '0.5rem' }}>Command</h4>
                 <pre style={{ fontFamily: 'monospace', fontSize: '0.875rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
@@ -288,7 +377,7 @@ export default function ServiceDetails() {
               </div>
             )}
 
-            {details.entrypoint && (
+            {details?.entrypoint && (
               <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '0.375rem', border: '1px solid #334155' }}>
                 <h4 style={{ fontWeight: 'bold', marginBottom: '0.5rem' }}>Entrypoint</h4>
                 <pre style={{ fontFamily: 'monospace', fontSize: '0.875rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
@@ -302,7 +391,7 @@ export default function ServiceDetails() {
         {selectedTab === 'storage' && (
           <div>
             <h3 style={{ fontWeight: 'bold', marginBottom: '1rem' }}>Volume Mounts</h3>
-            {details.volumes.length === 0 ? (
+            {!details?.volumes || details.volumes.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
                 No volumes mounted
               </div>
@@ -337,7 +426,7 @@ export default function ServiceDetails() {
           <div>
             <h3 style={{ fontWeight: 'bold', marginBottom: '1rem' }}>Networks</h3>
             <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '0.375rem', border: '1px solid #334155', marginBottom: '1.5rem' }}>
-              {details.networks.length === 0 ? (
+              {!details?.networks || details.networks.length === 0 ? (
                 <div style={{ color: '#94a3b8' }}>No networks</div>
               ) : (
                 details.networks.map((net, idx) => (
@@ -354,7 +443,7 @@ export default function ServiceDetails() {
 
             <h3 style={{ fontWeight: 'bold', marginBottom: '1rem' }}>Port Mappings</h3>
             <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '0.375rem', border: '1px solid #334155' }}>
-              {details.ports.length === 0 ? (
+              {!details?.ports || details.ports.length === 0 ? (
                 <div style={{ color: '#94a3b8' }}>No port mappings</div>
               ) : (
                 <table style={{ width: '100%', fontSize: '0.875rem' }}>
@@ -393,6 +482,7 @@ export default function ServiceDetails() {
       {showLogs && (
         <LogViewer
           serviceName={serviceName}
+          serviceType={serviceType}
           onClose={() => setShowLogs(false)}
         />
       )}

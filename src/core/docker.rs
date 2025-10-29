@@ -28,6 +28,7 @@ pub struct ContainerInfo {
     pub ports: Vec<String>,
     pub metrics: ServiceMetrics,
     pub project_name: Option<String>,  // Docker Compose project name
+    pub depends_on: Vec<String>,       // Service dependencies from docker-compose
 }
 
 #[derive(Debug, Clone)]
@@ -145,6 +146,17 @@ pub struct NetworkStats {
     pub tx_bytes: u64,
     pub rx_packets: u64,
     pub tx_packets: u64,
+}
+
+/// Docker network information with CIDR
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DockerNetworkInfo {
+    pub name: String,
+    pub id: String,
+    pub driver: String,
+    pub scope: String,
+    pub cidr: Option<String>,
+    pub gateway: Option<String>,
 }
 
 /// Comprehensive service details
@@ -869,6 +881,24 @@ impl DockerManager {
             .and_then(|labels| labels.get("com.docker.compose.project"))
             .map(|s| s.clone());
 
+        // Extract depends_on from Docker Compose labels
+        // Format: "service1:condition:false,service2:condition:false"
+        let depends_on = summary
+            .labels
+            .as_ref()
+            .and_then(|labels| labels.get("com.docker.compose.depends_on"))
+            .map(|deps_str| {
+                deps_str
+                    .split(',')
+                    .filter_map(|dep| {
+                        // Extract service name before the first colon
+                        dep.split(':').next().map(|s| s.trim().to_string())
+                    })
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+
         ContainerInfo {
             id: summary.id.unwrap_or_default(),
             name,
@@ -880,6 +910,7 @@ impl DockerManager {
             ports,
             metrics: ServiceMetrics::default(),
             project_name,
+            depends_on,
         }
     }
 
@@ -1406,6 +1437,79 @@ impl DockerManager {
             block_io_stats,
             network_stats,
         })
+    }
+
+    /// Get Docker network information including CIDR ranges
+    pub async fn get_network_info(&self, network_name: &str) -> Result<DockerNetworkInfo> {
+        use bollard::models::Network;
+
+        let network: Network = self.docker
+            .inspect_network(network_name, None::<bollard::network::InspectNetworkOptions<String>>)
+            .await
+            .context(format!("Failed to inspect network {}", network_name))?;
+
+        let mut cidr = None;
+        let mut gateway = None;
+
+        if let Some(ipam) = network.ipam {
+            if let Some(config) = ipam.config {
+                if let Some(first_config) = config.first() {
+                    cidr = first_config.subnet.clone();
+                    gateway = first_config.gateway.clone();
+                }
+            }
+        }
+
+        Ok(DockerNetworkInfo {
+            name: network_name.to_string(),
+            id: network.id.unwrap_or_default(),
+            driver: network.driver.unwrap_or_default(),
+            scope: network.scope.unwrap_or_default(),
+            cidr,
+            gateway,
+        })
+    }
+
+    /// Get all Docker networks with their CIDR ranges
+    pub async fn list_networks(&self) -> Result<Vec<DockerNetworkInfo>> {
+        use bollard::network::ListNetworksOptions;
+        use std::collections::HashMap;
+
+        let networks = self.docker
+            .list_networks(None::<ListNetworksOptions<String>>)
+            .await
+            .context("Failed to list Docker networks")?;
+
+        let mut result = Vec::new();
+        for network in networks {
+            let name = network.name.clone().unwrap_or_default();
+            if name.is_empty() || name == "none" || name == "host" {
+                continue;
+            }
+
+            let mut cidr = None;
+            let mut gateway = None;
+
+            if let Some(ipam) = network.ipam {
+                if let Some(config) = ipam.config {
+                    if let Some(first_config) = config.first() {
+                        cidr = first_config.subnet.clone();
+                        gateway = first_config.gateway.clone();
+                    }
+                }
+            }
+
+            result.push(DockerNetworkInfo {
+                name,
+                id: network.id.unwrap_or_default(),
+                driver: network.driver.unwrap_or_default(),
+                scope: network.scope.unwrap_or_default(),
+                cidr,
+                gateway,
+            });
+        }
+
+        Ok(result)
     }
 }
 

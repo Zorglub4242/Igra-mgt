@@ -10,7 +10,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@xyflow/react": "^12.0.0",
     "chart.js": "^4.5.1",
+    "elkjs": "^0.9.0",
     "lucide-react": "^0.294.0",
     "react": "^18.3.1",
     "react-chartjs-2": "^5.3.0",

@@ -197,6 +197,27 @@ pub enum Commands {
         #[arg(short, long)]
         user: Option<String>,
     },
+
+    /// User management commands
+    #[cfg(feature = "server")]
+    User {
+        #[command(subcommand)]
+        command: UserCommands,
+    },
+
+    /// Security management commands (IP allowlist, etc.)
+    #[cfg(feature = "server")]
+    Security {
+        #[command(subcommand)]
+        command: SecurityCommands,
+    },
+
+    /// View audit logs
+    #[cfg(feature = "server")]
+    Audit {
+        #[command(subcommand)]
+        command: AuditCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -264,4 +285,116 @@ pub enum ConfigCommands {
 
     /// Generate RPC tokens
     GenerateTokens,
+}
+
+#[derive(Subcommand)]
+pub enum UserCommands {
+    /// List all users
+    List,
+
+    /// Add a new user
+    Add {
+        /// Username
+        username: String,
+
+        /// Password (will prompt if not provided)
+        #[arg(short, long)]
+        password: Option<String>,
+
+        /// Roles (comma-separated: admin,operator,viewer)
+        #[arg(short, long, default_value = "viewer")]
+        roles: String,
+    },
+
+    /// Remove a user
+    Remove {
+        /// Username to remove
+        username: String,
+    },
+
+    /// Reset user password
+    ResetPassword {
+        /// Username
+        username: String,
+
+        /// New password (will prompt if not provided)
+        #[arg(short, long)]
+        password: Option<String>,
+    },
+
+    /// Enable/disable a user
+    SetEnabled {
+        /// Username
+        username: String,
+
+        /// Enable (true) or disable (false)
+        #[arg(short, long)]
+        enabled: bool,
+    },
+
+    /// Show user details
+    Show {
+        /// Username
+        username: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SecurityCommands {
+    /// IP allowlist management
+    Ip {
+        #[command(subcommand)]
+        command: IpCommands,
+    },
+
+    /// Show security configuration
+    Show,
+}
+
+#[derive(Subcommand)]
+pub enum IpCommands {
+    /// List allowed IP networks
+    List,
+
+    /// Add IP or network to allowlist
+    Add {
+        /// IP address or CIDR network (e.g., 192.168.1.0/24)
+        network: String,
+    },
+
+    /// Remove IP or network from allowlist
+    Remove {
+        /// IP address or CIDR network
+        network: String,
+    },
+
+    /// Test if an IP is allowed
+    Test {
+        /// IP address to test
+        ip: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum AuditCommands {
+    /// Show recent audit log entries
+    Show {
+        /// Number of entries to show
+        #[arg(short = 'n', long, default_value = "50")]
+        limit: usize,
+    },
+
+    /// Export all audit logs to file
+    Export {
+        /// Output file path
+        #[arg(short, long, default_value = "audit-export.json")]
+        output: String,
+    },
+
+    /// Clear audit logs
+    Clear {
+        /// Confirm clearing logs
+        #[arg(short, long)]
+        confirm: bool,
+    },
 }

@@ -1,22 +1,49 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { api } from '../services/api'
 import LogViewer from './LogViewer'
 
 export default function ServicesPanel() {
+  const location = useLocation()
   const [services, setServices] = useState([])
+  const [systemServices, setSystemServices] = useState([])
   const [profiles, setProfiles] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [actionLoading, setActionLoading] = useState({})
   const [profileLoading, setProfileLoading] = useState({})
+  const [projectLoading, setProjectLoading] = useState({})
   const [selectedService, setSelectedService] = useState(null)
   const [showAllContainers, setShowAllContainers] = useState(false)
+  const [showSystemServices, setShowSystemServices] = useState(() => {
+    try {
+      const saved = localStorage.getItem('show_system_services')
+      // Only return false if explicitly set to 'false', otherwise default to true
+      return saved !== 'false'
+    } catch (e) {
+      return true // Show by default
+    }
+  })
 
   // Filtering state with include/exclude modes
   const [filters, setFilters] = useState(() => {
+    // Check URL parameters first
+    const params = new URLSearchParams(location.search)
+    const profileParam = params.get('profile')
+    const categoryParam = params.get('category')
+
     try {
       const saved = localStorage.getItem('container_filters')
+      let initialFilters = {
+        profiles: { mode: 'include', values: [] },
+        statuses: { mode: 'include', values: [] },
+        categories: { mode: 'include', values: [] },
+        project: null,
+        name: '',
+        showSystemServices: true,
+        systemServiceName: ''
+      }
+
       if (saved) {
         const parsed = JSON.parse(saved)
         // Migrate old format to new format
@@ -26,22 +53,47 @@ export default function ServicesPanel() {
         if (Array.isArray(parsed.statuses)) {
           parsed.statuses = { mode: 'include', values: parsed.statuses }
         }
-        return parsed
+        // Add categories if missing (for backwards compatibility)
+        if (!parsed.categories) {
+          parsed.categories = { mode: 'include', values: [] }
+        }
+        initialFilters = {
+          ...parsed,
+          showSystemServices: parsed.showSystemServices ?? true,
+          systemServiceName: parsed.systemServiceName || ''
+        }
       }
-      return {
-        profiles: { mode: 'include', values: [] },
-        statuses: { mode: 'include', values: [] },
-        project: null,
-        name: ''
+
+      // Override with URL parameters if present
+      if (profileParam) {
+        initialFilters.profiles = { mode: 'include', values: [profileParam] }
       }
+      if (categoryParam) {
+        initialFilters.categories = { mode: 'include', values: [categoryParam] }
+      }
+
+      return initialFilters
     } catch (e) {
       console.warn('Failed to load filters from localStorage:', e)
-      return {
+      const defaultFilters = {
         profiles: { mode: 'include', values: [] },
         statuses: { mode: 'include', values: [] },
+        categories: { mode: 'include', values: [] },
         project: null,
-        name: ''
+        name: '',
+        showSystemServices: true,
+        systemServiceName: ''
       }
+
+      // Apply URL parameters to default filters
+      if (profileParam) {
+        defaultFilters.profiles = { mode: 'include', values: [profileParam] }
+      }
+      if (categoryParam) {
+        defaultFilters.categories = { mode: 'include', values: [categoryParam] }
+      }
+
+      return defaultFilters
     }
   })
   const [nameSearchInput, setNameSearchInput] = useState(filters.name || '')
@@ -61,6 +113,18 @@ export default function ServicesPanel() {
   })
   const [collapseAnimating, setCollapseAnimating] = useState({})
 
+  // Collapsible project groups state
+  const [collapsedProjects, setCollapsedProjects] = useState(() => {
+    try {
+      const saved = localStorage.getItem('collapsed_projects')
+      return saved ? JSON.parse(saved) : {}
+    } catch (e) {
+      console.warn('Failed to load collapsed projects:', e)
+      return {}
+    }
+  })
+  const [projectAnimating, setProjectAnimating] = useState({})
+
   // Expandable metrics state
   const [expandedMetrics, setExpandedMetrics] = useState(() => {
     try {
@@ -74,6 +138,39 @@ export default function ServicesPanel() {
   const [metricsAnimating, setMetricsAnimating] = useState({})
   const [serviceMetrics, setServiceMetrics] = useState({}) // Full metrics data per service
   const [metricsLoading, setMetricsLoading] = useState({}) // Loading state per service
+
+  // Update filters when URL changes
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const profileParam = params.get('profile')
+    const categoryParam = params.get('category')
+
+    setFilters(prev => {
+      const updated = { ...prev }
+
+      // Clear all filters when no URL params (showing all services)
+      if (!profileParam && !categoryParam) {
+        updated.profiles = { mode: 'include', values: [] }
+        updated.categories = { mode: 'include', values: [] }
+        updated.project = null
+      } else {
+        // Apply URL param filters
+        if (profileParam) {
+          updated.profiles = { mode: 'include', values: [profileParam] }
+        } else {
+          updated.profiles = { mode: 'include', values: [] }
+        }
+
+        if (categoryParam) {
+          updated.categories = { mode: 'include', values: [categoryParam] }
+        } else {
+          updated.categories = { mode: 'include', values: [] }
+        }
+      }
+
+      return updated
+    })
+  }, [location.search])
 
   useEffect(() => {
     // Load show_all preference from localStorage
@@ -95,7 +192,12 @@ export default function ServicesPanel() {
     loadData()
     const interval = setInterval(loadData, 5000) // Refresh every 5s
     return () => clearInterval(interval)
-  }, [showAllContainers, filters])
+  }, [showAllContainers, showSystemServices, filters])
+
+  // Save showSystemServices to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('show_system_services', String(showSystemServices))
+  }, [showSystemServices])
 
   // Debounced name search
   useEffect(() => {
@@ -117,9 +219,13 @@ export default function ServicesPanel() {
 
   // Cleanup localStorage for deleted services in expandedMetrics
   useEffect(() => {
-    if (services.length === 0) return
+    if (services.length === 0 && systemServices.length === 0) return
 
-    const validServices = new Set(services.map(s => s.name))
+    // Include both Docker and system services in valid services set
+    const validServices = new Set([
+      ...services.map(s => s.name),
+      ...systemServices.map(s => s.name)
+    ])
     const currentExpanded = { ...expandedMetrics }
     let needsCleanup = false
 
@@ -134,14 +240,24 @@ export default function ServicesPanel() {
       setExpandedMetrics(currentExpanded)
       localStorage.setItem('expanded_metrics', JSON.stringify(currentExpanded))
     }
-  }, [services])
+  }, [services, systemServices])
 
   async function loadData() {
     try {
-      const [servicesData, profilesData] = await Promise.all([
-        api.getServices(showAllContainers),
+      const promises = [
+        api.getServices({ showAll: true }),
         api.getProfiles()
-      ])
+      ]
+
+      // Add system services fetch if enabled
+      if (showSystemServices) {
+        promises.push(api.getSystemServices())
+      }
+
+      const results = await Promise.all(promises)
+      const servicesData = results[0]
+      const profilesData = results[1]
+      const systemServicesData = showSystemServices ? results[2] : []
 
       // Merge new data with existing data to preserve metrics that may not be in new data
       setServices(prevServices => {
@@ -160,19 +276,54 @@ export default function ServicesPanel() {
         })
       })
 
+      // Transform system services to match Docker service format
+      const transformedSystemServices = systemServicesData.map(svc => ({
+        ...svc,
+        service_type: 'systemd',
+        // Transform systemd status to Docker-like status
+        status: svc.status === 'running' ? 'Up (healthy)' :
+                svc.status === 'stopped' ? 'Exited' :
+                svc.status,
+        // Ensure project_name is set
+        project_name: svc.project_name || 'System Services',
+        // No image for system services
+        image: svc.service_type || 'systemd',
+        // Use detected ports for system services
+        ports: svc.ports || [],
+        // Use system service metrics if available
+        cpu_percent: svc.cpu || 0,
+        memory_mb: svc.memory ? svc.memory / (1024 * 1024) : 0,
+        container_size_mb: null,
+        volume_size_mb: null,
+        network_rx_mb: svc.network_rx ? svc.network_rx / (1024 * 1024) : null,
+        network_tx_mb: svc.network_tx ? svc.network_tx / (1024 * 1024) : null
+      }))
+
+      setSystemServices(transformedSystemServices)
+
       setProfiles(profilesData)
       setError(null)
 
       // Refresh metrics for services that are currently expanded
+      // Check both Docker and system services
+      const allRunningServices = [
+        ...servicesData.filter(s => s.status.includes('Up')),
+        ...transformedSystemServices.filter(s => s.status.includes('Up'))
+      ]
+
       const expandedServiceNames = Object.keys(expandedMetrics).filter(
-        name => expandedMetrics[name] && servicesData.some(s => s.name === name && s.status.includes('Up'))
+        name => expandedMetrics[name] && allRunningServices.some(s => s.name === name)
       )
 
       if (expandedServiceNames.length > 0) {
         // Fetch metrics for all expanded services in parallel
         const metricsPromises = expandedServiceNames.map(async (serviceName) => {
           try {
-            const details = await api.getServiceDetails(serviceName)
+            // Detect service type and call appropriate API
+            const service = allRunningServices.find(s => s.name === serviceName)
+            const details = service?.service_type === 'systemd'
+              ? await api.getSystemServiceDetails(serviceName)
+              : await api.getServiceDetails(serviceName)
             return { serviceName, metrics: details.metrics || [] }
           } catch (error) {
             console.error(`Failed to refresh metrics for ${serviceName}:`, error)
@@ -199,7 +350,7 @@ export default function ServicesPanel() {
 
   async function loadServices() {
     try {
-      const data = await api.getServices(showAllContainers)
+      const data = await api.getServices({ showAll: true })
       setServices(data)
       setError(null)
     } catch (err) {
@@ -207,7 +358,7 @@ export default function ServicesPanel() {
     }
   }
 
-  async function handleServiceAction(serviceName, action) {
+  async function handleServiceAction(serviceName, action, serviceType) {
     const actionText = action === 'start' ? 'start' : action === 'stop' ? 'stop' : 'restart'
     if (!confirm(`Are you sure you want to ${actionText} ${serviceName}?`)) {
       return
@@ -215,14 +366,25 @@ export default function ServicesPanel() {
 
     setActionLoading(prev => ({ ...prev, [serviceName]: action }))
     try {
-      if (action === 'start') {
-        await api.startService(serviceName)
-      } else if (action === 'stop') {
-        await api.stopService(serviceName)
-      } else if (action === 'restart') {
-        await api.restartService(serviceName)
+      // Use different API calls for system services vs Docker containers
+      if (serviceType === 'systemd') {
+        if (action === 'start') {
+          await api.startSystemService(serviceName)
+        } else if (action === 'stop') {
+          await api.stopSystemService(serviceName)
+        } else if (action === 'restart') {
+          await api.restartSystemService(serviceName)
+        }
+      } else {
+        if (action === 'start') {
+          await api.startService(serviceName)
+        } else if (action === 'stop') {
+          await api.stopService(serviceName)
+        } else if (action === 'restart') {
+          await api.restartService(serviceName)
+        }
       }
-      await loadServices()
+      await loadData()
     } catch (err) {
       alert(`Error: ${err.message}`)
     } finally {
@@ -251,6 +413,42 @@ export default function ServicesPanel() {
     }
   }
 
+  async function handleProjectAction(projectName, action) {
+    const actionText = action === 'start' ? 'start' : 'stop'
+    const projectProfiles = hierarchicalGroups[projectName] ? Object.keys(hierarchicalGroups[projectName]) : []
+
+    if (projectProfiles.length === 0) {
+      alert('No profiles found in this project')
+      return
+    }
+
+    if (!confirm(`Are you sure you want to ${actionText} all ${projectProfiles.length} profile(s) in project "${projectName}"?`)) {
+      return
+    }
+
+    setProjectLoading(prev => ({ ...prev, [projectName]: action }))
+    try {
+      // Start/stop all profiles in this project
+      for (const profileName of projectProfiles) {
+        try {
+          if (action === 'start') {
+            await api.startProfile(profileName)
+          } else if (action === 'stop') {
+            await api.stopProfile(profileName)
+          }
+        } catch (err) {
+          console.error(`Error ${action}ing profile ${profileName}:`, err)
+          // Continue with other profiles even if one fails
+        }
+      }
+      await loadData()
+    } catch (err) {
+      alert(`Error: ${err.message}`)
+    } finally {
+      setProjectLoading(prev => ({ ...prev, [projectName]: null }))
+    }
+  }
+
   // Toggle functions with animation protection
   function toggleProfileCollapse(profileName) {
     if (collapseAnimating[profileName]) return
@@ -268,7 +466,23 @@ export default function ServicesPanel() {
     }, 300)
   }
 
-  async function toggleMetricsExpand(serviceName) {
+  function toggleProjectCollapse(projectName) {
+    if (projectAnimating[projectName]) return
+
+    setProjectAnimating(prev => ({ ...prev, [projectName]: true }))
+
+    setCollapsedProjects(prev => {
+      const newState = { ...prev, [projectName]: !prev[projectName] }
+      localStorage.setItem('collapsed_projects', JSON.stringify(newState))
+      return newState
+    })
+
+    setTimeout(() => {
+      setProjectAnimating(prev => ({ ...prev, [projectName]: false }))
+    }, 300)
+  }
+
+  async function toggleMetricsExpand(serviceName, serviceType) {
     if (metricsAnimating[serviceName]) return
 
     setMetricsAnimating(prev => ({ ...prev, [serviceName]: true }))
@@ -285,7 +499,10 @@ export default function ServicesPanel() {
     if (willBeExpanded && serviceMetrics[serviceName] === undefined) {
       setMetricsLoading(prev => ({ ...prev, [serviceName]: true }))
       try {
-        const details = await api.getServiceDetails(serviceName)
+        // Use different API based on service type
+        const details = serviceType === 'systemd'
+          ? await api.getSystemServiceDetails(serviceName)
+          : await api.getServiceDetails(serviceName)
         // Cache the metrics even if empty (empty array indicates no metrics available)
         setServiceMetrics(prev => ({ ...prev, [serviceName]: details.metrics || [] }))
       } catch (error) {
@@ -326,7 +543,9 @@ export default function ServicesPanel() {
       profiles: { mode: 'include', values: [] },
       statuses: { mode: 'include', values: [] },
       project: null,
-      name: ''
+      name: '',
+      showSystemServices: true,
+      systemServiceName: ''
     })
     setNameSearchInput('')
   }
@@ -337,6 +556,8 @@ export default function ServicesPanel() {
     if (filters.statuses.values && filters.statuses.values.length > 0) count += filters.statuses.values.length
     if (filters.project) count++
     if (filters.name) count++
+    if (!filters.showSystemServices) count++ // Hiding system services is a filter
+    if (filters.systemServiceName) count++
     return count
   }
 
@@ -369,6 +590,9 @@ export default function ServicesPanel() {
   }
 
   function formatMemory(mb) {
+    if (mb === null || mb === undefined) {
+      return '-'
+    }
     if (mb > 1024) {
       return `${(mb / 1024).toFixed(2)} GB`
     }
@@ -386,8 +610,55 @@ export default function ServicesPanel() {
     })
   })
 
+  // Merge Docker services and system services
+  const allServices = [...services, ...systemServices]
+
   // Client-side filtering with include/exclude logic
-  const filteredServices = services.filter(service => {
+  const filteredServices = allServices.filter(service => {
+    // System services have their own filtering logic
+    if (service.service_type === 'systemd') {
+      // Check if system services should be shown
+      if (!filters.showSystemServices) {
+        return false
+      }
+      // Filter by system service name (partial match, case-insensitive)
+      if (filters.systemServiceName && !service.name.toLowerCase().includes(filters.systemServiceName.toLowerCase())) {
+        return false
+      }
+      // Filter by category
+      if (filters.categories.values && filters.categories.values.length > 0) {
+        const serviceCategory = service.category || 'Uncategorized'
+        const hasMatch = filters.categories.values.includes(serviceCategory)
+
+        if (filters.categories.mode === 'include') {
+          if (!hasMatch) return false
+        } else {
+          if (hasMatch) return false
+        }
+      }
+      // System services can still be filtered by status
+      if (filters.statuses.values && filters.statuses.values.length > 0) {
+        let status = 'unhealthy'
+        if (service.status.includes('Up') && service.status.includes('healthy')) {
+          status = 'healthy'
+        } else if (service.status.includes('Up')) {
+          status = 'running'
+        } else if (service.status.includes('Exited')) {
+          status = 'stopped'
+        }
+
+        const hasMatch = filters.statuses.values.includes(status)
+
+        if (filters.statuses.mode === 'include') {
+          if (!hasMatch) return false
+        } else {
+          if (hasMatch) return false
+        }
+      }
+      return true
+    }
+
+    // Docker services filtering (profiles, project, container name)
     // Filter by profiles with include/exclude mode
     if (filters.profiles.values && filters.profiles.values.length > 0) {
       const serviceProfiles = serviceToProfiles[service.name] || []
@@ -437,38 +708,57 @@ export default function ServicesPanel() {
     return true
   })
 
-  // Group services by primary profile (use main profiles: kaspad, backend, frontend-w*)
+  // Group services hierarchically: Project → Profile → Containers
   const primaryProfiles = ['kaspad', 'backend', 'frontend-w1', 'frontend-w2', 'frontend-w3', 'frontend-w4', 'frontend-w5']
-  const groupedServices = {}
-  const otherProjectServices = {}
+  const hierarchicalGroups = {} // { projectName: { profileName: [services] } }
 
   filteredServices.forEach(service => {
-    const serviceProfiles = serviceToProfiles[service.name] || []
-    const primaryProfile = serviceProfiles.find(p => primaryProfiles.includes(p))
+    const projectName = service.project_name || 'Other'
 
-    if (primaryProfile) {
-      if (!groupedServices[primaryProfile]) {
-        groupedServices[primaryProfile] = []
-      }
-      groupedServices[primaryProfile].push(service)
+    let profileName = 'default'
+
+    // System services use category as the grouping
+    if (service.service_type === 'systemd') {
+      profileName = service.category || 'Uncategorized'
     } else {
-      // Group non-IGRA services by their project_name
-      const projectName = service.project_name || 'Other'
-      if (!otherProjectServices[projectName]) {
-        otherProjectServices[projectName] = []
+      // Docker services use profiles
+      const serviceProfiles = serviceToProfiles[service.name] || []
+      const primaryProfile = serviceProfiles.find(p => primaryProfiles.includes(p))
+      if (primaryProfile) {
+        profileName = primaryProfile
+      } else if (serviceProfiles.length > 0) {
+        // Use first profile if no primary profile found
+        profileName = serviceProfiles[0]
       }
-      otherProjectServices[projectName].push(service)
     }
+
+    // Initialize nested structure if needed
+    if (!hierarchicalGroups[projectName]) {
+      hierarchicalGroups[projectName] = {}
+    }
+    if (!hierarchicalGroups[projectName][profileName]) {
+      hierarchicalGroups[projectName][profileName] = []
+    }
+
+    hierarchicalGroups[projectName][profileName].push(service)
   })
 
-  // Sort groups by profile order and filter out empty groups
-  const sortedGroups = primaryProfiles.filter(p => groupedServices[p] && groupedServices[p].length > 0)
+  // Sort projects alphabetically
+  const sortedProjects = Object.keys(hierarchicalGroups).sort()
 
-  // Sort other projects alphabetically and filter out empty groups
-  const sortedOtherProjects = Object.keys(otherProjectServices).filter(p => otherProjectServices[p].length > 0).sort()
+  // For each project, sort profiles (primary profiles first, then alphabetically)
+  const projectProfiles = {}
+  sortedProjects.forEach(projectName => {
+    const profiles = Object.keys(hierarchicalGroups[projectName])
+    const primary = profiles.filter(p => primaryProfiles.includes(p)).sort((a, b) => {
+      return primaryProfiles.indexOf(a) - primaryProfiles.indexOf(b)
+    })
+    const other = profiles.filter(p => !primaryProfiles.includes(p)).sort()
+    projectProfiles[projectName] = [...primary, ...other]
+  })
 
   // Check if we have any services to display
-  const hasAnyServices = sortedGroups.length > 0 || sortedOtherProjects.length > 0
+  const hasAnyServices = sortedProjects.length > 0
 
   if (loading) {
     return <div className="loading">Loading services...</div>
@@ -497,6 +787,10 @@ export default function ServicesPanel() {
 
     // Check if service has metrics to display
     const hasMetricsData = () => {
+      // If metrics are currently expanded, always show the section (even while refreshing)
+      if (expandedMetrics[service.name]) {
+        return true
+      }
       // If we have fetched full metrics, use that to determine availability
       if (serviceMetrics[service.name] !== undefined) {
         return serviceMetrics[service.name].length > 0
@@ -548,28 +842,54 @@ export default function ServicesPanel() {
                 <td>
                   {service.ports && service.ports.length > 0 ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                      {service.ports.map((port, idx) => (
-                        port.host_port ? (
-                          <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem' }}>
-                            <span style={{ color: '#94a3b8' }}>
-                              {port.host_port}:{port.container_port}
+                      {service.ports.map((port, idx) => {
+                        // Handle both Docker format (object) and system service format (string)
+                        if (typeof port === 'string') {
+                          // System service format: "16110/tcp"
+                          const portNum = port.split('/')[0]
+                          return (
+                            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem' }}>
+                              <span style={{ color: '#94a3b8' }}>
+                                {port}
+                              </span>
+                              <a
+                                href={`http://${window.location.hostname}:${portNum}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ color: '#818cf8', textDecoration: 'none', fontSize: '1rem' }}
+                                title={`Open port ${portNum}`}
+                              >
+                                🔗
+                              </a>
+                            </div>
+                          )
+                        } else if (port.host_port) {
+                          // Docker format with host port
+                          return (
+                            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem' }}>
+                              <span style={{ color: '#94a3b8' }}>
+                                {port.host_port}:{port.container_port}
+                              </span>
+                              <a
+                                href={`http://${window.location.hostname}:${port.host_port}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ color: '#818cf8', textDecoration: 'none', fontSize: '1rem' }}
+                                title={`Open port ${port.host_port}`}
+                              >
+                                🔗
+                              </a>
+                            </div>
+                          )
+                        } else {
+                          // Docker format without host port (internal only)
+                          return (
+                            <span key={idx} style={{ fontSize: '0.875rem', color: '#64748b' }}>
+                              {port.container_port}
                             </span>
-                            <a
-                              href={`http://${window.location.hostname}:${port.host_port}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{ color: '#818cf8', textDecoration: 'none', fontSize: '1rem' }}
-                              title={`Open port ${port.host_port}`}
-                            >
-                              🔗
-                            </a>
-                          </div>
-                        ) : (
-                          <span key={idx} style={{ fontSize: '0.875rem', color: '#64748b' }}>
-                            {port.container_port}
-                          </span>
-                        )
-                      ))}
+                          )
+                        }
+                      })}
                     </div>
                   ) : (
                     <span style={{ color: '#64748b' }}>-</span>
@@ -579,8 +899,12 @@ export default function ServicesPanel() {
                 <td>{formatMemory(service.memory_mb)}</td>
                 <td>
                   <div style={{ fontSize: '0.875rem' }}>
-                    <div>{formatMemory(service.container_size_mb + service.volume_size_mb)}</div>
-                    {service.volume_size_mb > 0 && (
+                    <div>{formatMemory(
+                      service.container_size_mb !== null && service.volume_size_mb !== null
+                        ? service.container_size_mb + service.volume_size_mb
+                        : null
+                    )}</div>
+                    {service.volume_size_mb !== null && service.volume_size_mb > 0 && (
                       <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
                         ({formatMemory(service.volume_size_mb)} vol)
                       </div>
@@ -596,7 +920,7 @@ export default function ServicesPanel() {
                   <div style={{ display: 'flex', gap: '0', flexWrap: 'wrap' }}>
                     <button
                       className="btn btn-sm"
-                      onClick={() => handleServiceAction(service.name, 'start')}
+                      onClick={() => handleServiceAction(service.name, 'start', service.service_type)}
                       disabled={actionLoading[service.name] || service.status.includes('Up')}
                       style={{ background: '#047857', color: '#fff', padding: '0', minWidth: '1.5rem', width: '1.5rem', height: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '0', fontSize: '0.75rem', border: 'none' }}
                     >
@@ -604,7 +928,7 @@ export default function ServicesPanel() {
                     </button>
                     <button
                       className="btn btn-sm"
-                      onClick={() => handleServiceAction(service.name, 'stop')}
+                      onClick={() => handleServiceAction(service.name, 'stop', service.service_type)}
                       disabled={actionLoading[service.name] || !service.status.includes('Up')}
                       style={{ background: '#b91c1c', color: '#fff', padding: '0', minWidth: '1.5rem', width: '1.5rem', height: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '0', fontSize: '0.75rem', border: 'none' }}
                     >
@@ -612,7 +936,7 @@ export default function ServicesPanel() {
                     </button>
                     <button
                       className="btn btn-sm"
-                      onClick={() => handleServiceAction(service.name, 'restart')}
+                      onClick={() => handleServiceAction(service.name, 'restart', service.service_type)}
                       disabled={actionLoading[service.name]}
                       style={{ background: '#c2410c', color: '#fff', padding: '0', minWidth: '1.5rem', width: '1.5rem', height: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '0', fontSize: '0.75rem', border: 'none' }}
                     >
@@ -620,7 +944,7 @@ export default function ServicesPanel() {
                     </button>
                     <button
                       className="btn btn-sm"
-                      onClick={() => setSelectedService(service.name)}
+                      onClick={() => setSelectedService({ name: service.name, type: service.service_type || 'docker' })}
                       style={{ background: '#4f46e5', color: '#fff', padding: '0', minWidth: '1.5rem', width: '1.5rem', height: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '0', fontSize: '0.75rem', border: 'none' }}
                     >
                       📋
@@ -632,7 +956,7 @@ export default function ServicesPanel() {
                 <tr key={`${service.name}-metrics`}>
                   <td colSpan="9" style={{ padding: 0, background: '#0a0e1a' }}>
                     <div
-                      onClick={() => !metricsAnimating[service.name] && toggleMetricsExpand(service.name)}
+                      onClick={() => !metricsAnimating[service.name] && toggleMetricsExpand(service.name, service.service_type)}
                       style={{
                         padding: '0.5rem 1rem',
                         background: 'rgba(59, 130, 246, 0.05)',
@@ -760,125 +1084,152 @@ export default function ServicesPanel() {
           </div>
         )}
 
-        {sortedGroups.map(profileName => {
-          const profileServices = groupedServices[profileName]
-          const profile = profiles.find(p => p.name === profileName)
+        {sortedProjects.map(projectName => {
+          const displayName = formatProjectName(projectName)
+          const projectProfileList = projectProfiles[projectName]
+
+          // Count total services in this project
+          const totalServices = projectProfileList.reduce((sum, profileName) => {
+            return sum + (hierarchicalGroups[projectName][profileName]?.length || 0)
+          }, 0)
 
           return (
-            <div key={profileName} style={{ marginBottom: '1rem' }}>
+            <div key={projectName} style={{ marginBottom: '1.5rem' }}>
+              {/* Project Header */}
               <div style={{
-                background: 'rgba(99, 102, 241, 0.1)',
-                padding: '0.75rem 1rem',
-                borderLeft: '4px solid #6366f1',
+                background: 'rgba(59, 130, 246, 0.15)',
+                padding: '0.875rem 1rem',
+                borderLeft: '4px solid #3b82f6',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                marginTop: '1rem'
+                marginTop: '1rem',
+                borderRadius: '0.25rem'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <span
                     onClick={(e) => {
                       e.stopPropagation()
-                      toggleProfileCollapse(profileName)
+                      toggleProjectCollapse(projectName)
                     }}
                     style={{
-                      cursor: collapseAnimating[profileName] ? 'wait' : 'pointer',
+                      cursor: projectAnimating[projectName] ? 'wait' : 'pointer',
                       fontSize: '1.2rem',
                       transition: 'transform 0.3s',
                       userSelect: 'none'
                     }}
                   >
-                    {collapsedProfiles[profileName] ? '▶' : '▼'}
+                    {collapsedProjects[projectName] ? '▶' : '▼'}
                   </span>
-                  <strong style={{ color: '#818cf8', fontSize: '1rem' }}>
-                    {profileName}
+                  <strong style={{ color: '#60a5fa', fontSize: '1.125rem' }}>
+                    {displayName}
                   </strong>
-                  {profile && profile.is_active && (
-                    <span className="badge badge-success" style={{ fontSize: '0.75rem' }}>Active</span>
-                  )}
+                  <span style={{ color: '#94a3b8', fontSize: '0.875rem' }}>
+                    ({totalServices} {totalServices === 1 ? 'service' : 'services'})
+                  </span>
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <button
                     className="btn btn-sm btn-success"
-                    onClick={() => handleProfileAction(profileName, 'start')}
-                    disabled={profileLoading[profileName] || (profile && profile.is_active)}
-                    title={`Start ${profileName} profile`}
+                    onClick={() => handleProjectAction(projectName, 'start')}
+                    disabled={projectLoading[projectName]}
+                    title={`Start all profiles in ${displayName}`}
                   >
-                    {profileLoading[profileName] === 'start' ? '...' : '▶ Start'}
+                    {projectLoading[projectName] === 'start' ? '...' : '▶ Start All'}
                   </button>
                   <button
                     className="btn btn-sm btn-danger"
-                    onClick={() => handleProfileAction(profileName, 'stop')}
-                    disabled={profileLoading[profileName] || (profile && !profile.is_active)}
-                    title={`Stop ${profileName} profile`}
+                    onClick={() => handleProjectAction(projectName, 'stop')}
+                    disabled={projectLoading[projectName]}
+                    title={`Stop all profiles in ${displayName}`}
                   >
-                    {profileLoading[profileName] === 'stop' ? '...' : '⏹ Stop'}
+                    {projectLoading[projectName] === 'stop' ? '...' : '⏹ Stop All'}
                   </button>
                 </div>
               </div>
 
-              {!collapsedProfiles[profileName] && (
-                <table className="table" style={{ tableLayout: 'fixed', width: '100%' }}>
-                  <thead>
-                    <tr>
-                      <th style={{ width: '15%' }}>Service</th>
-                      <th style={{ width: '12%' }}>Status</th>
-                      <th style={{ width: '16%' }}>Image</th>
-                      <th style={{ width: '10%' }}>Ports</th>
-                      <th style={{ width: '6%' }}>CPU</th>
-                      <th style={{ width: '8%' }}>Memory</th>
-                      <th style={{ width: '8%' }}>Storage</th>
-                      <th style={{ width: '12%' }}>Network (RX/TX)</th>
-                      <th style={{ width: '13%' }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {profileServices.map(service => renderServiceRow(service))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          )
-        })}
+              {/* Profiles within Project */}
+              {!collapsedProjects[projectName] && projectProfileList.map(profileName => {
+                const profileServices = hierarchicalGroups[projectName][profileName]
+                const profile = profiles.find(p => p.name === profileName)
 
-        {sortedOtherProjects.map(projectName => {
-          const projectServices = otherProjectServices[projectName]
-          const displayName = formatProjectName(projectName)
+                return (
+                  <div key={`${projectName}-${profileName}`} style={{ marginLeft: '1rem', marginTop: '0.5rem' }}>
+                    {/* Profile Header */}
+                    <div style={{
+                      background: 'rgba(99, 102, 241, 0.1)',
+                      padding: '0.75rem 1rem',
+                      borderLeft: '4px solid #6366f1',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            toggleProfileCollapse(profileName)
+                          }}
+                          style={{
+                            cursor: collapseAnimating[profileName] ? 'wait' : 'pointer',
+                            fontSize: '1rem',
+                            transition: 'transform 0.3s',
+                            userSelect: 'none'
+                          }}
+                        >
+                          {collapsedProfiles[profileName] ? '▶' : '▼'}
+                        </span>
+                        <strong style={{ color: '#818cf8', fontSize: '0.95rem' }}>
+                          {profileName}
+                        </strong>
+                        {profile && profile.is_active && (
+                          <span className="badge badge-success" style={{ fontSize: '0.75rem' }}>Active</span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button
+                          className="btn btn-sm btn-success"
+                          onClick={() => handleProfileAction(profileName, 'start')}
+                          disabled={profileLoading[profileName] || (profile && profile.is_active)}
+                          title={`Start ${profileName} profile`}
+                        >
+                          {profileLoading[profileName] === 'start' ? '...' : '▶ Start'}
+                        </button>
+                        <button
+                          className="btn btn-sm btn-danger"
+                          onClick={() => handleProfileAction(profileName, 'stop')}
+                          disabled={profileLoading[profileName] || (profile && !profile.is_active)}
+                          title={`Stop ${profileName} profile`}
+                        >
+                          {profileLoading[profileName] === 'stop' ? '...' : '⏹ Stop'}
+                        </button>
+                      </div>
+                    </div>
 
-          return (
-            <div key={projectName} style={{ marginBottom: '1rem' }}>
-              <div style={{
-                background: 'rgba(100, 116, 139, 0.1)',
-                padding: '0.75rem 1rem',
-                borderLeft: '4px solid #64748b',
-                marginTop: '1rem'
-              }}>
-                <strong style={{ color: '#94a3b8', fontSize: '1rem' }}>
-                  {displayName}
-                </strong>
-                <span style={{ marginLeft: '0.5rem', color: '#64748b', fontSize: '0.875rem' }}>
-                  ({projectServices.length} {projectServices.length === 1 ? 'service' : 'services'})
-                </span>
-              </div>
-
-              <table className="table" style={{ tableLayout: 'fixed', width: '100%' }}>
-                <thead>
-                  <tr>
-                    <th style={{ width: '15%' }}>Service</th>
-                    <th style={{ width: '12%' }}>Status</th>
-                    <th style={{ width: '16%' }}>Image</th>
-                    <th style={{ width: '10%' }}>Ports</th>
-                    <th style={{ width: '6%' }}>CPU</th>
-                    <th style={{ width: '8%' }}>Memory</th>
-                    <th style={{ width: '8%' }}>Storage</th>
-                    <th style={{ width: '12%' }}>Network (RX/TX)</th>
-                    <th style={{ width: '13%' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {projectServices.map(service => renderServiceRow(service))}
-                </tbody>
-              </table>
+                    {/* Services Table */}
+                    {!collapsedProfiles[profileName] && (
+                      <table className="table" style={{ tableLayout: 'fixed', width: '100%' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ width: '15%' }}>Service</th>
+                            <th style={{ width: '12%' }}>Status</th>
+                            <th style={{ width: '16%' }}>Image</th>
+                            <th style={{ width: '10%' }}>Ports</th>
+                            <th style={{ width: '6%' }}>CPU</th>
+                            <th style={{ width: '8%' }}>Memory</th>
+                            <th style={{ width: '8%' }}>Storage</th>
+                            <th style={{ width: '12%' }}>Network (RX/TX)</th>
+                            <th style={{ width: '13%' }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {profileServices.map(service => renderServiceRow(service))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )
         })}
@@ -886,7 +1237,8 @@ export default function ServicesPanel() {
 
       {selectedService && (
         <LogViewer
-          serviceName={selectedService}
+          serviceName={typeof selectedService === 'string' ? selectedService : selectedService.name}
+          serviceType={typeof selectedService === 'string' ? 'docker' : selectedService.type}
           onClose={() => setSelectedService(null)}
         />
       )}
@@ -940,6 +1292,30 @@ export default function ServicesPanel() {
               >
                 ×
               </button>
+            </div>
+
+            {/* Project Filter */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label style={{ fontSize: '0.875rem', fontWeight: '500', marginBottom: '0.5rem', display: 'block' }}>
+                Project
+              </label>
+              <select
+                value={filters.project || ''}
+                onChange={(e) => setFilters(prev => ({ ...prev, project: e.target.value || null }))}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  borderRadius: '0.375rem',
+                  background: '#0f172a',
+                  border: '1px solid #334155',
+                  color: '#e2e8f0'
+                }}
+              >
+                <option value="">All Projects</option>
+                {uniqueProjects.map(project => (
+                  <option key={project} value={project}>{formatProjectName(project)}</option>
+                ))}
+              </select>
             </div>
 
             {/* Profiles Filter - Dropdown Style */}
@@ -1134,30 +1510,6 @@ export default function ServicesPanel() {
               )}
             </div>
 
-            {/* Project Filter */}
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{ fontSize: '0.875rem', fontWeight: '500', marginBottom: '0.5rem', display: 'block' }}>
-                Project
-              </label>
-              <select
-                value={filters.project || ''}
-                onChange={(e) => setFilters(prev => ({ ...prev, project: e.target.value || null }))}
-                style={{
-                  width: '100%',
-                  padding: '0.5rem',
-                  borderRadius: '0.375rem',
-                  background: '#0f172a',
-                  border: '1px solid #334155',
-                  color: '#e2e8f0'
-                }}
-              >
-                <option value="">All Projects</option>
-                {uniqueProjects.map(project => (
-                  <option key={project} value={project}>{formatProjectName(project)}</option>
-                ))}
-              </select>
-            </div>
-
             {/* Name Search */}
             <div style={{ marginBottom: '1.5rem' }}>
               <label style={{ fontSize: '0.875rem', fontWeight: '500', marginBottom: '0.5rem', display: 'block' }}>
@@ -1177,6 +1529,109 @@ export default function ServicesPanel() {
                   color: '#e2e8f0'
                 }}
               />
+            </div>
+
+            {/* System Services Section */}
+            <div style={{ marginBottom: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #334155' }}>
+              <label style={{ fontSize: '0.875rem', fontWeight: '600', marginBottom: '0.75rem', display: 'block', color: '#818cf8' }}>
+                System Services
+              </label>
+
+              {/* Show System Services Toggle */}
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={filters.showSystemServices}
+                    onChange={(e) => setFilters(prev => ({
+                      ...prev,
+                      showSystemServices: e.target.checked
+                    }))}
+                  />
+                  <span style={{ fontSize: '0.875rem' }}>Show System Services</span>
+                </label>
+              </div>
+
+              {/* System Service Name Filter */}
+              {filters.showSystemServices && (
+                <>
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ fontSize: '0.875rem', fontWeight: '500', marginBottom: '0.5rem', display: 'block' }}>
+                      System Service Name
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Search system services..."
+                      value={filters.systemServiceName}
+                      onChange={(e) => setFilters(prev => ({
+                        ...prev,
+                        systemServiceName: e.target.value
+                      }))}
+                      style={{
+                        width: '100%',
+                        padding: '0.5rem',
+                        borderRadius: '0.375rem',
+                        background: '#0f172a',
+                        border: '1px solid #334155',
+                        color: '#e2e8f0'
+                      }}
+                    />
+                  </div>
+
+                  {/* Category Filter */}
+                  <div>
+                    <label style={{ fontSize: '0.875rem', fontWeight: '500', marginBottom: '0.5rem', display: 'block' }}>
+                      Categories
+                    </label>
+                    <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.5rem' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          checked={filters.categories.mode === 'include'}
+                          onChange={() => setFilters(prev => ({
+                            ...prev,
+                            categories: { ...prev.categories, mode: 'include' }
+                          }))}
+                        />
+                        <span style={{ fontSize: '0.875rem' }}>Include</span>
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          checked={filters.categories.mode === 'exclude'}
+                          onChange={() => setFilters(prev => ({
+                            ...prev,
+                            categories: { ...prev.categories, mode: 'exclude' }
+                          }))}
+                        />
+                        <span style={{ fontSize: '0.875rem' }}>Exclude</span>
+                      </label>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {Array.from(new Set(systemServices.map(s => s.category || 'Uncategorized'))).sort().map(category => (
+                        <label key={category} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.875rem', padding: '0.25rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={filters.categories.values.includes(category)}
+                            onChange={() => {
+                              setFilters(prev => {
+                                const newValues = prev.categories.values.includes(category)
+                                  ? prev.categories.values.filter(c => c !== category)
+                                  : [...prev.categories.values, category]
+                                return {
+                                  ...prev,
+                                  categories: { ...prev.categories, values: newValues }
+                                }
+                              })
+                            }}
+                          />
+                          <span>{category}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Modal Actions */}

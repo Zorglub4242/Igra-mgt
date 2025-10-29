@@ -107,8 +107,12 @@ pub fn parse_service_logs(service_name: &str, logs: &str) -> ServiceMetrics {
     let clean_logs = strip_ansi_codes(logs);
 
     match service_name {
-        s if s.contains("kaspad") => parse_kaspad_logs(&clean_logs),
-        s if s.contains("execution-layer") => parse_execution_layer_logs(&clean_logs),
+        // Kaspad: matches "kaspad", "kaspa-mainnet", "kaspa-testnet-11", etc.
+        // BUT NOT "kaswallet" or other kaspa-prefixed services
+        s if s.contains("kaspad") ||
+             (s.starts_with("kaspa-") && (s.contains("mainnet") || s.contains("testnet"))) =>
+            parse_kaspad_logs(&clean_logs),
+        s if s.contains("execution-layer") || s.contains("reth") => parse_execution_layer_logs(&clean_logs),
         s if s.contains("viaduct") => parse_viaduct_logs(&clean_logs),
         s if s.contains("block-builder") => parse_block_builder_logs(&clean_logs),
         s if s.contains("rpc-provider") => parse_rpc_provider_logs(&clean_logs),

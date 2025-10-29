@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
+import AdminPanel from './AdminPanel'
 
-export default function ConfigPanel() {
+export default function ConfigPanel({ user }) {
   const [activeTab, setActiveTab] = useState('environment')
   const [config, setConfig] = useState({})
   const [rpcTokens, setRpcTokens] = useState([])
@@ -21,6 +22,14 @@ export default function ConfigPanel() {
   const [editingKey, setEditingKey] = useState(null)
   const [editValue, setEditValue] = useState('')
   const [saving, setSaving] = useState(false)
+  const [availableServices, setAvailableServices] = useState([])
+  const [servicesLoading, setServicesLoading] = useState(false)
+  const [serviceSearchTerm, setServiceSearchTerm] = useState('')
+  const [categories, setCategories] = useState([])
+  const [sortBy, setSortBy] = useState('name') // name, status, category
+  const [sortDir, setSortDir] = useState('asc') // asc, desc
+  const [statusFilter, setStatusFilter] = useState('all') // all, running, stopped, failed
+  const [categoryFilter, setCategoryFilter] = useState('all') // all, or category id
 
   useEffect(() => {
     loadData()
@@ -175,6 +184,58 @@ export default function ConfigPanel() {
       alert(`Error: ${err.message}`)
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function loadAvailableServices() {
+    setServicesLoading(true)
+    try {
+      const [services, cats] = await Promise.all([
+        api.getAvailableSystemServices(),
+        api.getCategories()
+      ])
+      setAvailableServices(services)
+      setCategories(cats)
+    } catch (err) {
+      console.error('Failed to load services:', err)
+      alert(`Error loading services: ${err.message}`)
+    } finally {
+      setServicesLoading(false)
+    }
+  }
+
+  async function handleToggleTracking(serviceName, currentlyTracked) {
+    try {
+      if (currentlyTracked) {
+        await api.removeTrackedService(serviceName)
+      } else {
+        await api.updateTrackedService(serviceName, {
+          category: 'uncategorized',
+          display_name: serviceName.replace('.service', ''),
+          metrics_enabled: true,
+          plugin: null
+        })
+      }
+      await loadAvailableServices()
+    } catch (err) {
+      alert(`Error: ${err.message}`)
+    }
+  }
+
+  async function handleCategoryChange(serviceName, categoryId) {
+    try {
+      const service = availableServices.find(s => s.name === serviceName)
+      if (service && service.is_tracked) {
+        await api.updateTrackedService(serviceName, {
+          category: categoryId,
+          display_name: service.display_name,
+          metrics_enabled: true,
+          plugin: null
+        })
+        await loadAvailableServices()
+      }
+    } catch (err) {
+      alert(`Error: ${err.message}`)
     }
   }
 
@@ -532,6 +593,231 @@ export default function ConfigPanel() {
     )
   }
 
+  function handleSort(column) {
+    if (sortBy === column) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(column)
+      setSortDir('asc')
+    }
+  }
+
+  function renderSystemServicesTab() {
+    // Filter by search term
+    let filteredServices = availableServices.filter(s =>
+      s.name.toLowerCase().includes(serviceSearchTerm.toLowerCase()) ||
+      s.display_name.toLowerCase().includes(serviceSearchTerm.toLowerCase())
+    )
+
+    // Filter by status
+    if (statusFilter !== 'all') {
+      filteredServices = filteredServices.filter(s => s.status === statusFilter)
+    }
+
+    // Filter by category
+    if (categoryFilter !== 'all') {
+      if (categoryFilter === 'uncategorized') {
+        filteredServices = filteredServices.filter(s => !s.category || s.category === '')
+      } else {
+        filteredServices = filteredServices.filter(s => s.category === categoryFilter)
+      }
+    }
+
+    // Sort services
+    filteredServices.sort((a, b) => {
+      let compareA, compareB
+
+      if (sortBy === 'name') {
+        compareA = a.display_name.toLowerCase()
+        compareB = b.display_name.toLowerCase()
+      } else if (sortBy === 'status') {
+        compareA = a.status
+        compareB = b.status
+      } else if (sortBy === 'category') {
+        compareA = a.category || 'zzz' // Put uncategorized at end
+        compareB = b.category || 'zzz'
+      }
+
+      if (compareA < compareB) return sortDir === 'asc' ? -1 : 1
+      if (compareA > compareB) return sortDir === 'asc' ? 1 : -1
+      return 0
+    })
+
+    return (
+      <div>
+        <h3 style={{ marginBottom: '1rem' }}>System Services Management</h3>
+        <p style={{ color: '#94a3b8', marginBottom: '1.5rem', fontSize: '0.875rem' }}>
+          Select which system services you want to track and manage. Only tracked services will appear in the main services panel.
+        </p>
+
+        {/* Search and filters */}
+        <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+          <input
+            type="text"
+            placeholder="Search services..."
+            value={serviceSearchTerm}
+            onChange={(e) => setServiceSearchTerm(e.target.value)}
+            style={{
+              flex: '1',
+              minWidth: '200px',
+              padding: '0.5rem',
+              borderRadius: '0.375rem',
+              background: '#0f172a',
+              border: '1px solid #334155',
+              color: '#e2e8f0'
+            }}
+          />
+
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            style={{
+              padding: '0.5rem',
+              borderRadius: '0.375rem',
+              background: '#0f172a',
+              border: '1px solid #334155',
+              color: '#e2e8f0',
+              minWidth: '120px'
+            }}
+          >
+            <option value="all">All Statuses</option>
+            <option value="running">Running</option>
+            <option value="stopped">Stopped</option>
+            <option value="failed">Failed</option>
+          </select>
+
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            style={{
+              padding: '0.5rem',
+              borderRadius: '0.375rem',
+              background: '#0f172a',
+              border: '1px solid #334155',
+              color: '#e2e8f0',
+              minWidth: '150px'
+            }}
+          >
+            <option value="all">All Categories</option>
+            <option value="uncategorized">Uncategorized</option>
+            {categories.map(cat => (
+              <option key={cat.id} value={cat.id}>
+                {cat.icon} {cat.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Services table */}
+        <table className="table">
+          <thead>
+            <tr>
+              <th style={{ width: '5%' }}>Track</th>
+              <th
+                style={{ width: '25%', cursor: 'pointer', userSelect: 'none' }}
+                onClick={() => handleSort('name')}
+              >
+                Service Name {sortBy === 'name' && (sortDir === 'asc' ? '▲' : '▼')}
+              </th>
+              <th style={{ width: '35%' }}>Description</th>
+              <th
+                style={{ width: '15%', cursor: 'pointer', userSelect: 'none' }}
+                onClick={() => handleSort('status')}
+              >
+                Status {sortBy === 'status' && (sortDir === 'asc' ? '▲' : '▼')}
+              </th>
+              <th
+                style={{ width: '20%', cursor: 'pointer', userSelect: 'none' }}
+                onClick={() => handleSort('category')}
+              >
+                Category {sortBy === 'category' && (sortDir === 'asc' ? '▲' : '▼')}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {servicesLoading ? (
+              <tr>
+                <td colSpan="5" style={{ textAlign: 'center', padding: '2rem' }}>
+                  Loading services...
+                </td>
+              </tr>
+            ) : filteredServices.length === 0 ? (
+              <tr>
+                <td colSpan="5" style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
+                  No services found
+                </td>
+              </tr>
+            ) : (
+              filteredServices.map(service => (
+                <tr key={service.name}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={service.is_tracked}
+                      onChange={() => handleToggleTracking(service.name, service.is_tracked)}
+                      style={{ cursor: 'pointer', width: '18px', height: '18px' }}
+                    />
+                  </td>
+                  <td>
+                    <strong>{service.display_name}</strong>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                      {service.name}
+                    </div>
+                  </td>
+                  <td style={{ fontSize: '0.875rem', color: '#94a3b8' }}>
+                    {service.description || '-'}
+                  </td>
+                  <td>
+                    <span className={`badge badge-${
+                      service.status === 'running' ? 'success' : 'danger'
+                    }`}>
+                      {service.status}
+                    </span>
+                  </td>
+                  <td>
+                    {service.is_tracked ? (
+                      <select
+                        value={service.category || ''}
+                        onChange={(e) => handleCategoryChange(service.name, e.target.value)}
+                        style={{
+                          padding: '0.25rem 0.5rem',
+                          borderRadius: '0.25rem',
+                          background: '#0f172a',
+                          border: '1px solid #334155',
+                          color: '#e2e8f0',
+                          fontSize: '0.875rem',
+                          width: '100%'
+                        }}
+                      >
+                        <option value="">Uncategorized</option>
+                        {categories.map(cat => (
+                          <option key={cat.id} value={cat.id}>
+                            {cat.icon} {cat.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span style={{ color: '#64748b', fontSize: '0.875rem' }}>-</span>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+
+        <button
+          className="btn"
+          onClick={loadAvailableServices}
+          style={{ marginTop: '1rem' }}
+          disabled={servicesLoading}
+        >
+          🔄 Refresh
+        </button>
+      </div>
+    )
+  }
+
   if (loading) {
     return <div className="loading">Loading configuration...</div>
   }
@@ -600,6 +886,45 @@ export default function ConfigPanel() {
           >
             System
           </button>
+          <button
+            className={`tab ${activeTab === 'system-services' ? 'active' : ''}`}
+            onClick={() => {
+              setActiveTab('system-services')
+              loadAvailableServices()
+            }}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: activeTab === 'system-services' ? '#818cf8' : '#94a3b8',
+              padding: '0.75rem 1.25rem',
+              cursor: 'pointer',
+              fontSize: '1rem',
+              fontWeight: '500',
+              borderBottom: activeTab === 'system-services' ? '3px solid #818cf8' : '3px solid transparent',
+              transition: 'all 0.2s'
+            }}
+          >
+            ⚙️ System Services
+          </button>
+          {user?.roles?.includes('admin') && (
+            <button
+              className={`tab ${activeTab === 'admin' ? 'active' : ''}`}
+              onClick={() => setActiveTab('admin')}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: activeTab === 'admin' ? '#818cf8' : '#94a3b8',
+                padding: '0.75rem 1.25rem',
+                cursor: 'pointer',
+                fontSize: '1rem',
+                fontWeight: '500',
+                borderBottom: activeTab === 'admin' ? '3px solid #818cf8' : '3px solid transparent',
+                transition: 'all 0.2s'
+              }}
+            >
+              🔐 Admin
+            </button>
+          )}
         </div>
       </div>
 
@@ -608,6 +933,8 @@ export default function ConfigPanel() {
         {activeTab === 'environment' && renderEnvironmentTab()}
         {activeTab === 'rpc' && renderRpcTokensTab()}
         {activeTab === 'system' && renderSystemTab()}
+        {activeTab === 'system-services' && renderSystemServicesTab()}
+        {activeTab === 'admin' && <AdminPanel user={user} />}
       </div>
     </div>
   )

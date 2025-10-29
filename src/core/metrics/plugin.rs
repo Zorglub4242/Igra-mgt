@@ -38,6 +38,9 @@ pub enum MatchType {
     ImageEquals,
     NameEquals,
     NameContains,
+    // System service matchers
+    ServiceNameEquals,
+    ServiceNameContains,
 }
 
 /// Fetcher configuration
@@ -61,6 +64,9 @@ pub enum FetcherType {
     Prometheus,
     Http,
     Logs,
+    // System service fetchers
+    Systemd,      // Fetch metrics from systemctl status/show
+    SystemLogs,   // Fetch metrics from journalctl logs
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -136,6 +142,33 @@ impl PluginConfig {
                 MatchType::ImageEquals => image_lower == value_lower,
                 MatchType::NameEquals => name_lower == value_lower,
                 MatchType::NameContains => name_lower.contains(&value_lower),
+                // System service matchers - not applicable for container matching
+                MatchType::ServiceNameEquals | MatchType::ServiceNameContains => false,
+            };
+
+            if is_match {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Check if this plugin matches the given system service
+    pub fn matches_service(&self, service_name: &str) -> bool {
+        let name_lower = service_name.to_lowercase();
+
+        for matcher in &self.matchers {
+            let value_lower = matcher.value.to_lowercase();
+
+            let is_match = match matcher.match_type {
+                // For system services, also check container name matchers for backward compatibility
+                MatchType::NameEquals => name_lower == value_lower,
+                MatchType::NameContains => name_lower.contains(&value_lower),
+                MatchType::ServiceNameEquals => name_lower == value_lower,
+                MatchType::ServiceNameContains => name_lower.contains(&value_lower),
+                // Image matchers not applicable for system services
+                MatchType::ImageContains | MatchType::ImageEquals => false,
             };
 
             if is_match {

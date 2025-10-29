@@ -219,6 +219,12 @@ export default function Sidebar({ user, onLogout, collapsed, onToggleCollapse })
       path: '/storage'
     },
     {
+      key: 'network',
+      icon: '🌐',
+      label: 'Network',
+      path: '/network'
+    },
+    {
       key: 'monitoring',
       icon: '🔍',
       label: 'Monitoring',

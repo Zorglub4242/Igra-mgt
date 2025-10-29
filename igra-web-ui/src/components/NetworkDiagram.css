@@ -1,0 +1,39 @@
+/* Network Diagram Styles */
+
+.react-flow__node {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.react-flow__node:hover {
+  filter: brightness(1.1);
+  transform: scale(1.05);
+}
+
+.react-flow__edge {
+  cursor: pointer;
+}
+
+.react-flow__edge:hover {
+  filter: brightness(1.2);
+}
+
+.react-flow__controls {
+  background: #1e293b;
+  border: 1px solid #334155;
+}
+
+.react-flow__controls-button {
+  background: #334155;
+  border-bottom: 1px solid #475569;
+  color: white;
+}
+
+.react-flow__controls-button:hover {
+  background: #475569;
+}
+
+.react-flow__minimap {
+  background: #1e293b;
+  border: 1px solid #334155;
+}

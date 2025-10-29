@@ -91,6 +91,18 @@ async fn main() -> Result<()> {
         Some(Commands::InstallService { port, host, cors, user }) => {
             handle_install_service(port, host, cors, user).await?;
         }
+        #[cfg(feature = "server")]
+        Some(Commands::User { command }) => {
+            handle_user_command(command).await?;
+        }
+        #[cfg(feature = "server")]
+        Some(Commands::Security { command }) => {
+            handle_security_command(command).await?;
+        }
+        #[cfg(feature = "server")]
+        Some(Commands::Audit { command }) => {
+            handle_audit_command(command).await?;
+        }
     }
 
     Ok(())
@@ -767,6 +779,272 @@ async fn handle_install_service_windows(port: u16, host: String, cors: bool) -> 
     println!();
     println!("⚠️  Note: The service will start automatically on system boot.");
     println!("    To start it now, run: sc start {}", windows_service::SERVICE_NAME);
+
+    Ok(())
+}
+
+#[cfg(feature = "server")]
+async fn handle_user_command(command: cli::UserCommands) -> Result<()> {
+    use igra_cli::core::{UserManager, user_manager};
+    use std::io::{self, Write};
+
+    let config_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("igra-cli");
+    
+    let user_mgr = UserManager::new(config_dir)?;
+
+    match command {
+        cli::UserCommands::List => {
+            let users = user_mgr.load_users()?;
+            
+            if users.is_empty() {
+                println!("No users found.");
+                return Ok(());
+            }
+
+            println!("\n{:<20} {:<30} {:<10}", "USERNAME", "ROLES", "ENABLED");
+            println!("{}", "-".repeat(60));
+            
+            for user in users {
+                let roles: Vec<String> = user.roles.iter().map(|r| r.to_string()).collect();
+                let roles_str = roles.join(", ");
+                let enabled_str = if user.enabled { "✓" } else { "✗" };
+                println!("{:<20} {:<30} {:<10}", user.username, roles_str, enabled_str);
+            }
+            println!();
+        }
+        
+        cli::UserCommands::Add { username, password, roles } => {
+            // Parse roles
+            let role_list: Vec<_> = roles.split(',')
+                .map(|s| s.trim().parse())
+                .collect::<Result<_, _>>()?;
+            let role_set: std::collections::HashSet<_> = role_list.into_iter().collect();
+
+            // Get password
+            let password = if let Some(p) = password {
+                p
+            } else {
+                print!("Enter password: ");
+                io::stdout().flush()?;
+                let mut pass = String::new();
+                io::stdin().read_line(&mut pass)?;
+                pass.trim().to_string()
+            };
+
+            if password.is_empty() {
+                anyhow::bail!("Password cannot be empty");
+            }
+
+            // Hash password
+            let password_hash = user_manager::hash_password(&password)?;
+
+            // Create user
+            let user = igra_cli::core::User::new(username.clone(), password_hash, role_set);
+            user_mgr.add_user(user)?;
+
+            println!("✓ User '{}' created successfully", username);
+        }
+
+        cli::UserCommands::Remove { username } => {
+            user_mgr.remove_user(&username)?;
+            println!("✓ User '{}' removed", username);
+        }
+
+        cli::UserCommands::ResetPassword { username, password } => {
+            // Get password
+            let password = if let Some(p) = password {
+                p
+            } else {
+                print!("Enter new password: ");
+                io::stdout().flush()?;
+                let mut pass = String::new();
+                io::stdin().read_line(&mut pass)?;
+                pass.trim().to_string()
+            };
+
+            if password.is_empty() {
+                anyhow::bail!("Password cannot be empty");
+            }
+
+            // Hash password
+            let password_hash = user_manager::hash_password(&password)?;
+
+            // Update password
+            user_mgr.update_password(&username, password_hash)?;
+            println!("✓ Password for '{}' reset successfully", username);
+        }
+
+        cli::UserCommands::SetEnabled { username, enabled } => {
+            user_mgr.set_user_enabled(&username, enabled)?;
+            let status = if enabled { "enabled" } else { "disabled" };
+            println!("✓ User '{}' {}", username, status);
+        }
+
+        cli::UserCommands::Show { username } => {
+            let user = user_mgr.get_user(&username)?
+                .ok_or_else(|| anyhow::anyhow!("User '{}' not found", username))?;
+
+            println!("\nUser: {}", user.username);
+            println!("Enabled: {}", if user.enabled { "Yes" } else { "No" });
+            println!("Roles:");
+            for role in &user.roles {
+                println!("  - {}", role);
+            }
+            println!();
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "server")]
+async fn handle_security_command(command: cli::SecurityCommands) -> Result<()> {
+    use igra_cli::core::SecurityManager;
+
+    let config_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("igra-cli");
+    
+    let security_mgr = SecurityManager::new(config_dir)?;
+
+    match command {
+        cli::SecurityCommands::Ip { command } => {
+            handle_ip_command(command, security_mgr).await?;
+        }
+        cli::SecurityCommands::Show => {
+            let config = security_mgr.load_config()?;
+            
+            println!("\nSecurity Configuration:");
+            println!("  Block Tor: {}", config.block_tor);
+            println!("  Block VPN: {}", config.block_vpn);
+            println!("  Trust Proxy: {}", config.trust_proxy);
+            println!("  Proxy Header: {}", config.proxy_header);
+            
+            if config.allowed_countries.is_empty() {
+                println!("  Allowed Countries: All");
+            } else {
+                println!("  Allowed Countries: {}", config.allowed_countries.join(", "));
+            }
+            
+            println!("\nIP Allowlist:");
+            if config.allowed_ips.is_empty() {
+                println!("  All IPs allowed (no restrictions)");
+            } else {
+                for ip in &config.allowed_ips {
+                    println!("  - {}", ip);
+                }
+            }
+            println!();
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "server")]
+async fn handle_ip_command(command: cli::IpCommands, security_mgr: igra_cli::core::SecurityManager) -> Result<()> {
+    match command {
+        cli::IpCommands::List => {
+            let config = security_mgr.load_config()?;
+            
+            println!("\nAllowed IP Networks:");
+            if config.allowed_ips.is_empty() {
+                println!("  (empty - all IPs allowed)");
+            } else {
+                for ip in &config.allowed_ips {
+                    println!("  - {}", ip);
+                }
+            }
+            println!();
+        }
+
+        cli::IpCommands::Add { network } => {
+            security_mgr.add_network(network.clone())?;
+            println!("✓ Added {} to allowlist", network);
+        }
+
+        cli::IpCommands::Remove { network } => {
+            let removed = security_mgr.remove_network(&network)?;
+            if removed {
+                println!("✓ Removed {} from allowlist", network);
+            } else {
+                println!("⚠️  Network {} not found in allowlist", network);
+            }
+        }
+
+        cli::IpCommands::Test { ip } => {
+            let ip_addr: std::net::IpAddr = ip.parse()?;
+            let allowed = security_mgr.is_ip_allowed(ip_addr)?;
+            
+            if allowed {
+                println!("✓ IP {} is ALLOWED", ip);
+            } else {
+                println!("✗ IP {} is BLOCKED", ip);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "server")]
+async fn handle_audit_command(command: cli::AuditCommands) -> Result<()> {
+    use igra_cli::core::AuditLogger;
+
+    let config_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("igra-cli");
+    
+    let audit_logger = AuditLogger::new(config_dir)?;
+
+    match command {
+        cli::AuditCommands::Show { limit } => {
+            let events = audit_logger.read_recent(limit)?;
+            
+            if events.is_empty() {
+                println!("No audit log entries found.");
+                return Ok(());
+            }
+
+            println!("\nRecent Audit Events ({}): ", events.len());
+            println!("{}", "-".repeat(100));
+            
+            for event in events.iter().rev() {
+                let timestamp = event.timestamp.format("%Y-%m-%d %H:%M:%S");
+                let username = event.username.as_deref().unwrap_or("-");
+                let ip = event.ip.map(|i| i.to_string()).unwrap_or_else(|| "-".to_string());
+                let resource = event.resource.as_deref().unwrap_or("-");
+                let success = if event.success { "✓" } else { "✗" };
+                
+                println!("[{}] {} {:20} {:15} {:20} {:30}", 
+                    timestamp, success, event.event, username, ip, resource);
+                
+                if let Some(reason) = &event.reason {
+                    println!("  Reason: {}", reason);
+                }
+            }
+            println!();
+        }
+
+        cli::AuditCommands::Export { output } => {
+            let events = audit_logger.export_all()?;
+            let json = serde_json::to_string_pretty(&events)?;
+            std::fs::write(&output, json)?;
+            println!("✓ Exported {} events to {}", events.len(), output);
+        }
+
+        cli::AuditCommands::Clear { confirm } => {
+            if !confirm {
+                println!("⚠️  Use --confirm flag to clear audit logs");
+                return Ok(());
+            }
+
+            audit_logger.clear()?;
+            println!("✓ Audit logs cleared");
+        }
+    }
 
     Ok(())
 }

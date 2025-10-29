@@ -17,7 +17,46 @@ pub mod static_files;
 pub mod auth;
 
 #[cfg(feature = "server")]
+pub mod auth_backend;
+
+#[cfg(feature = "server")]
+pub mod auth_handlers;
+
+#[cfg(feature = "server")]
+pub mod system_service_handlers;
+
+#[cfg(feature = "server")]
 pub use routes::create_router;
+
+// Common API response type
+use serde::Serialize;
+
+#[derive(Serialize)]
+pub struct ApiResponse<T> {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl<T> ApiResponse<T> {
+    pub fn ok(data: T) -> Self {
+        Self {
+            success: true,
+            data: Some(data),
+            error: None,
+        }
+    }
+
+    pub fn error(message: String) -> Self {
+        Self {
+            success: false,
+            data: None,
+            error: Some(message),
+        }
+    }
+}
 
 #[cfg(feature = "server")]
 pub async fn run(
@@ -30,28 +69,8 @@ pub async fn run(
     use std::net::SocketAddr;
     use std::io::{self, Write};
 
-    // Check if IGRA_WEB_TOKEN is set, prompt if not
-    if std::env::var("IGRA_WEB_TOKEN").is_err() {
-        println!("⚠️  IGRA_WEB_TOKEN environment variable not set!");
-        println!("    This token is required for API authentication.");
-        println!();
-        print!("Enter a secure token (or press Enter to continue without auth): ");
-        io::stdout().flush()?;
-
-        let mut token = String::new();
-        io::stdin().read_line(&mut token)?;
-        let token = token.trim();
-
-        if !token.is_empty() {
-            std::env::set_var("IGRA_WEB_TOKEN", token);
-            println!("✓ Token set for this session");
-            println!("  To persist, add to your environment: export IGRA_WEB_TOKEN=\"{}\"", token);
-            println!();
-        } else {
-            println!("⚠️  Starting without authentication - API will be open!");
-            println!();
-        }
-    }
+    // Session-based authentication is now handled by axum-login
+    // Default admin user will be created if no users exist
 
     let app = create_router(enable_cors);
     let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
@@ -69,25 +88,11 @@ pub async fn run(
         println!("   🔌 API:    http://{}/api", addr);
     }
 
-    if std::env::var("IGRA_WEB_TOKEN").is_ok() {
-        println!("   🔒 Auth:   Enabled (token required)");
-    } else {
-        println!("   ⚠️  Auth:   Disabled (no token)");
-    }
-
+    println!("   🔐 Auth:   Session-based authentication enabled");
     println!();
-    println!("📚 API Endpoints:");
-    println!("   GET  /api/services               - List all services");
-    println!("   POST /api/services/:name/start   - Start service");
-    println!("   POST /api/services/:name/stop    - Stop service");
-    println!("   POST /api/services/:name/restart - Restart service");
-    println!("   GET  /api/services/:name/logs    - Get service logs");
-    println!("   GET  /api/wallets                - List wallets");
-    println!("   GET  /api/storage                - Get storage info");
-    println!("   GET  /api/config                 - Get configuration");
-    println!("   GET  /api/version                - Check for updates");
-    println!("   GET  /api/health                 - Health check");
-    println!("   GET  /ws/logs/:service           - WebSocket log stream");
+    println!("   📝 Login:  POST /api/auth/login (username/password)");
+    println!("   👤 Default: admin / admin");
+    println!("   ⚠️  Change the default password after first login!");
     println!();
 
     if use_tls {
@@ -109,12 +114,15 @@ pub async fn run(
         println!();
 
         axum_server::bind_rustls(addr, config)
-            .serve(app.into_make_service())
+            .serve(app.into_make_service_with_connect_info::<std::net::SocketAddr>())
             .await?;
     } else {
         // HTTP mode without TLS
         let listener = tokio::net::TcpListener::bind(addr).await?;
-        axum::serve(listener, app).await?;
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>()
+        ).await?;
     }
 
     Ok(())

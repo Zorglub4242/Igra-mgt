@@ -131,6 +131,51 @@ pub struct ParsedLogsQuery {
 }
 
 // ============================================================================
+// Network Topology Types
+// ============================================================================
+
+#[derive(Serialize, Clone)]
+pub struct NetworkTopology {
+    pub nodes: Vec<NetworkNode>,
+    pub edges: Vec<NetworkEdge>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct NetworkNode {
+    pub id: String,
+    pub label: String,
+    pub node_type: String,  // "container" | "service" | "network" | "domain" | "gateway" | "firewall_rule"
+    pub status: String,     // "running" | "stopped" | "active" | "inactive"
+    pub ports: Vec<String>,
+    pub ip_address: Option<String>,
+    pub layer: String,      // "internet" | "firewall" | "gateway" | "docker" | "systemd" | "management"
+    pub metadata: HashMap<String, String>,
+    pub warnings: Vec<String>,  // Security warnings or issues
+    pub domains: Vec<String>,   // Domain names (for internet layer)
+}
+
+#[derive(Serialize, Clone)]
+pub struct NetworkEdge {
+    pub source: String,
+    pub target: String,
+    pub edge_type: String,  // "port_mapping" | "network" | "dependency" | "http" | "websocket" | "ipc"
+    pub label: Option<String>,
+    pub protocol: Option<String>,  // "http" | "ws" | "tcp" | "ipc"
+    pub metadata: HashMap<String, String>,
+}
+
+// Internal types for connection parsing
+#[derive(Clone, Debug)]
+struct DetectedConnection {
+    source: String,
+    target: String,
+    port: Option<u16>,
+    protocol: String,
+    connection_type: String,
+    label: Option<String>,
+}
+
+// ============================================================================
 // Service Management Handlers
 // ============================================================================
 
@@ -1041,4 +1086,1093 @@ pub async fn update_service_note(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ApiResponse::ok("Note updated successfully".to_string())))
+}
+
+// ============================================================================
+// User Management Endpoints (Admin Only)
+// ============================================================================
+
+use crate::server::auth_handlers::{require_auth, require_admin};
+
+#[cfg(feature = "server")]
+use axum_login::AuthSession;
+use crate::server::auth_backend::FileAuthBackend;
+
+#[derive(Serialize)]
+pub struct UserInfo {
+    pub username: String,
+    pub roles: Vec<String>,
+    pub enabled: bool,
+}
+
+#[derive(Deserialize)]
+pub struct AddUserRequest {
+    pub username: String,
+    pub password: String,
+    pub roles: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ResetPasswordRequest {
+    pub password: String,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateUserRolesRequest {
+    pub roles: Vec<String>,
+}
+
+/// GET /api/users - List all users (admin only)
+#[cfg(feature = "server")]
+pub async fn get_users(
+    auth_session: AuthSession<FileAuthBackend>,
+) -> Result<Json<ApiResponse<Vec<UserInfo>>>, StatusCode> {
+    let user = require_auth(auth_session).await?;
+    require_admin(&user)?;
+
+    let config_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("igra-cli");
+    
+    let user_mgr = crate::core::UserManager::new(config_dir)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    let users = user_mgr.load_users()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    let user_infos: Vec<UserInfo> = users.into_iter().map(|u| UserInfo {
+        username: u.username,
+        roles: u.roles.iter().map(|r| r.to_string()).collect(),
+        enabled: u.enabled,
+    }).collect();
+
+    Ok(Json(ApiResponse::ok(user_infos)))
+}
+
+/// POST /api/users - Add a new user (admin only)
+#[cfg(feature = "server")]
+pub async fn add_user(
+    auth_session: AuthSession<FileAuthBackend>,
+    Json(payload): Json<AddUserRequest>,
+) -> Result<Json<ApiResponse<String>>, StatusCode> {
+    let user = require_auth(auth_session).await?;
+    require_admin(&user)?;
+
+    let config_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("igra-cli");
+    
+    let user_mgr = crate::core::UserManager::new(config_dir)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Parse roles
+    let role_set: std::collections::HashSet<_> = payload.roles.iter()
+        .filter_map(|r| r.parse().ok())
+        .collect();
+
+    // Hash password
+    let password_hash = crate::core::user_manager::hash_password(&payload.password)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Create user
+    let new_user = crate::core::User::new(payload.username.clone(), password_hash, role_set);
+    user_mgr.add_user(new_user)
+        .map_err(|_| StatusCode::CONFLICT)?;
+
+    Ok(Json(ApiResponse::ok(format!("User '{}' created successfully", payload.username))))
+}
+
+/// DELETE /api/users/:username - Remove a user (admin only)
+#[cfg(feature = "server")]
+pub async fn delete_user(
+    auth_session: AuthSession<FileAuthBackend>,
+    axum::extract::Path(username): axum::extract::Path<String>,
+) -> Result<Json<ApiResponse<String>>, StatusCode> {
+    let user = require_auth(auth_session).await?;
+    require_admin(&user)?;
+
+    let config_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("igra-cli");
+    
+    let user_mgr = crate::core::UserManager::new(config_dir)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    user_mgr.remove_user(&username)
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    Ok(Json(ApiResponse::ok(format!("User '{}' deleted successfully", username))))
+}
+
+/// PUT /api/users/:username/password - Reset user password (admin only)
+#[cfg(feature = "server")]
+pub async fn reset_user_password(
+    auth_session: AuthSession<FileAuthBackend>,
+    axum::extract::Path(username): axum::extract::Path<String>,
+    Json(payload): Json<ResetPasswordRequest>,
+) -> Result<Json<ApiResponse<String>>, StatusCode> {
+    let user = require_auth(auth_session).await?;
+    require_admin(&user)?;
+
+    let config_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("igra-cli");
+
+    let user_mgr = crate::core::UserManager::new(config_dir)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Hash password
+    let password_hash = crate::core::user_manager::hash_password(&payload.password)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Get existing user and update
+    let existing_user_opt = user_mgr.get_user(&username)
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let mut existing_user = existing_user_opt.ok_or(StatusCode::NOT_FOUND)?;
+
+    existing_user.password_hash = password_hash;
+    existing_user.force_password_change = false; // Clear flag after password change
+
+    user_mgr.update_user(&username, existing_user)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(ApiResponse::ok(format!("Password for '{}' reset successfully", username))))
+}
+
+/// PUT /api/users/:username/roles - Update user roles (admin only)
+#[cfg(feature = "server")]
+pub async fn update_user_roles(
+    auth_session: AuthSession<FileAuthBackend>,
+    axum::extract::Path(username): axum::extract::Path<String>,
+    Json(payload): Json<UpdateUserRolesRequest>,
+) -> Result<Json<ApiResponse<String>>, StatusCode> {
+    let user = require_auth(auth_session).await?;
+    require_admin(&user)?;
+
+    let config_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("igra-cli");
+
+    let user_mgr = crate::core::UserManager::new(config_dir)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Get existing user
+    let existing_user_opt = user_mgr.get_user(&username)
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let existing_user = existing_user_opt.ok_or(StatusCode::NOT_FOUND)?;
+
+    // Parse new roles
+    let role_set: std::collections::HashSet<_> = payload.roles.iter()
+        .filter_map(|r| r.parse().ok())
+        .collect();
+
+    // Create updated user with new roles
+    let mut updated_user = crate::core::User::new(
+        existing_user.username.clone(),
+        existing_user.password_hash.clone(),
+        role_set
+    );
+    updated_user.force_password_change = existing_user.force_password_change;
+
+    user_mgr.update_user(&username, updated_user)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(ApiResponse::ok(format!("Roles for '{}' updated successfully", username))))
+}
+
+// ============================================================================
+// Security Management Endpoints (Admin Only)
+// ============================================================================
+
+#[derive(Deserialize)]
+pub struct AddNetworkRequest {
+    pub network: String,
+}
+
+/// GET /api/security - Get security configuration (admin only)
+#[cfg(feature = "server")]
+pub async fn get_security_config(
+    auth_session: AuthSession<FileAuthBackend>,
+) -> Result<Json<ApiResponse<crate::core::IpAllowlist>>, StatusCode> {
+    let user = require_auth(auth_session).await?;
+    require_admin(&user)?;
+
+    let config_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("igra-cli");
+    
+    let security_mgr = crate::core::SecurityManager::new(config_dir)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let config = security_mgr.load_config()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(ApiResponse::ok(config)))
+}
+
+/// POST /api/security/ips - Add IP network to allowlist (admin only)
+#[cfg(feature = "server")]
+pub async fn add_allowed_network(
+    auth_session: AuthSession<FileAuthBackend>,
+    Json(payload): Json<AddNetworkRequest>,
+) -> Result<Json<ApiResponse<String>>, StatusCode> {
+    let user = require_auth(auth_session).await?;
+    require_admin(&user)?;
+
+    let config_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("igra-cli");
+    
+    let security_mgr = crate::core::SecurityManager::new(config_dir)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    security_mgr.add_network(payload.network.clone())
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    Ok(Json(ApiResponse::ok(format!("Added {} to allowlist", payload.network))))
+}
+
+/// DELETE /api/security/ips/:network - Remove IP network from allowlist (admin only)
+#[cfg(feature = "server")]
+pub async fn remove_allowed_network(
+    auth_session: AuthSession<FileAuthBackend>,
+    axum::extract::Path(network): axum::extract::Path<String>,
+) -> Result<Json<ApiResponse<String>>, StatusCode> {
+    let user = require_auth(auth_session).await?;
+    require_admin(&user)?;
+
+    let config_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("igra-cli");
+    
+    let security_mgr = crate::core::SecurityManager::new(config_dir)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let removed = security_mgr.remove_network(&network)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if removed {
+        Ok(Json(ApiResponse::ok(format!("Removed {} from allowlist", network))))
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+// ============================================================================
+// Audit Log Endpoints (Admin Only)
+// ============================================================================
+
+/// GET /api/audit - Get recent audit log entries (admin only)
+#[cfg(feature = "server")]
+pub async fn get_audit_logs(
+    auth_session: AuthSession<FileAuthBackend>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<ApiResponse<Vec<crate::core::AuditEvent>>>, StatusCode> {
+    let user = require_auth(auth_session).await?;
+    require_admin(&user)?;
+
+    let config_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("igra-cli");
+    
+    let audit_logger = crate::core::AuditLogger::new(config_dir)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let limit = params.get("limit")
+        .and_then(|l| l.parse().ok())
+        .unwrap_or(50);
+
+    let events = audit_logger.read_recent(limit)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(ApiResponse::ok(events)))
+}
+
+/// GET /api/audit/export - Export all audit logs (admin only)
+#[cfg(feature = "server")]
+pub async fn export_audit_logs(
+    auth_session: AuthSession<FileAuthBackend>,
+) -> Result<Json<ApiResponse<Vec<crate::core::AuditEvent>>>, StatusCode> {
+    let user = require_auth(auth_session).await?;
+    require_admin(&user)?;
+
+    let config_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("igra-cli");
+
+    let audit_logger = crate::core::AuditLogger::new(config_dir)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let events = audit_logger.export_all()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(ApiResponse::ok(events)))
+}
+
+// ============================================================================
+// Network Topology Connection Parsers
+// ============================================================================
+
+/// Parse nginx configuration files for proxy_pass directives
+fn parse_nginx_proxies() -> Vec<DetectedConnection> {
+    let mut connections = Vec::new();
+
+    // Common nginx config locations
+    let config_paths = vec![
+        "/etc/nginx/nginx.conf",
+        "/etc/nginx/conf.d",
+        "/etc/nginx/sites-enabled",
+    ];
+
+    for config_path in config_paths {
+        let path = std::path::Path::new(config_path);
+        if !path.exists() {
+            continue;
+        }
+
+        if path.is_file() {
+            if let Ok(content) = std::fs::read_to_string(path) {
+                connections.extend(extract_nginx_proxy_pass(&content));
+            }
+        } else if path.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(path) {
+                for entry in entries.flatten() {
+                    if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                        connections.extend(extract_nginx_proxy_pass(&content));
+                    }
+                }
+            }
+        }
+    }
+
+    connections
+}
+
+/// Extract proxy_pass directives from nginx config content
+fn extract_nginx_proxy_pass(content: &str) -> Vec<DetectedConnection> {
+    let mut connections = Vec::new();
+
+    // Parse proxy_pass lines: proxy_pass http://target:port;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("proxy_pass") {
+            if let Some(url_part) = trimmed.strip_prefix("proxy_pass").and_then(|s| s.trim().strip_suffix(';')) {
+                let url = url_part.trim();
+                if let Some((host, port, protocol)) = parse_url_value(url) {
+                    connections.push(DetectedConnection {
+                        source: "systemd_nginx".to_string(),
+                        target: host,
+                        port,
+                        protocol,
+                        connection_type: "http".to_string(),
+                        label: Some("proxy_pass".to_string()),
+                    });
+                }
+            }
+        }
+    }
+
+    connections
+}
+
+/// Parse environment variables for connection URLs and hostnames
+fn parse_env_connections(container_name: &str, env_vars: &HashMap<String, String>) -> Vec<DetectedConnection> {
+    let mut connections = Vec::new();
+
+    for (key, value) in env_vars {
+        // Skip hidden/sensitive values
+        if value == "***HIDDEN***" {
+            continue;
+        }
+
+        // Parse URL patterns (*_URL, *_ADDR, *_HOST ending vars)
+        if key.ends_with("_URL") || key.ends_with("_ADDR") || key.ends_with("_HOST") {
+            if let Some(conn) = parse_url_value(value) {
+                connections.push(DetectedConnection {
+                    source: container_name.to_string(),
+                    target: conn.0,
+                    port: conn.1,
+                    protocol: conn.2.clone(),
+                    connection_type: if conn.2 == "ws" || conn.2 == "wss" { "websocket".to_string() } else { "http".to_string() },
+                    label: Some(key.clone()),
+                });
+            }
+        }
+    }
+
+    connections
+}
+
+/// Parse URL or host:port string
+fn parse_url_value(value: &str) -> Option<(String, Option<u16>, String)> {
+    if value.contains("://") {
+        // URL format: http://host:port or ws://host:port
+        if let Some((protocol, rest)) = value.split_once("://") {
+            let parts: Vec<&str> = rest.split('/').next().unwrap_or(rest).split(':').collect();
+            let host = parts.get(0)?.to_string();
+            let port = parts.get(1).and_then(|p| p.parse().ok());
+            return Some((host, port, protocol.to_string()));
+        }
+    } else if value.contains(':') {
+        // host:port format
+        if let Some((host, port_str)) = value.split_once(':') {
+            let port = port_str.parse().ok();
+            return Some((host.to_string(), port, "tcp".to_string()));
+        }
+    }
+    None
+}
+
+/// Parse command arguments for connection strings
+fn parse_arg_connections(container_name: &str, command: &Option<String>) -> Vec<DetectedConnection> {
+    let mut connections = Vec::new();
+
+    if let Some(cmd) = command {
+        let args: Vec<&str> = cmd.split_whitespace().collect();
+        let mut i = 0;
+
+        while i < args.len() {
+            let arg = args[i];
+
+            // Pattern 1: --flag=value
+            if arg.starts_with("--") && arg.contains('=') {
+                if let Some((_, value)) = arg.split_once('=') {
+                    if let Some(conn) = parse_url_value(value) {
+                        connections.push(DetectedConnection {
+                            source: container_name.to_string(),
+                            target: conn.0,
+                            port: conn.1,
+                            protocol: conn.2.clone(),
+                            connection_type: if conn.2 == "ws" { "websocket".to_string() } else { "tcp".to_string() },
+                            label: Some(arg.split('=').next().unwrap().to_string()),
+                        });
+                    }
+                }
+            }
+            // Pattern 2: --server ws://host:port (value in next arg)
+            else if arg == "--server" && i + 1 < args.len() {
+                if let Some(conn) = parse_url_value(args[i + 1]) {
+                    connections.push(DetectedConnection {
+                        source: container_name.to_string(),
+                        target: conn.0,
+                        port: conn.1,
+                        protocol: conn.2.clone(),
+                        connection_type: if conn.2 == "ws" { "websocket".to_string() } else { "tcp".to_string() },
+                        label: Some("--server".to_string()),
+                    });
+                }
+                i += 1;
+            }
+
+            i += 1;
+        }
+    }
+
+    connections
+}
+
+/// Detect IPC socket connections via shared volumes
+fn detect_ipc_connections(containers: &[(String, Vec<(String, String)>)]) -> Vec<DetectedConnection> {
+    let mut connections = Vec::new();
+    let mut volume_map: HashMap<String, Vec<String>> = HashMap::new();
+
+    // Group containers by shared volumes
+    for (container_name, mounts) in containers {
+        for (volume_name, _dest) in mounts {
+            // Only consider named volumes or tmpfs mounts (like reth_ipc)
+            if !volume_name.starts_with('/') {
+                volume_map.entry(volume_name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(container_name.clone());
+            }
+        }
+    }
+
+    // Create IPC connections for shared volumes
+    for (volume_name, container_names) in volume_map {
+        if container_names.len() >= 2 && (volume_name.contains("ipc") || volume_name.contains("sock")) {
+            // Create bidirectional connections for IPC
+            for i in 0..container_names.len() {
+                for j in (i+1)..container_names.len() {
+                    connections.push(DetectedConnection {
+                        source: container_names[i].clone(),
+                        target: container_names[j].clone(),
+                        port: None,
+                        protocol: "ipc".to_string(),
+                        connection_type: "ipc".to_string(),
+                        label: Some(volume_name.clone()),
+                    });
+                }
+            }
+        }
+    }
+
+    connections
+}
+
+/// Parse Traefik labels for routing rules
+fn parse_traefik_labels(container_name: &str, labels: &HashMap<String, String>) -> Vec<DetectedConnection> {
+    let mut connections = Vec::new();
+
+    // Check if traefik is enabled
+    if labels.get("traefik.enable") != Some(&"true".to_string()) {
+        return connections;
+    }
+
+    // Find router and service configurations
+    // Format: traefik.http.routers.<name>.rule = "PathPrefix(/token)"
+    //         traefik.http.services.<name>.loadbalancer.server.port = "8535"
+
+    let mut service_port = None;
+    let mut router_rule = None;
+
+    for (key, value) in labels {
+        if key.contains(".services.") && key.ends_with(".port") {
+            service_port = value.parse().ok();
+        }
+        if key.contains(".routers.") && key.ends_with(".rule") {
+            router_rule = Some(value.clone());
+        }
+    }
+
+    // If we found traefik routing config, add a connection from traefik to this container
+    if service_port.is_some() || router_rule.is_some() {
+        // Parse the router rule to create a cleaner label
+        let clean_label = router_rule.as_ref().and_then(|rule| {
+            let mut parts = Vec::new();
+
+            // Extract Host() value
+            if let Some(start) = rule.find("Host(") {
+                if let Some(end) = rule[start..].find(')') {
+                    let host_part = &rule[start+5..start+end];
+                    // Remove quotes and backticks
+                    let host = host_part.trim_matches(|c| c == '\'' || c == '`' || c == '"');
+                    parts.push(host.to_string());
+                }
+            }
+
+            // Extract PathPrefix() value
+            if let Some(start) = rule.find("PathPrefix(") {
+                if let Some(end) = rule[start..].find(')') {
+                    let path_part = &rule[start+11..start+end];
+                    // Remove quotes and backticks
+                    let path = path_part.trim_matches(|c| c == '\'' || c == '`' || c == '"');
+
+                    // Truncate long paths (common with routing tokens)
+                    let truncated_path = if path.len() > 30 {
+                        // If it's a long token/hash, just show /{token}/...
+                        if path.starts_with('/') && path.matches('/').count() >= 2 {
+                            let first_segment = path.split('/').nth(1).unwrap_or("");
+                            if first_segment.len() > 15 {
+                                "/{token}/...".to_string()
+                            } else {
+                                format!("/{}/...", first_segment)
+                            }
+                        } else {
+                            format!("{}...", &path[..27])
+                        }
+                    } else {
+                        path.to_string()
+                    };
+
+                    parts.push(truncated_path);
+                }
+            }
+
+            if !parts.is_empty() {
+                Some(parts.join(""))
+            } else {
+                None
+            }
+        });
+
+        connections.push(DetectedConnection {
+            source: "traefik".to_string(),
+            target: container_name.to_string(),
+            port: service_port,
+            protocol: "http".to_string(),
+            connection_type: "http".to_string(),
+            label: clean_label,
+        });
+    }
+
+    connections
+}
+
+// ============================================================================
+// Network Topology Handler
+// ============================================================================
+
+/// GET /api/network-topology - Get network topology visualization data
+pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>, StatusCode> {
+    let docker = DockerManager::new().await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+    let mut all_connections = Vec::new();
+    let mut container_mounts: Vec<(String, Vec<(String, String)>)> = Vec::new();
+
+    // Initialize data source modules
+    use crate::core::{FirewallManager, NginxParser, NetworkInfoDetector, SecurityScanner};
+
+    let firewall_mgr = FirewallManager::new();
+    let nginx_parser = NginxParser::new();
+    let network_detector = NetworkInfoDetector::new();
+    let security_scanner = SecurityScanner::new();
+
+    // Gather data from all sources
+    let firewall_status = firewall_mgr.get_status().ok();
+    let nginx_sites = nginx_parser.parse_sites().ok().unwrap_or_default();
+    let network_info = network_detector.get_info();
+    let nginx_proxy_targets = nginx_parser.get_proxy_targets(&nginx_sites);
+
+    // Get Docker networks with CIDRs
+    let docker_networks = docker.list_networks().await.ok().unwrap_or_default();
+
+    // 1. Add router node in internet layer (external network access point)
+    nodes.push(NetworkNode {
+        id: "router".to_string(),
+        label: "Router".to_string(),
+        node_type: "gateway".to_string(),
+        status: "active".to_string(),
+        ports: vec![],
+        ip_address: network_info.public_ipv4.clone().or_else(|| Some("External Gateway".to_string())),
+        layer: "internet".to_string(),
+        metadata: {
+            let mut m = HashMap::new();
+            m.insert("description".to_string(), "External router providing internet connectivity".to_string());
+            if let Some(ref ipv4) = network_info.public_ipv4 {
+                m.insert("public_ipv4".to_string(), ipv4.clone());
+            }
+            if let Some(ref ipv6) = network_info.public_ipv6 {
+                m.insert("public_ipv6".to_string(), ipv6.clone());
+            }
+            if let Some(ref hostname) = network_info.hostname {
+                m.insert("hostname".to_string(), hostname.clone());
+            }
+            m
+        },
+        warnings: vec![],
+        domains: network_info.domains.iter().cloned().collect(),
+    });
+
+    // 2. Add firewall node in firewall layer (LAN gateway with firewall)
+    nodes.push(NetworkNode {
+        id: "firewall".to_string(),
+        label: "Firewall (UFW)".to_string(),
+        node_type: "gateway".to_string(),
+        status: if firewall_status.is_some() { "active".to_string() } else { "unknown".to_string() },
+        ports: vec![],
+        ip_address: network_info.lan_ip.clone().or_else(|| Some("LAN Gateway".to_string())),
+        layer: "firewall".to_string(),
+        metadata: {
+            let mut m = HashMap::new();
+            m.insert("description".to_string(), "Firewall protecting internal network".to_string());
+            if let Some(ref fw_status) = firewall_status {
+                m.insert("ufw_active".to_string(), fw_status.active.to_string());
+                m.insert("rule_count".to_string(), fw_status.rules.len().to_string());
+            }
+            if let Some(ref lan_ip) = network_info.lan_ip {
+                m.insert("lan_ip".to_string(), lan_ip.clone());
+            }
+            m
+        },
+        warnings: vec![],
+        domains: vec![],
+    });
+
+    // Add Router → Firewall edge
+    edges.push(NetworkEdge {
+        source: "router".to_string(),
+        target: "firewall".to_string(),
+        edge_type: "gateway".to_string(),
+        label: Some("WAN → LAN".to_string()),
+        protocol: Some("gateway".to_string()),
+        metadata: HashMap::new(),
+    });
+
+    // 2. Get all Docker containers with full details
+    let containers = docker.list_containers_filtered(true).await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    for container in &containers {
+        let mut metadata = HashMap::new();
+        metadata.insert("image".to_string(), container.image.clone());
+        if let Some(project) = &container.project_name {
+            metadata.insert("project".to_string(), project.clone());
+        }
+
+        // Get detailed service info
+        let details = docker.get_service_details(&container.name).await.ok();
+
+        let ip_address = details.as_ref()
+            .and_then(|d| d.networks.first())
+            .map(|n| n.ip_address.clone());
+
+        // Determine layer for Docker containers
+        // Containers with nginx/traefik go in gateway layer, others in docker layer
+        let is_gateway = container.name.contains("traefik") ||
+                        container.name.contains("nginx") ||
+                        container.image.contains("traefik") ||
+                        container.image.contains("nginx");
+
+        let layer = if is_gateway {
+            "gateway".to_string()
+        } else {
+            "docker".to_string()
+        };
+
+        // Extract domains for gateway services from nginx config
+        let mut container_domains = Vec::new();
+        if is_gateway {
+            for site in &nginx_sites {
+                container_domains.extend(site.server_names.clone());
+            }
+        }
+
+        // Collect exposed ports for security scanning
+        let exposed_ports: Vec<(u16, String)> = container.ports.iter()
+            .filter_map(|p| {
+                if let Some(port_num) = p.split('/').next().and_then(|s| s.parse().ok()) {
+                    Some((port_num, container.name.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Scan for security issues
+        let mut container_warnings = Vec::new();
+        if !exposed_ports.is_empty() {
+            let warnings = security_scanner.scan_public_ports(&exposed_ports);
+            container_warnings.extend(
+                warnings.iter().map(|w| format!("{}: {}", w.severity, w.description))
+            );
+        }
+
+        nodes.push(NetworkNode {
+            id: container.name.clone(),
+            label: container.name.clone(),
+            node_type: "container".to_string(),
+            status: container.status.clone(),
+            ports: container.ports.clone(),
+            ip_address,
+            layer,
+            metadata,
+            warnings: container_warnings,
+            domains: container_domains,
+        });
+
+        // Parse connections from container details
+        if let Some(ref d) = details {
+            // Parse environment variables
+            all_connections.extend(parse_env_connections(&container.name, &d.env_vars));
+
+            // Parse command arguments
+            all_connections.extend(parse_arg_connections(&container.name, &d.command));
+
+            // Parse Traefik labels
+            all_connections.extend(parse_traefik_labels(&container.name, &d.labels));
+
+            // Collect mounts for IPC detection
+            let mounts: Vec<(String, String)> = d.mounts.iter()
+                .map(|m| (m.source.clone(), m.destination.clone()))
+                .collect();
+            container_mounts.push((container.name.clone(), mounts));
+        }
+
+        // Add Docker network membership edges
+        if let Some(details) = &details {
+            for network in &details.networks {
+                let network_id = format!("network_{}", network.name);
+
+                // Add network node if not present
+                if !nodes.iter().any(|n| n.id == network_id) {
+                    // Find CIDR for this network
+                    let cidr = docker_networks.iter()
+                        .find(|n| n.name == network.name)
+                        .and_then(|n| n.cidr.clone());
+
+                    let mut network_label = network.name.clone();
+                    if let Some(ref c) = cidr {
+                        network_label = format!("{} ({})", network.name, c);
+                    }
+
+                    nodes.push(NetworkNode {
+                        id: network_id.clone(),
+                        label: network_label,
+                        node_type: "network".to_string(),
+                        status: "active".to_string(),
+                        ports: vec![],
+                        ip_address: Some(network.gateway.clone()),
+                        layer: "docker".to_string(),  // Networks are part of docker layer
+                        metadata: {
+                            let mut m = HashMap::new();
+                            m.insert("gateway".to_string(), network.gateway.clone());
+                            if let Some(ref c) = cidr {
+                                m.insert("cidr".to_string(), c.clone());
+                            }
+                            m
+                        },
+                        warnings: vec![],
+                        domains: vec![],
+                    });
+                }
+
+                // Add network membership edge
+                edges.push(NetworkEdge {
+                    source: container.name.clone(),
+                    target: network_id,
+                    edge_type: "network".to_string(),
+                    label: Some(network.ip_address.clone()),
+                    protocol: Some("network".to_string()),
+                    metadata: {
+                        let mut m = HashMap::new();
+                        m.insert("ip_address".to_string(), network.ip_address.clone());
+                        m
+                    },
+                });
+            }
+        }
+    }
+
+    // 3. Detect IPC connections from shared volumes
+    all_connections.extend(detect_ipc_connections(&container_mounts));
+
+    // 3b. Parse nginx proxy_pass connections
+    for (site_name, proxy_targets) in &nginx_proxy_targets {
+        for target in proxy_targets {
+            // Extract host:port from proxy target
+            let target_host = if target.starts_with("http://") {
+                target.trim_start_matches("http://")
+            } else if target.starts_with("https://") {
+                target.trim_start_matches("https://")
+            } else {
+                target.as_str()
+            };
+
+            // Try to match to container name or service
+            let target_container = target_host.split(':').next().unwrap_or(target_host);
+
+            // Check if target matches any container
+            if containers.iter().any(|c| c.name.contains(target_container) || target_container.contains(&c.name)) {
+                all_connections.push(DetectedConnection {
+                    source: format!("nginx_{}", site_name),
+                    target: containers.iter()
+                        .find(|c| c.name.contains(target_container) || target_container.contains(&c.name))
+                        .map(|c| c.name.clone())
+                        .unwrap_or_else(|| target_container.to_string()),
+                    port: target_host.split(':').nth(1).and_then(|p| p.parse().ok()),
+                    protocol: "http".to_string(),
+                    connection_type: "http".to_string(),
+                    label: Some(format!("proxy → {}", target_host)),
+                });
+            }
+        }
+    }
+
+    // 3c. Parse docker-compose depends_on relationships
+    for container in &containers {
+        if !container.depends_on.is_empty() {
+            for dep_service in &container.depends_on {
+                // Find the container matching this service name
+                if let Some(dep_container) = containers.iter().find(|c| {
+                    // Match by exact service name or container name containing service
+                    c.name == *dep_service || c.name.contains(dep_service)
+                }) {
+                    all_connections.push(DetectedConnection {
+                        source: container.name.clone(),
+                        target: dep_container.name.clone(),
+                        port: None,
+                        protocol: "dependency".to_string(),
+                        connection_type: "depends_on".to_string(),
+                        label: Some("depends_on".to_string()),
+                    });
+                }
+            }
+        }
+    }
+
+    // 5. Convert detected connections to edges
+    for conn in all_connections {
+        let label = if let Some(ref l) = conn.label {
+            l.clone()
+        } else if let Some(port) = conn.port {
+            format!(":{}", port)
+        } else {
+            conn.protocol.clone()
+        };
+
+        edges.push(NetworkEdge {
+            source: conn.source,
+            target: conn.target,
+            edge_type: conn.connection_type,
+            label: Some(label),
+            protocol: Some(conn.protocol),
+            metadata: HashMap::new(),
+        });
+    }
+
+    // 6. Add published ports as firewall→service edges
+    // Services with published ports (0.0.0.0:*) are accessible from home network via firewall
+    for container in &containers {
+        let has_published_ports = container.ports.iter().any(|p| p.contains("0.0.0.0"));
+
+        if has_published_ports {
+            for port_str in &container.ports {
+                if let Some((left, right)) = port_str.split_once("->") {
+                    if left.starts_with("0.0.0.0:") {
+                        let host_port = left.rsplit_once(':').map(|(_, port)| port).unwrap_or("");
+                        let container_port = right.split_once('/').map(|(port, _)| port).unwrap_or(right);
+
+                        if !host_port.is_empty() {
+                            edges.push(NetworkEdge {
+                                source: "firewall".to_string(),
+                                target: container.name.clone(),
+                                edge_type: "port_mapping".to_string(),
+                                label: Some(format!(":{}", host_port)),
+                                protocol: Some("tcp".to_string()),
+                                metadata: {
+                                    let mut m = HashMap::new();
+                                    m.insert("host_port".to_string(), host_port.to_string());
+                                    m.insert("container_port".to_string(), container_port.to_string());
+                                    m
+                                },
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 7. Add system services (nginx, kaspad, etc.)
+    #[cfg(target_os = "linux")]
+    {
+        use crate::core::system_service::SystemServiceManager;
+        let sys_manager = SystemServiceManager::new(false);
+
+        if let Ok(services) = sys_manager.list_services().await {
+            let filtered = sys_manager.filter_relevant_services(services);
+
+            for service in filtered {
+                if service.name.contains("nginx") || (!service.ports.is_empty() && service.name.contains("kaspa")) {
+                    let mut metadata = HashMap::new();
+                    metadata.insert("service_type".to_string(), format!("{:?}", service.service_type));
+
+                    // Add category for grouping
+                    if !service.category.is_empty() {
+                        metadata.insert("category".to_string(), service.category.clone());
+                    }
+
+                    // System services go in systemd layer
+                    // Special case: nginx is a gateway, so put it in gateway layer
+                    let layer = if service.name.contains("nginx") {
+                        "gateway".to_string()
+                    } else {
+                        "systemd".to_string()
+                    };
+
+                    // Extract domains for nginx services
+                    let mut service_domains = Vec::new();
+                    if service.name.contains("nginx") {
+                        for site in &nginx_sites {
+                            service_domains.extend(site.server_names.clone());
+                        }
+                    }
+
+                    // Security scan for exposed ports
+                    let mut service_warnings = Vec::new();
+                    let exposed_ports: Vec<(u16, String)> = service.ports.iter()
+                        .filter_map(|p| {
+                            if let Some(port_num) = p.split('/').next().and_then(|s| s.parse().ok()) {
+                                Some((port_num, service.name.clone()))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+
+                    if !exposed_ports.is_empty() {
+                        let warnings = security_scanner.scan_public_ports(&exposed_ports);
+                        service_warnings.extend(
+                            warnings.iter().map(|w| format!("{}: {}", w.severity, w.description))
+                        );
+                    }
+
+                    nodes.push(NetworkNode {
+                        id: format!("systemd_{}", service.name),
+                        label: service.display_name.clone(),
+                        node_type: "service".to_string(),
+                        status: format!("{:?}", service.status),
+                        ports: service.ports.clone(),
+                        ip_address: None,
+                        layer,
+                        metadata,
+                        warnings: service_warnings,
+                        domains: service_domains,
+                    });
+
+                    // Add firewall→service edge for public ports
+                    for port_str in &service.ports {
+                        if let Some(port_num) = port_str.split('/').next() {
+                            edges.push(NetworkEdge {
+                                source: "firewall".to_string(),
+                                target: format!("systemd_{}", service.name),
+                                edge_type: "port_mapping".to_string(),
+                                label: Some(format!(":{}", port_num)),
+                                protocol: Some("tcp".to_string()),
+                                metadata: HashMap::new(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Create nodes for external services (IPs referenced in edges but not in nodes)
+    let existing_node_ids: std::collections::HashSet<String> = nodes.iter().map(|n| n.id.clone()).collect();
+    let mut external_ips_to_add = std::collections::HashSet::new();
+
+    // Find all edge targets that don't have corresponding nodes
+    for edge in &edges {
+        if !existing_node_ids.contains(&edge.target) {
+            // Check if it looks like an IP address
+            if edge.target.parse::<std::net::IpAddr>().is_ok() {
+                external_ips_to_add.insert(edge.target.clone());
+            }
+        }
+        // Also check source
+        if !existing_node_ids.contains(&edge.source) {
+            if edge.source.parse::<std::net::IpAddr>().is_ok() {
+                external_ips_to_add.insert(edge.source.clone());
+            }
+        }
+    }
+
+    // Create nodes for external IPs
+    for external_ip in external_ips_to_add {
+        let mut metadata = HashMap::new();
+        metadata.insert("type".to_string(), "external_service".to_string());
+
+        nodes.push(NetworkNode {
+            id: external_ip.clone(),
+            label: format!("External\n{}", external_ip),
+            node_type: "external_service".to_string(),
+            status: "unknown".to_string(),
+            ports: vec![],
+            ip_address: Some(external_ip.clone()),
+            layer: "internet".to_string(),
+            metadata,
+            warnings: vec![],
+            domains: vec![],
+        });
+    }
+
+    let topology = NetworkTopology { nodes, edges };
+    Ok(Json(ApiResponse::ok(topology)))
 }

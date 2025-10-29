@@ -204,6 +204,13 @@ impl PluginRegistry {
             .find(|plugin| plugin.matches_container(container_name, container_image))
     }
 
+    /// Find the first plugin that matches the given system service
+    pub fn find_service_plugin(&self, service_name: &str) -> Option<&PluginConfig> {
+        self.plugins
+            .iter()
+            .find(|plugin| plugin.matches_service(service_name))
+    }
+
     /// Check if a cached metric is still valid
     fn is_cache_valid(&self, container_name: &str, metric_name: &str, cache_duration: u64) -> bool {
         if let Ok(cache) = self.cache.read() {
@@ -372,6 +379,93 @@ impl PluginRegistry {
         Ok(metrics)
     }
 
+    /// Fetch all metrics for a system service (for detail view)
+    pub async fn fetch_service_metrics(
+        &self,
+        service_name: &str,
+        plugin: &PluginConfig,
+    ) -> Result<Vec<MetricValue>> {
+        // For system services, we fetch logs using journalctl
+        // This is different from Docker containers which use docker logs or prometheus
+
+        let mut metrics = Vec::new();
+
+        // Fetch service logs using systemctl/journalctl
+        // We'll use the SystemServiceManager interface to get logs
+        use crate::core::system_service::SystemServiceManager;
+        let system_service = SystemServiceManager::new(true); // use sudo
+
+        // Get recent logs (last 100 lines should be enough for metric extraction)
+        let service_full_name = if service_name.ends_with(".service") {
+            service_name.to_string()
+        } else {
+            format!("{}.service", service_name)
+        };
+
+        let raw_logs: String = match system_service.get_logs(&service_full_name, 100).await {
+            Ok(logs) => logs,
+            Err(e) => {
+                eprintln!("[WARN] Failed to fetch logs for {}: {}", service_name, e);
+                return Ok(Vec::new());
+            }
+        };
+
+        // Parse metrics using the plugin's metric definitions
+        for metric_def in &plugin.metrics {
+            let cache_key = (service_name.to_string(), metric_def.name.clone());
+
+            // Check if we have a valid cached value
+            let (value, formatted) = if self.is_cache_valid(service_name, &metric_def.name, metric_def.cache_duration()) {
+                // Use cached value
+                if let Ok(cache) = self.cache.read() {
+                    if let Some(cached) = cache.get(&cache_key) {
+                        (Some(cached.value), cached.formatted.clone())
+                    } else {
+                        (None, String::new())
+                    }
+                } else {
+                    (None, String::new())
+                }
+            } else {
+                // Fetch new value from logs using regex pattern
+                let value = if let Some(regex_pattern) = &metric_def.regex_pattern {
+                    // Log-based metric with per-metric pattern
+                    LogsFetcher::parse_with_regex(&raw_logs, regex_pattern)
+                } else {
+                    None
+                };
+
+                if let Some(val) = value {
+                    let formatted = format_metric(&metric_def.display_format, val);
+
+                    // Update cache
+                    if let Ok(mut cache) = self.cache.write() {
+                        cache.insert(cache_key, CachedMetric {
+                            value: val,
+                            formatted: formatted.clone(),
+                            fetched_at: Instant::now(),
+                        });
+                    }
+
+                    (Some(val), formatted)
+                } else {
+                    (None, String::new())
+                }
+            };
+
+            if let Some(val) = value {
+                metrics.push(MetricValue {
+                    name: metric_def.name.clone(),
+                    value: val,
+                    formatted,
+                    category: metric_def.category.clone(),
+                });
+            }
+        }
+
+        Ok(metrics)
+    }
+
     /// Create a fetcher based on the configuration
     fn create_fetcher(&self, config: &super::plugin::FetcherConfig) -> Result<AnyFetcher> {
         match config.fetcher_type {
@@ -399,6 +493,10 @@ impl PluginRegistry {
                     // No global pattern - metrics will use their own regex_pattern
                     Ok(AnyFetcher::Logs(LogsFetcher::new_without_pattern(lines)))
                 }
+            }
+            // System service fetchers - not implemented yet, return an error
+            FetcherType::Systemd | FetcherType::SystemLogs => {
+                Err(anyhow::anyhow!("System service fetchers not yet implemented"))
             }
         }
     }

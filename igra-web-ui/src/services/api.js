@@ -20,13 +20,11 @@ class IgraApiClient {
   }
 
   async request(endpoint, options = {}) {
-    const token = this.getToken();
-
     const response = await fetch(`${API_BASE}${endpoint}`, {
       ...options,
+      credentials: 'include', // Important: Include cookies for session auth
       headers: {
         'Content-Type': 'application/json',
-        ...(token && { 'Authorization': `Bearer ${token}` }),
         ...options.headers,
       },
     });
@@ -257,6 +255,167 @@ class IgraApiClient {
   // Service Management
   async restartService() {
     return this.request('/api/service/restart', { method: 'POST' });
+  }
+
+  // System Services
+  async getSystemServices() {
+    return this.request('/api/system-services');
+  }
+
+  async getAvailableSystemServices() {
+    return this.request('/api/system-services/available');
+  }
+
+  async getSystemServiceDetails(name) {
+    return this.request(`/api/system-services/${encodeURIComponent(name)}/details`);
+  }
+
+  async getSystemServiceLogs(name, lines = 100) {
+    return this.request(`/api/system-services/${encodeURIComponent(name)}/logs?lines=${lines}`);
+  }
+
+  async startSystemService(name) {
+    return this.request(`/api/system-services/${encodeURIComponent(name)}/start`, { method: 'POST' });
+  }
+
+  async stopSystemService(name) {
+    return this.request(`/api/system-services/${encodeURIComponent(name)}/stop`, { method: 'POST' });
+  }
+
+  async restartSystemService(name) {
+    return this.request(`/api/system-services/${encodeURIComponent(name)}/restart`, { method: 'POST' });
+  }
+
+  async enableSystemService(name) {
+    return this.request(`/api/system-services/${encodeURIComponent(name)}/enable`, { method: 'POST' });
+  }
+
+  async disableSystemService(name) {
+    return this.request(`/api/system-services/${encodeURIComponent(name)}/disable`, { method: 'POST' });
+  }
+
+  // Categories
+  async getCategories() {
+    return this.request('/api/categories');
+  }
+
+  async getCategory(id) {
+    return this.request(`/api/categories/${encodeURIComponent(id)}`);
+  }
+
+  async createCategory(category) {
+    return this.request('/api/categories', {
+      method: 'POST',
+      body: JSON.stringify(category),
+    });
+  }
+
+  async updateCategory(id, category) {
+    return this.request(`/api/categories/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(category),
+    });
+  }
+
+  async deleteCategory(id) {
+    return this.request(`/api/categories/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  // Tracked Services
+  async getTrackedServices() {
+    return this.request('/api/tracked-services');
+  }
+
+  async updateTrackedService(name, tracked) {
+    return this.request(`/api/tracked-services/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify(tracked),
+    });
+  }
+
+  async removeTrackedService(name) {
+    return this.request(`/api/tracked-services/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  }
+
+  // Authentication (note: session handled automatically via cookies)
+  async login(username, password) {
+    return this.request('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+  }
+
+  async logout() {
+    return this.request('/api/auth/logout', { method: 'POST' });
+  }
+
+  async getSession() {
+    return this.request('/api/auth/session');
+  }
+
+  async changePassword(username, currentPassword, newPassword) {
+    return this.request('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword
+      }),
+    });
+  }
+
+  // User Management (admin only)
+  async getUsers() {
+    return this.request('/api/users');
+  }
+
+  async addUser(username, password, roles) {
+    return this.request('/api/users', {
+      method: 'POST',
+      body: JSON.stringify({ username, password, roles }),
+    });
+  }
+
+  async deleteUser(username) {
+    return this.request(`/api/users/${encodeURIComponent(username)}`, { method: 'DELETE' });
+  }
+
+  async resetPassword(username, password) {
+    return this.request(`/api/users/${encodeURIComponent(username)}/password`, {
+      method: 'PUT',
+      body: JSON.stringify({ password }),
+    });
+  }
+
+  async updateUserRoles(username, roles) {
+    return this.request(`/api/users/${encodeURIComponent(username)}/roles`, {
+      method: 'PUT',
+      body: JSON.stringify({ roles }),
+    });
+  }
+
+  // Security Management (admin only)
+  async getSecurityConfig() {
+    return this.request('/api/security');
+  }
+
+  async addAllowedNetwork(network) {
+    return this.request('/api/security/ips', {
+      method: 'POST',
+      body: JSON.stringify({ network }),
+    });
+  }
+
+  async removeAllowedNetwork(network) {
+    return this.request(`/api/security/ips/${encodeURIComponent(network)}`, { method: 'DELETE' });
+  }
+
+  // Audit Logs (admin only)
+  async getAuditLogs(limit = 50) {
+    return this.request(`/api/audit?limit=${limit}`);
+  }
+
+  async exportAuditLogs() {
+    return this.request('/api/audit/export');
   }
 }
 

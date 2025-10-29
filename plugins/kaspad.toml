@@ -2,7 +2,7 @@
 
 [plugin]
 name = "kaspad"
-description = "Kaspad node metrics from Prometheus endpoint"
+description = "Kaspad node metrics from logs or Prometheus endpoint"
 
 # Container matching rules (any match = plugin applies)
 [[match]]
@@ -13,124 +13,93 @@ value = "kaspad"
 type = "name_contains"
 value = "kaspad"
 
+[[match]]
+type = "name_contains"
+value = "kaspa-mainnet"
+
+[[match]]
+type = "name_contains"
+value = "kaspa-testnet"
+
 # Fetcher configuration
+# Use logs-based fetcher for both Docker containers and systemd services
 [fetcher]
-type = "prometheus"
-method = "docker_exec"
-port = 8084
-path = "/metrics"
+type = "logs"
+lines = 100
 
 # Metric definitions
 
 # Block/DAG metrics
 [[metrics]]
-name = "blue_score"
-prometheus_metric = "kaspad_virtual_daa_score"
-display_format = "DAA: {value}"
+name = "blocks_processed"
+regex_pattern = 'Processed\s+(\d+)\s+blocks'
+display_format = "{value} blocks"
 display_priority = "primary"
 category = "blockchain"
-refresh_interval_secs = 2
-cache_duration_secs = 2
+refresh_interval_secs = 10
+cache_duration_secs = 10
 
 [[metrics]]
-name = "tips_count"
-prometheus_metric = "kaspad_block_counts"
-display_format = "{value} tips"
-display_priority = "detail"
+name = "transactions_processed"
+regex_pattern = '\((\d+)\s+transactions'
+display_format = "{value} txs"
+display_priority = "secondary"
 category = "blockchain"
-refresh_interval_secs = 5
-cache_duration_secs = 5
+refresh_interval_secs = 10
+cache_duration_secs = 10
 
 [[metrics]]
-name = "virtual_parents"
-prometheus_metric = "kaspad_virtual_parent_hashes_len"
+name = "avg_parents"
+regex_pattern = '(\d+\.\d+)\s+parents'
 display_format = "{value} parents"
 display_priority = "detail"
 category = "blockchain"
-refresh_interval_secs = 5
-cache_duration_secs = 5
+refresh_interval_secs = 10
+cache_duration_secs = 10
 
-# Network metrics
+# Network metrics - Add TPB (Transactions Per Block)
 [[metrics]]
-name = "peers_connected"
-prometheus_metric = "kaspad_p2p_node_counts"
-display_format = "{value} peers"
-display_priority = "secondary"
-category = "network"
+name = "tpb"
+regex_pattern = '(\d+\.\d+)\s+TPB'
+display_format = "{value} TPB"
+display_priority = "detail"
+category = "blockchain"
 refresh_interval_secs = 10
 cache_duration_secs = 10
 
 [[metrics]]
-name = "network_bandwidth_in"
-prometheus_metric = "kaspad_bandwidth_rx_total"
-display_format = "{value_mb} MB in"
-display_priority = "detail"
-category = "network"
-refresh_interval_secs = 15
-cache_duration_secs = 15
-
-[[metrics]]
-name = "network_bandwidth_out"
-prometheus_metric = "kaspad_bandwidth_tx_total"
-display_format = "{value_mb} MB out"
-display_priority = "detail"
-category = "network"
-refresh_interval_secs = 15
-cache_duration_secs = 15
-
-# Mempool/Transaction metrics
-[[metrics]]
-name = "mempool_transactions"
-prometheus_metric = "kaspad_mempool_tx"
-display_format = "Mempool: {value}"
-display_priority = "detail"
-category = "transactions"
-refresh_interval_secs = 5
-cache_duration_secs = 5
-
-[[metrics]]
-name = "mempool_orphans"
-prometheus_metric = "kaspad_mempool_orphan_tx"
-display_format = "Orphans: {value}"
+name = "utps"
+regex_pattern = '(\d+\.\d+)\s+u-tps'
+display_format = "{value} u-tps"
 display_priority = "detail"
 category = "transactions"
 refresh_interval_secs = 10
 cache_duration_secs = 10
 
-# Sync/Storage metrics
 [[metrics]]
-name = "ibd_progress"
-prometheus_metric = "kaspad_ibd_progress"
-display_format = "IBD: {value_pct}"
+name = "etps_percent"
+regex_pattern = '(\d+\.\d+)%\s+e-tps'
+display_format = "{value}% e-tps"
 display_priority = "detail"
-category = "sync"
-refresh_interval_secs = 5
-cache_duration_secs = 5
+category = "transactions"
+refresh_interval_secs = 10
+cache_duration_secs = 10
+
+# Additional metrics extractable from logs
+[[metrics]]
+name = "utxo_validated_blocks"
+regex_pattern = '(\d+)\s+UTXO-validated blocks'
+display_format = "{value} UTXO-validated"
+display_priority = "detail"
+category = "blockchain"
+refresh_interval_secs = 10
+cache_duration_secs = 10
 
 [[metrics]]
-name = "utxo_set_size"
-prometheus_metric = "kaspad_utxo_set_size"
-display_format = "{value_k}K UTXOs"
+name = "avg_mergeset"
+regex_pattern = '(\d+\.\d+)\s+mergeset'
+display_format = "{value} mergeset"
 display_priority = "detail"
-category = "storage"
-refresh_interval_secs = 30
-cache_duration_secs = 30
-
-# Performance metrics
-[[metrics]]
-name = "process_memory"
-prometheus_metric = "kaspad_process_memory_bytes"
-display_format = "{value_mb} MB"
-display_priority = "detail"
-category = "performance"
-refresh_interval_secs = 30
-cache_duration_secs = 30
-
-[[metrics]]
-name = "cpu_usage"
-prometheus_metric = "kaspad_process_cpu_seconds_total"
-display_format = "CPU: {value}s"
-display_priority = "detail"
-category = "performance"
-refresh_interval_secs = 30
-cache_duration_secs = 30
+category = "blockchain"
+refresh_interval_secs = 10
+cache_duration_secs = 10

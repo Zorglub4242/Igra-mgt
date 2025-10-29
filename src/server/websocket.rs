@@ -36,7 +36,7 @@ async fn handle_logs_websocket(socket: WebSocket, service: String) {
                         let lines: Vec<String> = logs.lines().map(|s| s.to_string()).collect();
 
                         if let Ok(json) = serde_json::to_string(&lines) {
-                            if sender.send(Message::Text(json)).await.is_err() {
+                            if sender.send(Message::Text(json.into())).await.is_err() {
                                 break;
                             }
                         }
@@ -115,7 +115,7 @@ async fn handle_metrics_websocket(socket: WebSocket) {
                         };
 
                         if let Ok(json) = serde_json::to_string(&snapshot) {
-                            if sender.send(Message::Text(json)).await.is_err() {
+                            if sender.send(Message::Text(json.into())).await.is_err() {
                                 break;
                             }
                         }

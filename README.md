@@ -30,7 +30,9 @@ Interactive setup with auto-detection, Web UI configuration, and optional system
 - Wallet viewer with balances and transaction history
 - Storage monitoring with Docker cleanup tools
 - Real-time log streaming via WebSocket
-- Token-based authentication
+- **NEW in v0.13.0:** Multi-user session-based authentication with role-based access control
+- **NEW in v0.13.0:** IP allowlisting for network security
+- **NEW in v0.13.0:** Comprehensive audit logging
 - Single binary deployment with embedded assets
 
 ### 🖥️ Terminal User Interface (TUI)
@@ -100,6 +102,7 @@ See **[Web UI Guide](docs/web-ui.md)** for features and systemd service setup.
 - **[Web UI Guide](docs/web-ui.md)** - Web interface features, server usage, API endpoints
 - **[TUI Guide](docs/tui-guide.md)** - Terminal interface screens, keyboard shortcuts
 - **[Configuration Guide](docs/configuration.md)** - Environment variables, security best practices
+- **[Authentication Setup Guide](AUTH_SETUP_GUIDE.md)** - Multi-user authentication, roles, IP security, audit logs
 - **[Architecture](docs/architecture.md)** - Technology stack, project structure, data flow
 - **[Development Guide](docs/development.md)** - Building from source, contributing
 - **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
@@ -134,6 +137,18 @@ See **[Web UI Guide](docs/web-ui.md)** for features and systemd service setup.
 - View all environment variables
 - Configuration validation
 - Search functionality
+
+### Authentication & Security (v0.13.0)
+- **Multi-user authentication** with session-based login
+- **Role-based access control (RBAC):**
+  - **Admin:** Full system access, user management, configuration
+  - **Operator:** Service control, view logs and metrics
+  - **Viewer:** Read-only access to all data
+- **IP allowlisting** with CIDR notation support
+- **Audit logging** for compliance and security monitoring
+- Automatic default admin user creation on first launch
+- Secure password hashing with Argon2id
+- Session expiry and logout functionality
 
 ## Requirements
 
@@ -228,6 +243,33 @@ igra-cli wallet balance <WORKER_ID>
 
 # Generate new wallet
 igra-cli wallet generate <WORKER_ID>
+```
+
+### Authentication & Security (v0.13.0)
+
+```bash
+# User Management
+igra-cli user list                               # List all users
+igra-cli user add <username> --roles <roles>     # Add user (roles: admin, operator, viewer)
+igra-cli user remove <username>                  # Remove user
+igra-cli user reset-password <username>          # Reset user password
+igra-cli user set-enabled <username> <true|false> # Enable/disable user
+igra-cli user show <username>                    # Show user details
+
+# IP Security
+igra-cli security show                           # View security configuration
+igra-cli security ip add <network>               # Add allowed network (e.g., 192.168.1.0/24)
+igra-cli security ip remove <network>            # Remove allowed network
+
+# Audit Logging
+igra-cli audit show [--limit N]                  # Show audit logs
+igra-cli audit export --output <file>            # Export audit logs
+igra-cli audit clear                             # Clear audit logs
+
+# Examples:
+igra-cli user add operator1 --roles operator
+igra-cli security ip add 192.168.1.0/24
+igra-cli audit show --limit 100
 ```
 
 ### Configuration

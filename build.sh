@@ -24,6 +24,7 @@ fi
 CLEAN=false
 BUILD_TYPE="release"
 BUILD_WINDOWS=false
+DEPLOY=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -39,14 +40,19 @@ while [[ $# -gt 0 ]]; do
             BUILD_WINDOWS=true
             shift
             ;;
+        --deploy)
+            DEPLOY=true
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--clean] [--debug] [--windows]"
+            echo "Usage: $0 [--clean] [--debug] [--windows] [--deploy]"
             echo ""
             echo "Options:"
             echo "  --clean     Clean build artifacts before building"
             echo "  --debug     Build in debug mode (faster compile, larger binary)"
             echo "  --windows   Cross-compile for Windows (x86_64-pc-windows-gnu)"
+            echo "  --deploy    Stop running service, install binary, and restart"
             exit 1
             ;;
     esac
@@ -234,11 +240,54 @@ if [ "$BUILD_TYPE" = "release" ]; then
         echo "⚠️  Note: Windows binary requires Microsoft Visual C++ Redistributable"
         echo "    Download: https://aka.ms/vs/17/release/vc_redist.x64.exe"
     else
-        echo "To install, run: ./install.sh"
-        echo "Or copy manually: sudo cp $BINARY_PATH /usr/local/bin/"
-        echo ""
-        echo "To create a release package:"
-        echo "  tar -czf igra-cli-linux-x86_64.tar.gz -C target/release igra-cli"
+        if [ "$DEPLOY" = true ]; then
+            echo "🚀 Deploying to /usr/local/bin/..."
+            echo ""
+
+            # Stop running igra-cli serve process
+            echo "   Stopping running igra-cli service..."
+            RUNNING_PIDS=$(ps aux | grep "[i]gra-cli serve" | awk '{print $2}')
+            if [ -n "$RUNNING_PIDS" ]; then
+                echo "$RUNNING_PIDS" | xargs sudo kill
+                echo "   ✓ Stopped PIDs: $RUNNING_PIDS"
+                sleep 1
+            else
+                echo "   No running igra-cli service found"
+            fi
+
+            # Install binary
+            echo "   Installing binary to /usr/local/bin/..."
+            sudo cp "$BINARY_PATH" /usr/local/bin/
+            sudo chmod +x /usr/local/bin/igra-cli
+            echo "   ✓ Binary installed"
+
+            # Restart service
+            echo "   Restarting igra-cli service..."
+            if [ -f /tmp/start-igra-cli.sh ]; then
+                sudo nohup /tmp/start-igra-cli.sh > /tmp/igra-cli-server.log 2>&1 &
+                sleep 2
+                NEW_PID=$(ps aux | grep "[i]gra-cli serve" | awk '{print $2}')
+                if [ -n "$NEW_PID" ]; then
+                    echo "   ✓ Service restarted (PID: $NEW_PID)"
+                else
+                    echo "   ⚠️  Warning: Service may not have started. Check /tmp/igra-cli-server.log"
+                fi
+            else
+                echo "   ⚠️  Warning: /tmp/start-igra-cli.sh not found. Start manually with:"
+                echo "      sudo nohup igra-cli serve --host 0.0.0.0 --port 8787 > /tmp/igra-cli-server.log 2>&1 &"
+            fi
+
+            echo ""
+            echo "✅ Deployment complete!"
+        else
+            echo "To install, run: ./install.sh"
+            echo "Or copy manually: sudo cp $BINARY_PATH /usr/local/bin/"
+            echo ""
+            echo "To build and deploy in one step: ./build.sh --deploy"
+            echo ""
+            echo "To create a release package:"
+            echo "  tar -czf igra-cli-linux-x86_64.tar.gz -C target/release igra-cli"
+        fi
     fi
 else
     echo "Debug build complete. Use --release for production builds."

@@ -9,6 +9,7 @@ import StoragePanel from './components/StoragePanel'
 import TransactionsPanel from './components/TransactionsPanel'
 import MonitoringPanel from './components/MonitoringPanel'
 import ConfigPanel from './components/ConfigPanel'
+import NetworkDiagram from './components/NetworkDiagram'
 import LoginPage from './components/LoginPage'
 import UpdateBanner from './components/UpdateBanner'
 import { api } from './services/api'
@@ -125,6 +126,7 @@ function AppContent({ isAuthenticated, handleLogout, nodeInfo, user }) {
             <Route path="/" element={<Navigate to="/services" replace />} />
             <Route path="/services" element={<ServicesPanel />} />
             <Route path="/service/:serviceName" element={<ServiceDetails />} />
+            <Route path="/network" element={<NetworkDiagram />} />
             <Route path="/transactions" element={<TransactionsPanel />} />
             <Route path="/wallets" element={<WalletsPanel />} />
             <Route path="/storage" element={<StoragePanel />} />
