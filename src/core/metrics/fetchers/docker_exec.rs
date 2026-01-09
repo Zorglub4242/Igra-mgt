@@ -1,9 +1,8 @@
+use super::MetricFetcher;
 /// Docker exec fetcher
 ///
 /// Executes arbitrary commands inside containers to fetch metrics
-
-use anyhow::{Result, Context};
-use super::MetricFetcher;
+use anyhow::{Context, Result};
 use regex::Regex;
 
 #[derive(Debug, Clone)]
@@ -26,7 +25,8 @@ impl DockerExecFetcher {
         let captures = re.captures(text)?;
 
         // Try to find first capture group, or use entire match
-        let value_str = captures.get(1)
+        let value_str = captures
+            .get(1)
             .or_else(|| captures.get(0))
             .map(|m| m.as_str())?;
 
@@ -86,11 +86,6 @@ mod tests {
     #[test]
     fn test_parse_simple_number() {
         let output = "123456";
-        let fetcher = DockerExecFetcher::new("echo 123456".to_string(), None);
-
-        assert_eq!(
-            output.trim().parse::<f64>().ok(),
-            Some(123456.0)
-        );
+        assert_eq!(output.trim().parse::<f64>().ok(), Some(123456.0));
     }
 }

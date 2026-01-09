@@ -3,3 +3,9 @@
 
 pub mod core;
 pub mod utils;
+
+#[cfg(feature = "server")]
+pub mod server;
+
+#[cfg(windows)]
+pub mod windows_service;

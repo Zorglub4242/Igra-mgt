@@ -6,7 +6,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tonic_build::compile_protos("proto/kaspawalletd.proto")?;
 
     // Capture build timestamp
-    let build_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z").to_string();
+    let build_time = chrono::Local::now()
+        .format("%Y-%m-%d %H:%M:%S %Z")
+        .to_string();
     println!("cargo:rustc-env=BUILD_TIMESTAMP={}", build_time);
 
     // Note: Not using rerun-if-changed means this script runs on every build,

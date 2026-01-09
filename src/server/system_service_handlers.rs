@@ -1,7 +1,6 @@
 /// System Service API Handlers
 ///
 /// API endpoints for managing system services and categories
-
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -12,8 +11,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::core::{SystemServiceManager, SystemServiceInfo, CategoryManager, ServiceCategory, log_parser};
 use crate::core::service_categories::TrackedService;
+use crate::core::{
+    log_parser, CategoryManager, ServiceCategory, SystemServiceInfo, SystemServiceManager,
+};
 
 pub type SharedSystemServiceManager = Arc<RwLock<SystemServiceManager>>;
 pub type SharedCategoryManager = Arc<RwLock<CategoryManager>>;
@@ -55,6 +56,10 @@ pub struct LogsResponse {
     pub success: bool,
     pub data: Option<String>,
     pub error: Option<String>,
+    pub status_text: Option<String>,
+    pub primary_metric: Option<String>,
+    pub secondary_metric: Option<String>,
+    pub is_healthy_metric: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -131,8 +136,9 @@ pub async fn list_system_services(
             services = mgr.filter_relevant_services(services);
 
             // Load plugin registry to check for metric availability
-            let registry = crate::core::metrics::registry::PluginRegistry::load_from_standard_locations()
-                .unwrap_or_else(|_| crate::core::metrics::registry::PluginRegistry::new());
+            let registry =
+                crate::core::metrics::registry::PluginRegistry::load_from_standard_locations()
+                    .unwrap_or_else(|_| crate::core::metrics::registry::PluginRegistry::new());
 
             // Apply categories and check for metrics availability
             for service in &mut services {
@@ -175,17 +181,24 @@ pub async fn list_available_services(
             services = mgr.filter_relevant_services(services);
 
             // Transform to AvailableServiceInfo with tracking status
-            let available: Vec<AvailableServiceInfo> = services.into_iter().map(|s| {
-                let category = cat_mgr.get_service_category(&s.name);
-                AvailableServiceInfo {
-                    name: s.name.clone(),
-                    display_name: s.display_name,
-                    description: Some(s.description),
-                    status: format!("{:?}", s.status).to_lowercase(),
-                    is_tracked: cat_mgr.is_tracked(&s.name),
-                    category: if category.is_empty() { None } else { Some(category) },
-                }
-            }).collect();
+            let available: Vec<AvailableServiceInfo> = services
+                .into_iter()
+                .map(|s| {
+                    let category = cat_mgr.get_service_category(&s.name);
+                    AvailableServiceInfo {
+                        name: s.name.clone(),
+                        display_name: s.display_name,
+                        description: Some(s.description),
+                        status: format!("{:?}", s.status).to_lowercase(),
+                        is_tracked: cat_mgr.is_tracked(&s.name),
+                        category: if category.is_empty() {
+                            None
+                        } else {
+                            Some(category)
+                        },
+                    }
+                })
+                .collect();
 
             Ok(Json(AvailableServicesResponse {
                 success: true,
@@ -214,16 +227,22 @@ pub async fn get_service_details(
             service.category = cat_mgr.get_service_category(&service.name);
 
             // Fetch metrics from plugin registry (similar to Docker services)
-            let registry = crate::core::metrics::registry::PluginRegistry::load_from_standard_locations()
-                .unwrap_or_else(|_| crate::core::metrics::registry::PluginRegistry::new());
+            let registry =
+                crate::core::metrics::registry::PluginRegistry::load_from_standard_locations()
+                    .unwrap_or_else(|_| crate::core::metrics::registry::PluginRegistry::new());
             let service_base_name = service.name.trim_end_matches(".service");
 
             // Find plugin that matches this system service
             if let Some(plugin) = registry.find_service_plugin(service_base_name) {
                 // Fetch metrics using the new fetch_service_metrics method
-                service.metrics = registry.fetch_service_metrics(service_base_name, plugin).await
+                service.metrics = registry
+                    .fetch_service_metrics(service_base_name, plugin)
+                    .await
                     .unwrap_or_else(|e| {
-                        eprintln!("[WARN] Failed to fetch metrics for {}: {}", service_base_name, e);
+                        eprintln!(
+                            "[WARN] Failed to fetch metrics for {}: {}",
+                            service_base_name, e
+                        );
                         Vec::new()
                     });
             }
@@ -281,20 +300,18 @@ pub async fn stop_service(
     let mgr = manager.read().await;
 
     match mgr.stop_service(&name).await {
-        Ok(_) => {
-            match mgr.get_service_details(&name).await {
-                Ok(service) => Ok(Json(ServiceDetailResponse {
-                    success: true,
-                    data: Some(service),
-                    error: None,
-                })),
-                Err(e) => Ok(Json(ServiceDetailResponse {
-                    success: false,
-                    data: None,
-                    error: Some(e.to_string()),
-                })),
-            }
-        }
+        Ok(_) => match mgr.get_service_details(&name).await {
+            Ok(service) => Ok(Json(ServiceDetailResponse {
+                success: true,
+                data: Some(service),
+                error: None,
+            })),
+            Err(e) => Ok(Json(ServiceDetailResponse {
+                success: false,
+                data: None,
+                error: Some(e.to_string()),
+            })),
+        },
         Err(e) => Ok(Json(ServiceDetailResponse {
             success: false,
             data: None,
@@ -311,20 +328,18 @@ pub async fn restart_service(
     let mgr = manager.read().await;
 
     match mgr.restart_service(&name).await {
-        Ok(_) => {
-            match mgr.get_service_details(&name).await {
-                Ok(service) => Ok(Json(ServiceDetailResponse {
-                    success: true,
-                    data: Some(service),
-                    error: None,
-                })),
-                Err(e) => Ok(Json(ServiceDetailResponse {
-                    success: false,
-                    data: None,
-                    error: Some(e.to_string()),
-                })),
-            }
-        }
+        Ok(_) => match mgr.get_service_details(&name).await {
+            Ok(service) => Ok(Json(ServiceDetailResponse {
+                success: true,
+                data: Some(service),
+                error: None,
+            })),
+            Err(e) => Ok(Json(ServiceDetailResponse {
+                success: false,
+                data: None,
+                error: Some(e.to_string()),
+            })),
+        },
         Err(e) => Ok(Json(ServiceDetailResponse {
             success: false,
             data: None,
@@ -341,20 +356,18 @@ pub async fn enable_service(
     let mgr = manager.read().await;
 
     match mgr.enable_service(&name).await {
-        Ok(_) => {
-            match mgr.get_service_details(&name).await {
-                Ok(service) => Ok(Json(ServiceDetailResponse {
-                    success: true,
-                    data: Some(service),
-                    error: None,
-                })),
-                Err(e) => Ok(Json(ServiceDetailResponse {
-                    success: false,
-                    data: None,
-                    error: Some(e.to_string()),
-                })),
-            }
-        }
+        Ok(_) => match mgr.get_service_details(&name).await {
+            Ok(service) => Ok(Json(ServiceDetailResponse {
+                success: true,
+                data: Some(service),
+                error: None,
+            })),
+            Err(e) => Ok(Json(ServiceDetailResponse {
+                success: false,
+                data: None,
+                error: Some(e.to_string()),
+            })),
+        },
         Err(e) => Ok(Json(ServiceDetailResponse {
             success: false,
             data: None,
@@ -371,20 +384,18 @@ pub async fn disable_service(
     let mgr = manager.read().await;
 
     match mgr.disable_service(&name).await {
-        Ok(_) => {
-            match mgr.get_service_details(&name).await {
-                Ok(service) => Ok(Json(ServiceDetailResponse {
-                    success: true,
-                    data: Some(service),
-                    error: None,
-                })),
-                Err(e) => Ok(Json(ServiceDetailResponse {
-                    success: false,
-                    data: None,
-                    error: Some(e.to_string()),
-                })),
-            }
-        }
+        Ok(_) => match mgr.get_service_details(&name).await {
+            Ok(service) => Ok(Json(ServiceDetailResponse {
+                success: true,
+                data: Some(service),
+                error: None,
+            })),
+            Err(e) => Ok(Json(ServiceDetailResponse {
+                success: false,
+                data: None,
+                error: Some(e.to_string()),
+            })),
+        },
         Err(e) => Ok(Json(ServiceDetailResponse {
             success: false,
             data: None,
@@ -406,7 +417,7 @@ pub async fn get_service_logs(
             // Parse logs using the appropriate parser based on service name
             // For kaspa-mainnet.service, kaspa-testnet-11.service, etc., use kaspad parser
             let service_base_name = if name.ends_with(".service") {
-                &name[..name.len() - 8]  // Remove ".service" suffix
+                &name[..name.len() - 8] // Remove ".service" suffix
             } else {
                 &name
             };
@@ -419,12 +430,20 @@ pub async fn get_service_logs(
                 success: true,
                 data: Some(logs),
                 error: None,
+                status_text: parsed_metrics.status_text,
+                primary_metric: parsed_metrics.primary_metric,
+                secondary_metric: parsed_metrics.secondary_metric,
+                is_healthy_metric: Some(parsed_metrics.is_healthy),
             }))
-        },
+        }
         Err(e) => Ok(Json(LogsResponse {
             success: false,
             data: None,
             error: Some(e.to_string()),
+            status_text: None,
+            primary_metric: None,
+            secondary_metric: None,
+            is_healthy_metric: None,
         })),
     }
 }

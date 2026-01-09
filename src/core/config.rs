@@ -1,13 +1,14 @@
 /// Configuration management for .env files
 ///
 /// Handles reading, writing, and validating IGRA Orchestra configuration
-
 use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::utils::{generate_hex_string, is_valid_domain, is_valid_email, is_valid_hex, RPC_TOKEN_COUNT};
+use crate::utils::{
+    generate_hex_string, is_valid_domain, is_valid_email, is_valid_hex, RPC_TOKEN_COUNT,
+};
 
 #[derive(Debug, Clone)]
 pub struct ConfigValue {
@@ -37,8 +38,7 @@ impl ConfigManager {
             return Err(anyhow!(".env file not found at {}", env_file.display()));
         }
 
-        let content = fs::read_to_string(&env_file)
-            .context("Failed to read .env file")?;
+        let content = fs::read_to_string(&env_file).context("Failed to read .env file")?;
 
         let mut config = HashMap::new();
         let mut current_comment = None;
@@ -98,8 +98,7 @@ impl ConfigManager {
             }
         }
 
-        fs::write(&self.env_file, lines.join("\n"))
-            .context("Failed to write .env file")?;
+        fs::write(&self.env_file, lines.join("\n")).context("Failed to write .env file")?;
 
         Ok(())
     }
@@ -232,10 +231,7 @@ impl ConfigManager {
         for (i, token) in self.get_rpc_tokens() {
             if let Some(t) = token {
                 if !is_valid_hex(&t) || t.len() != 32 {
-                    errors.push(format!(
-                        "RPC_ACCESS_TOKEN_{} must be 32 hex characters",
-                        i
-                    ));
+                    errors.push(format!("RPC_ACCESS_TOKEN_{} must be 32 hex characters", i));
                 }
             }
         }

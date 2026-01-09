@@ -1,5 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+
+#[cfg(target_os = "linux")]
 use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,10 +33,7 @@ impl FirewallManager {
     pub fn get_status(&self) -> Result<FirewallStatus> {
         #[cfg(target_os = "linux")]
         {
-            let output = Command::new("ufw")
-                .arg("status")
-                .arg("verbose")
-                .output()?;
+            let output = Command::new("ufw").arg("status").arg("verbose").output()?;
 
             if !output.status.success() {
                 return Ok(FirewallStatus {
@@ -60,6 +59,7 @@ impl FirewallManager {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn parse_ufw_output(&self, output: &str) -> Result<FirewallStatus> {
         let mut status = FirewallStatus {
             active: false,
@@ -114,6 +114,7 @@ impl FirewallManager {
         Ok(status)
     }
 
+    #[cfg(target_os = "linux")]
     fn parse_rule_line(&self, line: &str) -> Option<FirewallRule> {
         // UFW output format examples:
         // "22/tcp                     ALLOW IN    Anywhere"
@@ -161,7 +162,10 @@ impl FirewallManager {
     }
 
     /// Group rules by accessibility type
-    pub fn categorize_rules(&self, rules: &[FirewallRule]) -> (Vec<FirewallRule>, Vec<FirewallRule>, Vec<FirewallRule>) {
+    pub fn categorize_rules(
+        &self,
+        rules: &[FirewallRule],
+    ) -> (Vec<FirewallRule>, Vec<FirewallRule>, Vec<FirewallRule>) {
         let mut public_rules = vec![];
         let mut lan_only_rules = vec![];
         let mut special_rules = vec![];
@@ -169,7 +173,10 @@ impl FirewallManager {
         for rule in rules {
             if rule.source == "0.0.0.0/0" || rule.source == "Anywhere" {
                 public_rules.push(rule.clone());
-            } else if rule.source.starts_with("192.168.") || rule.source.starts_with("10.") || rule.source.starts_with("172.") {
+            } else if rule.source.starts_with("192.168.")
+                || rule.source.starts_with("10.")
+                || rule.source.starts_with("172.")
+            {
                 lan_only_rules.push(rule.clone());
             } else {
                 special_rules.push(rule.clone());
@@ -183,14 +190,14 @@ impl FirewallManager {
     pub fn is_port_public(&self, status: &FirewallStatus, port: u16) -> bool {
         let port_str = port.to_string();
         status.rules.iter().any(|rule| {
-            rule.action == "allow" &&
-            (rule.port == port_str || rule.port == "*") &&
-            (rule.source == "0.0.0.0/0" || rule.source == "Anywhere")
+            rule.action == "allow"
+                && (rule.port == port_str || rule.port == "*")
+                && (rule.source == "0.0.0.0/0" || rule.source == "Anywhere")
         })
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
 
@@ -198,13 +205,17 @@ mod tests {
     fn test_parse_rule_line() {
         let fm = FirewallManager::new();
 
-        let rule = fm.parse_rule_line("22/tcp                     ALLOW IN    Anywhere").unwrap();
+        let rule = fm
+            .parse_rule_line("22/tcp                     ALLOW IN    Anywhere")
+            .unwrap();
         assert_eq!(rule.port, "22");
         assert_eq!(rule.protocol, "tcp");
         assert_eq!(rule.action, "allow");
         assert_eq!(rule.source, "0.0.0.0/0");
 
-        let rule = fm.parse_rule_line("16211/tcp                  ALLOW IN    37.27.122.164").unwrap();
+        let rule = fm
+            .parse_rule_line("16211/tcp                  ALLOW IN    37.27.122.164")
+            .unwrap();
         assert_eq!(rule.port, "16211");
         assert_eq!(rule.source, "37.27.122.164");
     }

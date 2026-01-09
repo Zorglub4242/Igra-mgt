@@ -1,3 +1,5 @@
+pub mod embedded;
+pub mod fetchers;
 /// Pluggable metrics system for Docker containers
 ///
 /// This module provides a flexible, plugin-based architecture for collecting and displaying
@@ -24,13 +26,10 @@
 /// // Get all metrics for a container (for detail view)
 /// let metrics = registry.fetch_all_metrics("execution-layer", "reth:latest").await?;
 /// ```
-
 pub mod plugin;
 pub mod registry;
-pub mod fetchers;
-pub mod embedded;
 
 // Re-export commonly used types
-pub use plugin::{PluginConfig, MetricDefinition, DisplayPriority};
-pub use registry::PluginRegistry;
 pub use fetchers::MetricValue;
+pub use plugin::{DisplayPriority, MetricDefinition, PluginConfig};
+pub use registry::PluginRegistry;

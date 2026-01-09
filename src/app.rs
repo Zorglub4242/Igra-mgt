@@ -1,27 +1,23 @@
 /// Main TUI application
-
 use anyhow::Result;
 use crossterm::{
     event::{self, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{
-    backend::CrosstermBackend,
-    Terminal,
-};
+use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 use std::time::{Duration, Instant};
 
-use crate::core::{ConfigManager, DockerManager};
-use crate::core::wallet::WalletManager;
 use crate::core::ssl::SslManager;
+use crate::core::wallet::WalletManager;
+use crate::core::{ConfigManager, DockerManager};
 use crate::screens::Dashboard;
 
 // Constants for log buffer management
-const MAX_LOG_LINES: usize = 10_000;  // Maximum lines to keep in memory
-const INITIAL_LOG_FETCH: usize = 1000;  // Lines to fetch on initial load
-const LIVE_LOG_FETCH: usize = 100;  // Lines to fetch in live mode updates
+const MAX_LOG_LINES: usize = 10_000; // Maximum lines to keep in memory
+const INITIAL_LOG_FETCH: usize = 1000; // Lines to fetch on initial load
+const LIVE_LOG_FETCH: usize = 100; // Lines to fetch in live mode updates
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Screen {
@@ -98,12 +94,19 @@ pub struct App {
     status_message: Option<String>,
     show_help: bool,
     // Background data refresh channels
-    container_data_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<crate::core::docker::ContainerInfo>>,
-    container_stats_rx: tokio::sync::mpsc::UnboundedReceiver<std::collections::HashMap<String, crate::core::docker::ContainerStats>>,
-    image_versions_rx: tokio::sync::mpsc::UnboundedReceiver<std::collections::HashMap<String, crate::core::versions::ImageVersion>>,
+    container_data_rx:
+        tokio::sync::mpsc::UnboundedReceiver<Vec<crate::core::docker::ContainerInfo>>,
+    container_stats_rx: tokio::sync::mpsc::UnboundedReceiver<
+        std::collections::HashMap<String, crate::core::docker::ContainerStats>,
+    >,
+    image_versions_rx: tokio::sync::mpsc::UnboundedReceiver<
+        std::collections::HashMap<String, crate::core::versions::ImageVersion>,
+    >,
     // Watch screen channels
-    watch_transactions_tx: tokio::sync::mpsc::UnboundedSender<Vec<crate::core::l2_monitor::TransactionInfo>>,
-    watch_transactions_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<crate::core::l2_monitor::TransactionInfo>>,
+    watch_transactions_tx:
+        tokio::sync::mpsc::UnboundedSender<Vec<crate::core::l2_monitor::TransactionInfo>>,
+    watch_transactions_rx:
+        tokio::sync::mpsc::UnboundedReceiver<Vec<crate::core::l2_monitor::TransactionInfo>>,
     watch_stats_tx: tokio::sync::mpsc::UnboundedSender<crate::core::l2_monitor::Statistics>,
     watch_stats_rx: tokio::sync::mpsc::UnboundedReceiver<crate::core::l2_monitor::Statistics>,
     // Detail view live logs channels
@@ -128,11 +131,11 @@ pub struct App {
     edit_key: Option<String>,
     // Service detail view state
     detail_view_service: Option<String>,
-    detail_logs: Vec<crate::core::ParsedLogLine>,  // Pre-parsed logs for fast rendering
-    detail_logs_scroll_offset: usize,  // Scroll position (0 = bottom/auto-follow)
+    detail_logs: Vec<crate::core::ParsedLogLine>, // Pre-parsed logs for fast rendering
+    detail_logs_scroll_offset: usize,             // Scroll position (0 = bottom/auto-follow)
     detail_logs_live_mode: bool,
     detail_logs_grouping: bool,
-    detail_logs_filter: Option<crate::core::LogLevel>,  // None = show all
+    detail_logs_filter: Option<crate::core::LogLevel>, // None = show all
     // Config comparison view state
     detail_view_config: Option<crate::core::docker::ServiceConfigComparison>,
     // Profile detail view state
@@ -140,7 +143,7 @@ pub struct App {
     profile_services: Vec<crate::core::docker::ContainerInfo>,
     profile_selected_service: usize,
     // Wallet detail view state
-    detail_view_wallet: Option<usize>, // worker_id
+    detail_view_wallet: Option<usize>,                // worker_id
     detail_wallet_addresses: Vec<(String, f64, f64)>, // (address, available, pending)
     detail_wallet_utxos: Vec<crate::core::wallet::UtxoInfo>, // UTXOs for activity view
     // Search/filter state
@@ -151,24 +154,24 @@ pub struct App {
     show_send_dialog: bool,
     send_amount: String,
     send_address: String,
-    send_input_field: usize, // 0 = amount, 1 = address
-    send_use_wallet_selector: bool, // Toggle between manual address entry and wallet selection
+    send_input_field: usize,           // 0 = amount, 1 = address
+    send_use_wallet_selector: bool,    // Toggle between manual address entry and wallet selection
     send_selected_wallet_index: usize, // Index of selected wallet for destination
-    send_source_address: String, // Source wallet address to display
+    send_source_address: String,       // Source wallet address to display
     // New feature states
-    detail_wallet_scroll: usize, // Scroll offset for transaction list
+    detail_wallet_scroll: usize,    // Scroll offset for transaction list
     detail_addresses_scroll: usize, // Scroll offset for addresses
-    show_tx_detail: bool, // Transaction detail modal
+    show_tx_detail: bool,           // Transaction detail modal
     selected_tx_index: Option<usize>, // Selected transaction for detail view
-    tx_search_mode: bool, // Transaction search/filter mode
-    tx_search_buffer: String, // Search query for transactions
+    tx_search_mode: bool,           // Transaction search/filter mode
+    tx_search_buffer: String,       // Search query for transactions
     filtered_tx_indices: Vec<usize>, // Filtered transaction indices
-    auto_refresh_enabled: bool, // Auto-refresh toggle
-    color_theme: String, // Color theme name
+    auto_refresh_enabled: bool,     // Auto-refresh toggle
+    color_theme: String,            // Color theme name
     // New v0.5.0 dashboard reorganization states
-    services_view: ServicesView, // Services/Profiles tab view
+    services_view: ServicesView,   // Services/Profiles tab view
     config_section: ConfigSection, // Config multi-tab section
-    show_all_containers: bool, // Show all Docker containers (not just IGRA)
+    show_all_containers: bool,     // Show all Docker containers (not just IGRA)
     // Watch screen state
     watch_monitor: Option<std::sync::Arc<crate::core::l2_monitor::TransactionMonitor>>,
     watch_transactions: Vec<crate::core::l2_monitor::TransactionInfo>,
@@ -181,8 +184,8 @@ pub struct App {
     storage_analysis: Option<crate::core::storage::StorageAnalysis>,
     storage_last_update: Option<Instant>,
     storage_scroll_offset: usize,
-    storage_chart_days: u32,        // Time range for chart: 7, 30, or 90 days
-    storage_show_details: bool,     // Toggle details table view
+    storage_chart_days: u32,    // Time range for chart: 7, 30, or 90 days
+    storage_show_details: bool, // Toggle details table view
     // Service details screen state
     service_details_screen: crate::screens::ServiceDetailsScreen,
     service_details_data: Option<crate::core::docker::ServiceDetails>,
@@ -196,7 +199,8 @@ impl App {
         let ssl_manager = SslManager::new()?;
 
         // Get domain from config
-        let ssl_domain = config.get("IGRA_ORCHESTRA_DOMAIN")
+        let ssl_domain = config
+            .get("IGRA_ORCHESTRA_DOMAIN")
             .unwrap_or("N/A")
             .to_string();
 
@@ -232,8 +236,8 @@ impl App {
 
                 // Fetch current running containers from Docker
                 if let Ok(containers) = docker_clone2.list_containers().await {
-                    use std::collections::HashMap;
                     use futures::future::join_all;
+                    use std::collections::HashMap;
 
                     let running_containers: Vec<String> = containers
                         .iter()
@@ -246,7 +250,12 @@ impl App {
                         let docker = docker_clone2.clone();
                         let name = name.clone();
                         async move {
-                            docker.get_container_stats(&name).await.ok().flatten().map(|stats| (name, stats))
+                            docker
+                                .get_container_stats(&name)
+                                .await
+                                .ok()
+                                .flatten()
+                                .map(|stats| (name, stats))
                         }
                     });
 
@@ -277,7 +286,8 @@ impl App {
                 let mut current_images = HashMap::new();
                 for container in &containers {
                     // Extract image name and current tag
-                    let image_str = container.image
+                    let image_str = container
+                        .image
                         .split('/')
                         .last()
                         .unwrap_or(&container.image);
@@ -308,7 +318,8 @@ impl App {
                     let mut current_images = HashMap::new();
                     for container in &containers {
                         // Extract image name and current tag
-                        let image_str = container.image
+                        let image_str = container
+                            .image
                             .split('/')
                             .last()
                             .unwrap_or(&container.image);
@@ -382,10 +393,10 @@ impl App {
             edit_key: None,
             detail_view_service: None,
             detail_logs: Vec::new(),
-            detail_logs_scroll_offset: 0,  // 0 = bottom/auto-follow
+            detail_logs_scroll_offset: 0, // 0 = bottom/auto-follow
             detail_logs_live_mode: false,
             detail_logs_grouping: true,
-            detail_logs_filter: None,  // Show all logs by default
+            detail_logs_filter: None, // Show all logs by default
             detail_view_config: None,
             detail_view_profile: None,
             profile_services: Vec::new(),
@@ -416,7 +427,7 @@ impl App {
             // New v0.5.0 dashboard reorganization initializations
             services_view: ServicesView::Services,
             config_section: ConfigSection::Environment,
-            show_all_containers: false,  // Default to showing only IGRA containers
+            show_all_containers: false, // Default to showing only IGRA containers
             watch_monitor: None,
             watch_transactions: Vec::new(),
             watch_statistics: None,
@@ -427,8 +438,8 @@ impl App {
             storage_analysis: None,
             storage_last_update: None,
             storage_scroll_offset: 0,
-            storage_chart_days: 90,        // Default to 90 days
-            storage_show_details: false,   // Details table hidden by default
+            storage_chart_days: 90,      // Default to 90 days
+            storage_show_details: false, // Details table hidden by default
             service_details_screen: crate::screens::ServiceDetailsScreen::new(),
             service_details_data: None,
             detail_logs_live_tx,
@@ -438,14 +449,12 @@ impl App {
     }
 
     pub fn collect_system_resources() -> SystemResources {
-        use sysinfo::{System, Disks, CpuRefreshKind, RefreshKind};
         use std::process::Command;
+        use sysinfo::{CpuRefreshKind, Disks, RefreshKind, System};
 
         // Initialize system info with CPU refresh
-        let mut sys = System::new_with_specifics(
-            RefreshKind::new()
-                .with_cpu(CpuRefreshKind::everything())
-        );
+        let mut sys =
+            System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
 
         // Refresh to get accurate CPU usage
         std::thread::sleep(std::time::Duration::from_millis(200));
@@ -477,10 +486,12 @@ impl App {
         // Get CPU info
         let cpus = sys.cpus();
         let cpu_cores = cpus.len();
-        let cpu_model = cpus.first()
+        let cpu_model = cpus
+            .first()
             .map(|cpu| cpu.brand().to_string())
             .unwrap_or_else(|| "Unknown CPU".to_string());
-        let cpu_frequency_ghz = cpus.first()
+        let cpu_frequency_ghz = cpus
+            .first()
             .map(|cpu| cpu.frequency() as f32 / 1000.0) // Convert MHz to GHz
             .unwrap_or(0.0);
 
@@ -516,7 +527,7 @@ impl App {
                     self.containers.clone(),
                     self.active_profiles.clone(),
                     self.container_stats.clone(),
-                    self.image_versions.clone()
+                    self.image_versions.clone(),
                 );
                 self.dashboard.update_profiles(self.active_profiles.clone());
             }
@@ -529,7 +540,9 @@ impl App {
             }
             Screen::Config => {
                 // Update all config sections (environment, RPC tokens, SSL)
-                self.config_data = self.config.keys()
+                self.config_data = self
+                    .config
+                    .keys()
                     .into_iter()
                     .map(|k| {
                         let val = self.config.get(&k).unwrap_or("");
@@ -539,7 +552,9 @@ impl App {
                 self.dashboard.update_config(self.config_data.clone());
 
                 let tokens = self.config.get_rpc_tokens();
-                let domain = self.config.get("IGRA_ORCHESTRA_DOMAIN")
+                let domain = self
+                    .config
+                    .get("IGRA_ORCHESTRA_DOMAIN")
                     .unwrap_or("N/A")
                     .to_string();
                 self.dashboard.update_rpc_tokens(tokens, domain);
@@ -593,10 +608,7 @@ impl App {
 
         // Restore terminal
         disable_raw_mode()?;
-        execute!(
-            terminal.backend_mut(),
-            LeaveAlternateScreen
-        )?;
+        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
         terminal.show_cursor()?;
 
         result
@@ -623,7 +635,7 @@ impl App {
                     self.containers.clone(),
                     self.active_profiles.clone(),
                     self.container_stats.clone(),
-                    self.image_versions.clone()
+                    self.image_versions.clone(),
                 );
                 self.dashboard.update_profiles(self.active_profiles.clone());
             }
@@ -636,7 +648,9 @@ impl App {
             }
             Screen::Config => {
                 // Update all config sections
-                self.config_data = self.config.keys()
+                self.config_data = self
+                    .config
+                    .keys()
                     .into_iter()
                     .map(|k| {
                         let val = self.config.get(&k).unwrap_or("");
@@ -646,14 +660,20 @@ impl App {
                 self.dashboard.update_config(self.config_data.clone());
 
                 let tokens = self.config.get_rpc_tokens();
-                let domain = self.config.get("IGRA_ORCHESTRA_DOMAIN")
+                let domain = self
+                    .config
+                    .get("IGRA_ORCHESTRA_DOMAIN")
                     .unwrap_or("N/A")
                     .to_string();
                 self.dashboard.update_rpc_tokens(tokens, domain);
 
                 // Load SSL certificate info
                 if self.ssl_domain != "N/A" {
-                    match self.ssl_manager.get_certificate_info(&self.ssl_domain).await {
+                    match self
+                        .ssl_manager
+                        .get_certificate_info(&self.ssl_domain)
+                        .await
+                    {
                         Ok(cert_info) => {
                             self.dashboard.update_ssl(Some(cert_info.clone()));
                             self.ssl_cert_info = Some(cert_info);
@@ -670,7 +690,8 @@ impl App {
             Screen::Storage => {
                 // Refresh storage analysis (with caching for display only)
                 // Note: History snapshots are handled by background task now
-                let should_refresh = self.storage_last_update
+                let should_refresh = self
+                    .storage_last_update
                     .map(|last| last.elapsed() > std::time::Duration::from_secs(30))
                     .unwrap_or(true);
 
@@ -702,13 +723,12 @@ impl App {
 
         // Calculate TPS if we have previous metrics
         if let (Some(ref prev_metrics), Some(prev_timestamp)) =
-            (&self.reth_metrics, self.reth_metrics_timestamp) {
+            (&self.reth_metrics, self.reth_metrics_timestamp)
+        {
             let elapsed = prev_timestamp.elapsed().as_secs_f64();
-            if let Some(tps) = crate::core::reth_metrics::calculate_tps(
-                &current_metrics,
-                prev_metrics,
-                elapsed
-            ) {
+            if let Some(tps) =
+                crate::core::reth_metrics::calculate_tps(&current_metrics, prev_metrics, elapsed)
+            {
                 current_metrics.tps = Some(tps);
             }
         }
@@ -729,7 +749,8 @@ impl App {
             while let Ok(containers) = self.container_data_rx.try_recv() {
                 self.containers = containers;
                 // Derive profiles synchronously from container list (no blocking!)
-                self.active_profiles = DockerManager::get_active_profiles_from_list(&self.containers);
+                self.active_profiles =
+                    DockerManager::get_active_profiles_from_list(&self.containers);
 
                 // Update dashboard with new container data
                 if self.current_screen == Screen::Services {
@@ -737,7 +758,7 @@ impl App {
                         self.containers.clone(),
                         self.active_profiles.clone(),
                         self.container_stats.clone(),
-                        self.image_versions.clone()
+                        self.image_versions.clone(),
                     );
                 }
             }
@@ -752,7 +773,7 @@ impl App {
                         self.containers.clone(),
                         self.active_profiles.clone(),
                         self.container_stats.clone(),
-                        self.image_versions.clone()
+                        self.image_versions.clone(),
                     );
                 }
             }
@@ -767,7 +788,7 @@ impl App {
                         self.containers.clone(),
                         self.active_profiles.clone(),
                         self.container_stats.clone(),
-                        self.image_versions.clone()
+                        self.image_versions.clone(),
                     );
                 }
             }
@@ -787,8 +808,11 @@ impl App {
 
                 // Record transactions to file if enabled
                 if let Some(ref mut file) = self.watch_recording_file {
-                    for tx in &self.watch_transactions[0..self.watch_transactions.len().min(tx_count)] {
-                        let _ = Self::write_transaction_to_file(file, tx, &self.watch_recording_format);
+                    for tx in
+                        &self.watch_transactions[0..self.watch_transactions.len().min(tx_count)]
+                    {
+                        let _ =
+                            Self::write_transaction_to_file(file, tx, &self.watch_recording_format);
                     }
                 }
             }
@@ -819,7 +843,8 @@ impl App {
                     let excess = self.detail_logs.len() - MAX_LOG_LINES;
                     self.detail_logs.drain(0..excess);
                     // Adjust scroll offset if needed
-                    self.detail_logs_scroll_offset = self.detail_logs_scroll_offset.saturating_sub(excess);
+                    self.detail_logs_scroll_offset =
+                        self.detail_logs_scroll_offset.saturating_sub(excess);
                 }
 
                 // If at bottom (scroll_offset == 0), stay at bottom (auto-follow)
@@ -827,7 +852,7 @@ impl App {
             }
 
             // Refresh non-container data periodically
-            if self.last_refresh.elapsed() >= self.refresh_interval {
+            if self.auto_refresh_enabled && self.last_refresh.elapsed() >= self.refresh_interval {
                 if let Err(e) = self.refresh_data().await {
                     // Show error but don't crash
                     eprintln!("Failed to refresh data: {}", e);
@@ -924,6 +949,25 @@ impl App {
                 // Refresh all data
                 self.set_status("Refreshing...".to_string());
                 self.refresh_data().await?;
+            }
+            KeyCode::Char('a') => {
+                // Toggle auto-refresh
+                self.auto_refresh_enabled = !self.auto_refresh_enabled;
+                let mode = if self.auto_refresh_enabled {
+                    "enabled"
+                } else {
+                    "disabled"
+                };
+                self.set_status(format!("✓ Auto-refresh {}", mode));
+            }
+            KeyCode::Char('T') => {
+                // Toggle color theme (stored for future UI theming)
+                self.color_theme = if self.color_theme == "dark" {
+                    "light".to_string()
+                } else {
+                    "dark".to_string()
+                };
+                self.set_status(format!("✓ Theme: {}", self.color_theme));
             }
             KeyCode::Right => {
                 // Right arrow: Navigate to next main screen
@@ -1171,7 +1215,11 @@ impl App {
                         self.profile_selected_service = 0;
                         // Open config comparison for selected service
                         self.set_status(format!("Loading config for {}...", service_name));
-                        match self.docker.get_service_config_comparison(&service_name).await {
+                        match self
+                            .docker
+                            .get_service_config_comparison(&service_name)
+                            .await
+                        {
                             Ok(config) => {
                                 self.detail_view_config = Some(config);
                                 self.clear_status();
@@ -1181,15 +1229,16 @@ impl App {
                             }
                         }
                     }
-                }
-                else {
+                } else {
                     self.handle_action().await?;
                 }
             }
             KeyCode::Char(' ') => {
                 // Space for toggle on Services/Profiles view
-                if self.current_screen == Screen::Services && self.services_view == ServicesView::Profiles {
-                    self.handle_action().await?;
+                if self.current_screen == Screen::Services
+                    && self.services_view == ServicesView::Profiles
+                {
+                    self.handle_profile_toggle().await?;
                 }
             }
             KeyCode::Char('s') => {
@@ -1226,16 +1275,24 @@ impl App {
             }
             KeyCode::Char('A') => {
                 // Toggle show All containers (capital A)
-                if self.current_screen == Screen::Services && self.services_view == ServicesView::Services {
+                if self.current_screen == Screen::Services
+                    && self.services_view == ServicesView::Services
+                {
                     self.show_all_containers = !self.show_all_containers;
-                    let mode = if self.show_all_containers { "all projects" } else { "IGRA only" };
+                    let mode = if self.show_all_containers {
+                        "all projects"
+                    } else {
+                        "IGRA only"
+                    };
                     self.set_status(format!("✓ Container view: {}", mode));
                     self.refresh_data().await?;
                 }
             }
             KeyCode::Char('d') => {
                 // Show config comparison for selected service
-                if self.current_screen == Screen::Services && self.services_view == ServicesView::Services {
+                if self.current_screen == Screen::Services
+                    && self.services_view == ServicesView::Services
+                {
                     self.show_service_config().await?;
                 }
             }
@@ -1267,7 +1324,9 @@ impl App {
             }
             KeyCode::Char('c') => {
                 // Check certificate (SSL) or Clear transactions (Watch)
-                if self.current_screen == Screen::Config && self.config_section == ConfigSection::SslCerts {
+                if self.current_screen == Screen::Config
+                    && self.config_section == ConfigSection::SslCerts
+                {
                     self.handle_ssl_check().await?;
                 } else if self.current_screen == Screen::Watch {
                     self.watch_transactions.clear();
@@ -1276,7 +1335,9 @@ impl App {
             }
             KeyCode::Char('n') => {
                 // Force renewal (reNew)
-                if self.current_screen == Screen::Config && self.config_section == ConfigSection::SslCerts {
+                if self.current_screen == Screen::Config
+                    && self.config_section == ConfigSection::SslCerts
+                {
                     self.handle_ssl_renew().await?;
                 }
             }
@@ -1315,7 +1376,9 @@ impl App {
             }
             KeyCode::Char('l') => {
                 // Show logs: from Services list OR from Profile detail view
-                if self.current_screen == Screen::Services && self.services_view == ServicesView::Services {
+                if self.current_screen == Screen::Services
+                    && self.services_view == ServicesView::Services
+                {
                     if self.detail_view_service.is_none() {
                         // Open logs view from services list
                         self.show_service_details().await?;
@@ -1331,10 +1394,15 @@ impl App {
                         self.profile_selected_service = 0;
                         // Open logs for selected service
                         self.set_status(format!("Loading logs for {}...", service_name));
-                        match self.docker.get_logs(&service_name, Some(INITIAL_LOG_FETCH)).await {
+                        match self
+                            .docker
+                            .get_logs(&service_name, Some(INITIAL_LOG_FETCH))
+                            .await
+                        {
                             Ok(logs) => {
                                 // Parse logs once on load
-                                self.detail_logs = logs.lines()
+                                self.detail_logs = logs
+                                    .lines()
                                     .map(|s| crate::core::parse_docker_log_line(s))
                                     .collect();
                                 self.detail_view_service = Some(service_name);
@@ -1353,12 +1421,6 @@ impl App {
             KeyCode::Char('i') => {
                 // Filter INFO in logs
             }
-            KeyCode::Char('t') => {
-                // Toggle compact/detailed log view
-            }
-            KeyCode::Char('g') => {
-                // Toggle log grouping by level/module
-            }
             KeyCode::PageUp => {
                 // Page up in logs
             }
@@ -1376,12 +1438,19 @@ impl App {
                     self.tx_search_mode = true;
                     self.tx_search_buffer.clear();
                     self.filtered_tx_indices.clear();
-                    self.set_status("Search transactions: (type TxID, address, or amount)".to_string());
-                } else if matches!(self.current_screen, Screen::Services | Screen::Config | Screen::Wallets) {
+                    self.set_status(
+                        "Search transactions: (type TxID, address, or amount)".to_string(),
+                    );
+                } else if matches!(
+                    self.current_screen,
+                    Screen::Services | Screen::Config | Screen::Wallets
+                ) {
                     self.search_mode = true;
                     self.search_buffer.clear();
                     self.filtered_indices.clear();
-                    self.set_status("Search: (type to filter, Enter to apply, Esc to cancel)".to_string());
+                    self.set_status(
+                        "Search: (type to filter, Enter to apply, Esc to cancel)".to_string(),
+                    );
                 }
             }
             _ => {}
@@ -1404,10 +1473,10 @@ impl App {
                 match self.config_section {
                     ConfigSection::Environment => self.config_data.len().saturating_sub(1),
                     ConfigSection::RpcTokens => 45, // 46 tokens, 0-45
-                    ConfigSection::SslCerts => 0, // No selection in SSL section
+                    ConfigSection::SslCerts => 0,   // No selection in SSL section
                 }
             }
-            Screen::Storage => 0, // No selection in Storage screen
+            Screen::Storage => 0,           // No selection in Storage screen
             Screen::ServiceDetails(_) => 0, // No selection in service details (tab-based navigation)
         }
     }
@@ -1416,17 +1485,15 @@ impl App {
         match self.current_screen {
             Screen::Services => {
                 match self.services_view {
-                    ServicesView::Services => self.show_service_details().await,  // Enter = show logs
-                    ServicesView::Profiles => self.show_profile_details().await,  // Enter = show profile details
+                    ServicesView::Services => self.show_service_details().await, // Enter = show logs
+                    ServicesView::Profiles => self.show_profile_details().await, // Enter = show profile details
                 }
             }
             Screen::Wallets => self.show_wallet_details().await,
-            Screen::Config => {
-                match self.config_section {
-                    ConfigSection::RpcTokens => self.handle_rpc_action().await,
-                    _ => Ok(()),
-                }
-            }
+            Screen::Config => match self.config_section {
+                ConfigSection::RpcTokens => self.handle_rpc_action().await,
+                _ => Ok(()),
+            },
             Screen::ServiceDetails(_) => {
                 // No action on service details screen (uses Tab for navigation)
                 Ok(())
@@ -1489,7 +1556,9 @@ impl App {
 
         let service_names = crate::utils::constants::get_profile_services(&profile);
 
-        self.profile_services = self.containers.iter()
+        self.profile_services = self
+            .containers
+            .iter()
             .filter(|c| service_names.contains(&c.name.as_str()))
             .cloned()
             .collect();
@@ -1513,7 +1582,10 @@ impl App {
             return Ok(());
         }
 
-        self.set_status(format!("Loading wallet details for worker {}...", worker_id));
+        self.set_status(format!(
+            "Loading wallet details for worker {}...",
+            worker_id
+        ));
 
         // Fetch detailed balance info with per-address breakdown
         let address_balances = match self.wallet_manager.get_balance_detailed(worker_id).await {
@@ -1561,7 +1633,10 @@ impl App {
         let worker_id = wallet.worker_id;
 
         if !wallet.container_running {
-            self.set_status(format!("✗ Wallet {} container not running. Start frontend profile first.", worker_id));
+            self.set_status(format!(
+                "✗ Wallet {} container not running. Start frontend profile first.",
+                worker_id
+            ));
             return Ok(());
         }
 
@@ -1573,10 +1648,16 @@ impl App {
         self.set_status(format!("Generating wallet for worker {}...", worker_id));
 
         // Use default password from config or "password"
-        let password = self.config.get(&format!("W{}_KASWALLET_PASSWORD", worker_id))
+        let password = self
+            .config
+            .get(&format!("W{}_KASWALLET_PASSWORD", worker_id))
             .unwrap_or("password");
 
-        match self.wallet_manager.generate_wallet(worker_id, password).await {
+        match self
+            .wallet_manager
+            .generate_wallet(worker_id, password)
+            .await
+        {
             Ok(address) => {
                 self.set_status(format!("✓ Generated wallet {}: {}", worker_id, address));
                 // Refresh wallet data
@@ -1599,7 +1680,10 @@ impl App {
         let wallet = &self.wallets[self.selected_index];
 
         if !wallet.container_running {
-            self.set_status(format!("✗ Wallet {} container not running", wallet.worker_id));
+            self.set_status(format!(
+                "✗ Wallet {} container not running",
+                wallet.worker_id
+            ));
             return;
         }
 
@@ -1742,19 +1826,31 @@ impl App {
         // Check if wallet has sufficient balance
         if let Some(balance) = wallet.balance {
             if amount > balance {
-                self.set_status(format!("✗ Insufficient balance. Available: {:.8} KAS", balance));
+                self.set_status(format!(
+                    "✗ Insufficient balance. Available: {:.8} KAS",
+                    balance
+                ));
                 return Ok(());
             }
         }
 
-        self.set_status(format!("Sending {:.8} KAS to {}...", amount, destination_address));
+        self.set_status(format!(
+            "Sending {:.8} KAS to {}...",
+            amount, destination_address
+        ));
 
         // Get password from config
-        let password = self.config.get(&format!("W{}_KASWALLET_PASSWORD", worker_id))
+        let password = self
+            .config
+            .get(&format!("W{}_KASWALLET_PASSWORD", worker_id))
             .unwrap_or("password");
 
         // Send transaction
-        match self.wallet_manager.send_transaction(worker_id, &destination_address, amount, password).await {
+        match self
+            .wallet_manager
+            .send_transaction(worker_id, &destination_address, amount, password)
+            .await
+        {
             Ok(tx_id) => {
                 self.set_status(format!("✓ Transaction sent! ID: {}", tx_id));
                 self.show_send_dialog = false;
@@ -1924,8 +2020,10 @@ impl App {
                 match tester.test_both_endpoints(domain, token).await {
                     Ok((http, https)) => {
                         let msg = if http.success && https.success {
-                            format!("✓ Token {} OK - HTTP: {}ms, HTTPS: {}ms",
-                                token_num, http.response_time_ms, https.response_time_ms)
+                            format!(
+                                "✓ Token {} OK - HTTP: {}ms, HTTPS: {}ms",
+                                token_num, http.response_time_ms, https.response_time_ms
+                            )
                         } else {
                             format!("✗ Token {} failed", token_num)
                         };
@@ -1952,7 +2050,10 @@ impl App {
             Ok(tokens) => {
                 match self.config.save() {
                     Ok(_) => {
-                        self.set_status(format!("✓ Generated {} tokens and saved to .env", tokens.len()));
+                        self.set_status(format!(
+                            "✓ Generated {} tokens and saved to .env",
+                            tokens.len()
+                        ));
                         // Reload config
                         self.config = ConfigManager::load_from_project()?;
                         self.refresh_data().await?;
@@ -1987,13 +2088,19 @@ impl App {
 
     async fn handle_ssl_check(&mut self) -> Result<()> {
         if self.ssl_domain == "N/A" {
-            self.set_status("✗ No domain configured. Set IGRA_ORCHESTRA_DOMAIN in config.".to_string());
+            self.set_status(
+                "✗ No domain configured. Set IGRA_ORCHESTRA_DOMAIN in config.".to_string(),
+            );
             return Ok(());
         }
 
         self.set_status(format!("Checking certificate for {}...", self.ssl_domain));
 
-        match self.ssl_manager.get_certificate_info(&self.ssl_domain).await {
+        match self
+            .ssl_manager
+            .get_certificate_info(&self.ssl_domain)
+            .await
+        {
             Ok(cert_info) => {
                 let status = if cert_info.is_valid {
                     if let Some(days) = cert_info.days_remaining {
@@ -2023,7 +2130,9 @@ impl App {
 
         match self.ssl_manager.force_renewal().await {
             Ok(_) => {
-                self.set_status("✓ Traefik restarted. Certificate will renew if needed.".to_string());
+                self.set_status(
+                    "✓ Traefik restarted. Certificate will renew if needed.".to_string(),
+                );
                 // Wait a moment then refresh
                 tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
                 self.refresh_data().await?;
@@ -2048,7 +2157,8 @@ impl App {
                 if result.status.success() {
                     let stdout = String::from_utf8_lossy(&result.stdout);
                     // Parse reclaimed space from output
-                    if let Some(line) = stdout.lines().find(|l| l.contains("Total reclaimed space")) {
+                    if let Some(line) = stdout.lines().find(|l| l.contains("Total reclaimed space"))
+                    {
                         self.set_status(format!("✓ Build cache pruned - {}", line.trim()));
                     } else {
                         self.set_status("✓ Build cache pruned successfully".to_string());
@@ -2086,7 +2196,8 @@ impl App {
                 if result.status.success() {
                     let stdout = String::from_utf8_lossy(&result.stdout);
                     // Parse reclaimed space from output
-                    if let Some(line) = stdout.lines().find(|l| l.contains("Total reclaimed space")) {
+                    if let Some(line) = stdout.lines().find(|l| l.contains("Total reclaimed space"))
+                    {
                         self.set_status(format!("✓ Images pruned - {}", line.trim()));
                     } else {
                         self.set_status("✓ Unused images pruned successfully".to_string());
@@ -2112,7 +2223,11 @@ impl App {
         Ok(())
     }
 
-    async fn handle_detail_view_key(&mut self, key: KeyCode, modifiers: event::KeyModifiers) -> Result<()> {
+    async fn handle_detail_view_key(
+        &mut self,
+        key: KeyCode,
+        modifiers: event::KeyModifiers,
+    ) -> Result<()> {
         match key {
             KeyCode::Up | KeyCode::Char('k') => {
                 // Scroll up in logs (when in service detail view)
@@ -2125,10 +2240,12 @@ impl App {
                         self.detail_logs_scroll_offset = self.detail_logs.len();
                     } else if is_ctrl {
                         // Fast scroll up (50 lines)
-                        self.detail_logs_scroll_offset = (self.detail_logs_scroll_offset + 50).min(self.detail_logs.len());
+                        self.detail_logs_scroll_offset =
+                            (self.detail_logs_scroll_offset + 50).min(self.detail_logs.len());
                     } else {
                         // Normal scroll up (5 lines)
-                        self.detail_logs_scroll_offset = (self.detail_logs_scroll_offset + 5).min(self.detail_logs.len());
+                        self.detail_logs_scroll_offset =
+                            (self.detail_logs_scroll_offset + 5).min(self.detail_logs.len());
                     }
                 }
             }
@@ -2143,10 +2260,12 @@ impl App {
                         self.detail_logs_scroll_offset = 0;
                     } else if is_ctrl {
                         // Fast scroll down (50 lines)
-                        self.detail_logs_scroll_offset = self.detail_logs_scroll_offset.saturating_sub(50);
+                        self.detail_logs_scroll_offset =
+                            self.detail_logs_scroll_offset.saturating_sub(50);
                     } else {
                         // Normal scroll down (5 lines)
-                        self.detail_logs_scroll_offset = self.detail_logs_scroll_offset.saturating_sub(5);
+                        self.detail_logs_scroll_offset =
+                            self.detail_logs_scroll_offset.saturating_sub(5);
                     }
                 }
             }
@@ -2154,14 +2273,16 @@ impl App {
                 // Page up in logs
                 if self.detail_view_service.is_some() {
                     // Scroll by ~100 lines (full screen)
-                    self.detail_logs_scroll_offset = (self.detail_logs_scroll_offset + 100).min(self.detail_logs.len());
+                    self.detail_logs_scroll_offset =
+                        (self.detail_logs_scroll_offset + 100).min(self.detail_logs.len());
                 }
             }
             KeyCode::PageDown => {
                 // Page down in logs
                 if self.detail_view_service.is_some() {
                     // Scroll by ~100 lines (full screen)
-                    self.detail_logs_scroll_offset = self.detail_logs_scroll_offset.saturating_sub(100);
+                    self.detail_logs_scroll_offset =
+                        self.detail_logs_scroll_offset.saturating_sub(100);
                 }
             }
             KeyCode::Enter => {
@@ -2251,9 +2372,14 @@ impl App {
                 // Refresh logs
                 if let Some(service) = &self.detail_view_service {
                     let service = service.clone();
-                    match self.docker.get_logs(&service, Some(INITIAL_LOG_FETCH)).await {
+                    match self
+                        .docker
+                        .get_logs(&service, Some(INITIAL_LOG_FETCH))
+                        .await
+                    {
                         Ok(logs) => {
-                            self.detail_logs = logs.lines()
+                            self.detail_logs = logs
+                                .lines()
                                 .map(|s| crate::core::parse_docker_log_line(s))
                                 .collect();
                             self.set_status("✓ Refreshed logs".to_string());
@@ -2280,7 +2406,11 @@ impl App {
                 // Toggle log grouping
                 if self.detail_view_service.is_some() {
                     self.detail_logs_grouping = !self.detail_logs_grouping;
-                    let mode = if self.detail_logs_grouping { "grouped" } else { "chronological" };
+                    let mode = if self.detail_logs_grouping {
+                        "grouped"
+                    } else {
+                        "chronological"
+                    };
                     self.set_status(format!("✓ Log display: {}", mode));
                 }
             }
@@ -2368,8 +2498,14 @@ impl App {
         let (key, value) = &self.config_data[self.selected_index];
 
         // Don't allow editing of sensitive fields
-        if key.contains("PASSWORD") || key.contains("SECRET") || key.contains("KEY") || key.contains("TOKEN") {
-            self.set_status("Cannot edit sensitive fields directly. Edit .env file manually.".to_string());
+        if key.contains("PASSWORD")
+            || key.contains("SECRET")
+            || key.contains("KEY")
+            || key.contains("TOKEN")
+        {
+            self.set_status(
+                "Cannot edit sensitive fields directly. Edit .env file manually.".to_string(),
+            );
             return;
         }
 
@@ -2463,7 +2599,10 @@ impl App {
         }
 
         // Hex validation for keys/secrets
-        if (key.contains("_KEY") || key.contains("_SECRET")) && key != "OVH_APPLICATION_KEY" && key != "OVH_APPLICATION_SECRET" {
+        if (key.contains("_KEY") || key.contains("_SECRET"))
+            && key != "OVH_APPLICATION_KEY"
+            && key != "OVH_APPLICATION_SECRET"
+        {
             if !is_valid_hex(value) {
                 return Some("Must be a valid hex string".to_string());
             }
@@ -2495,14 +2634,20 @@ impl App {
 
     fn next_screen(&mut self) {
         let screens = Screen::all();
-        let current_idx = screens.iter().position(|s| *s == self.current_screen).unwrap_or(0);
+        let current_idx = screens
+            .iter()
+            .position(|s| *s == self.current_screen)
+            .unwrap_or(0);
         let next_idx = (current_idx + 1) % screens.len();
         self.current_screen = screens[next_idx].clone();
     }
 
     fn prev_screen(&mut self) {
         let screens = Screen::all();
-        let current_idx = screens.iter().position(|s| *s == self.current_screen).unwrap_or(0);
+        let current_idx = screens
+            .iter()
+            .position(|s| *s == self.current_screen)
+            .unwrap_or(0);
         let prev_idx = if current_idx == 0 {
             screens.len() - 1
         } else {
@@ -2517,12 +2662,18 @@ impl App {
                 self.search_buffer.push(c);
                 // Apply filter in real-time
                 self.apply_search_filter();
-                self.set_status(format!("Search: {} (Enter to apply, Esc to cancel)", self.search_buffer));
+                self.set_status(format!(
+                    "Search: {} (Enter to apply, Esc to cancel)",
+                    self.search_buffer
+                ));
             }
             KeyCode::Backspace => {
                 self.search_buffer.pop();
                 self.apply_search_filter();
-                self.set_status(format!("Search: {} (Enter to apply, Esc to cancel)", self.search_buffer));
+                self.set_status(format!(
+                    "Search: {} (Enter to apply, Esc to cancel)",
+                    self.search_buffer
+                ));
             }
             KeyCode::Enter => {
                 // Apply search and exit search mode
@@ -2533,7 +2684,10 @@ impl App {
                 if self.search_buffer.is_empty() {
                     self.set_status("Search cleared".to_string());
                 } else {
-                    self.set_status(format!("Found {} matches for '{}'", count, self.search_buffer));
+                    self.set_status(format!(
+                        "Found {} matches for '{}'",
+                        count, self.search_buffer
+                    ));
                     // Jump to first match if any
                     if !self.filtered_indices.is_empty() {
                         self.selected_index = self.filtered_indices[0];
@@ -2558,12 +2712,18 @@ impl App {
                 self.tx_search_buffer.push(c);
                 // Apply filter in real-time
                 self.apply_tx_search_filter();
-                self.set_status(format!("Search: {} (Enter to apply, Esc to cancel)", self.tx_search_buffer));
+                self.set_status(format!(
+                    "Search: {} (Enter to apply, Esc to cancel)",
+                    self.tx_search_buffer
+                ));
             }
             KeyCode::Backspace => {
                 self.tx_search_buffer.pop();
                 self.apply_tx_search_filter();
-                self.set_status(format!("Search: {} (Enter to apply, Esc to cancel)", self.tx_search_buffer));
+                self.set_status(format!(
+                    "Search: {} (Enter to apply, Esc to cancel)",
+                    self.tx_search_buffer
+                ));
             }
             KeyCode::Enter => {
                 // Apply search and exit search mode
@@ -2574,7 +2734,10 @@ impl App {
                 if self.tx_search_buffer.is_empty() {
                     self.set_status("Search cleared".to_string());
                 } else {
-                    self.set_status(format!("Found {} matching transactions for '{}'", count, self.tx_search_buffer));
+                    self.set_status(format!(
+                        "Found {} matching transactions for '{}'",
+                        count, self.tx_search_buffer
+                    ));
                     // Jump to first match if any
                     if !self.filtered_tx_indices.is_empty() {
                         self.detail_wallet_scroll = 0; // Reset scroll to show first match
@@ -2630,7 +2793,8 @@ impl App {
                 for (idx, container) in self.containers.iter().enumerate() {
                     if container.name.to_lowercase().contains(&query)
                         || container.status.to_lowercase().contains(&query)
-                        || container.image.to_lowercase().contains(&query) {
+                        || container.image.to_lowercase().contains(&query)
+                    {
                         self.filtered_indices.push(idx);
                     }
                 }
@@ -2638,8 +2802,8 @@ impl App {
             Screen::Config => {
                 // Filter config by key or value
                 for (idx, (key, value)) in self.config_data.iter().enumerate() {
-                    if key.to_lowercase().contains(&query)
-                        || value.to_lowercase().contains(&query) {
+                    if key.to_lowercase().contains(&query) || value.to_lowercase().contains(&query)
+                    {
                         self.filtered_indices.push(idx);
                     }
                 }
@@ -2648,7 +2812,9 @@ impl App {
                 // Filter wallets by worker ID or address
                 for (idx, wallet) in self.wallets.iter().enumerate() {
                     let worker_str = format!("worker {}", wallet.worker_id).to_lowercase();
-                    let addr_match = wallet.address.as_ref()
+                    let addr_match = wallet
+                        .address
+                        .as_ref()
                         .map(|a| a.to_lowercase().contains(&query))
                         .unwrap_or(false);
 
@@ -2665,20 +2831,22 @@ impl App {
         // Render ServiceDetails screen directly if we're on it
         if let Screen::ServiceDetails(_) = self.current_screen {
             if let Some(ref details) = self.service_details_data {
-                self.service_details_screen.render(frame, frame.size(), details);
+                self.service_details_screen
+                    .render(frame, frame.size(), details);
                 return;
             }
         }
 
         // Get container info for detail view
-        let detail_container = self.detail_view_service.as_ref().and_then(|service_name| {
-            self.containers.iter().find(|c| &c.name == service_name)
-        });
+        let detail_container = self
+            .detail_view_service
+            .as_ref()
+            .and_then(|service_name| self.containers.iter().find(|c| &c.name == service_name));
 
         // Get wallet info for detail view
-        let detail_wallet = self.detail_view_wallet.and_then(|worker_id| {
-            self.wallets.iter().find(|w| w.worker_id == worker_id)
-        });
+        let detail_wallet = self
+            .detail_view_wallet
+            .and_then(|worker_id| self.wallets.iter().find(|w| w.worker_id == worker_id));
 
         self.dashboard.render(
             frame,
@@ -2772,7 +2940,11 @@ impl App {
                 if let Some(l1_fee) = tx.l1_fee {
                     writeln!(file, "  L1 Fee: {} KAS", l1_fee)?;
                 }
-                writeln!(file, "  Status: {}", if tx.status { "Success" } else { "Failed" })?;
+                writeln!(
+                    file,
+                    "  Status: {}",
+                    if tx.status { "Success" } else { "Failed" }
+                )?;
                 writeln!(file)?;
             }
         }
@@ -2800,12 +2972,13 @@ impl App {
             loop {
                 interval.tick().await;
 
-                // Fetch last 50 lines - deduplication in app.rs handles overlap
-                match docker.get_logs(&service_name, Some(50)).await {
+                // Fetch last N lines - deduplication in app.rs handles overlap
+                match docker.get_logs(&service_name, Some(LIVE_LOG_FETCH)).await {
                     Ok(logs) => {
                         if !logs.is_empty() {
                             // Parse and send through channel (ignore errors if receiver dropped)
-                            let log_lines: Vec<crate::core::ParsedLogLine> = logs.lines()
+                            let log_lines: Vec<crate::core::ParsedLogLine> = logs
+                                .lines()
                                 .map(|s| crate::core::parse_docker_log_line(s))
                                 .collect();
                             let _ = tx.send(log_lines);

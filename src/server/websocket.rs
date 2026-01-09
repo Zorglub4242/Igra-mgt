@@ -1,11 +1,7 @@
 /// WebSocket handlers for real-time updates
-
 use axum::{
-    extract::{
-        Path,
-        WebSocketUpgrade,
-    },
     extract::ws::{Message, WebSocket},
+    extract::{Path, WebSocketUpgrade},
     response::Response,
 };
 use futures::{sink::SinkExt, stream::StreamExt};
@@ -14,10 +10,7 @@ use tokio::time::{interval, Duration};
 use crate::core::DockerManager;
 
 /// WebSocket handler for real-time log streaming
-pub async fn ws_logs_handler(
-    Path(service): Path<String>,
-    ws: WebSocketUpgrade,
-) -> Response {
+pub async fn ws_logs_handler(Path(service): Path<String>, ws: WebSocketUpgrade) -> Response {
     ws.on_upgrade(move |socket| handle_logs_websocket(socket, service))
 }
 

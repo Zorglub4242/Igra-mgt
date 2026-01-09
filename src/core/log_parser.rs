@@ -7,20 +7,19 @@
 /// - Transaction throughput
 /// - Health indicators
 /// - Individual log line parsing (timestamp, level, module, message)
-
 use regex::Regex;
 use std::sync::OnceLock;
 
 /// Parsed Docker Compose log line components
 #[derive(Debug, Clone)]
 pub struct ParsedLogLine {
-    pub timestamp: String,      // Full timestamp: "2025-10-21T08:48:40Z"
-    pub service: String,        // Service name from Docker: "viaduct"
-    pub module_path: String,    // Rust module path: "viaduct::uni_storage"
-    pub module_short: String,   // Last segment: "uni_storage"
-    pub level: LogLevel,        // Detected log level
-    pub message: String,        // Clean message without bracketed prefix
-    pub raw_line: String,       // Original line for fallback
+    pub timestamp: String,    // Full timestamp: "2025-10-21T08:48:40Z"
+    pub service: String,      // Service name from Docker: "viaduct"
+    pub module_path: String,  // Rust module path: "viaduct::uni_storage"
+    pub module_short: String, // Last segment: "uni_storage"
+    pub level: LogLevel,      // Detected log level
+    pub message: String,      // Clean message without bracketed prefix
+    pub raw_line: String,     // Original line for fallback
 }
 
 /// Log level enum for consistent handling
@@ -79,9 +78,7 @@ impl LogLevel {
 /// Strip ANSI color codes from log strings
 fn strip_ansi_codes(text: &str) -> String {
     static ANSI_RE: OnceLock<Regex> = OnceLock::new();
-    let re = ANSI_RE.get_or_init(|| {
-        Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap()
-    });
+    let re = ANSI_RE.get_or_init(|| Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap());
     re.replace_all(text, "").to_string()
 }
 
@@ -109,10 +106,14 @@ pub fn parse_service_logs(service_name: &str, logs: &str) -> ServiceMetrics {
     match service_name {
         // Kaspad: matches "kaspad", "kaspa-mainnet", "kaspa-testnet-11", etc.
         // BUT NOT "kaswallet" or other kaspa-prefixed services
-        s if s.contains("kaspad") ||
-             (s.starts_with("kaspa-") && (s.contains("mainnet") || s.contains("testnet"))) =>
-            parse_kaspad_logs(&clean_logs),
-        s if s.contains("execution-layer") || s.contains("reth") => parse_execution_layer_logs(&clean_logs),
+        s if s.contains("kaspad")
+            || (s.starts_with("kaspa-") && (s.contains("mainnet") || s.contains("testnet"))) =>
+        {
+            parse_kaspad_logs(&clean_logs)
+        }
+        s if s.contains("execution-layer") || s.contains("reth") => {
+            parse_execution_layer_logs(&clean_logs)
+        }
         s if s.contains("viaduct") => parse_viaduct_logs(&clean_logs),
         s if s.contains("block-builder") => parse_block_builder_logs(&clean_logs),
         s if s.contains("rpc-provider") => parse_rpc_provider_logs(&clean_logs),
@@ -133,17 +134,14 @@ fn parse_kaspad_logs(logs: &str) -> ServiceMetrics {
     static THROUGHPUT_RE: OnceLock<Regex> = OnceLock::new();
     static PROCESSED_RE: OnceLock<Regex> = OnceLock::new();
 
-    let accepted_re = ACCEPTED_RE.get_or_init(|| {
-        Regex::new(r"Accepted (\d+) blocks.*via relay").unwrap()
-    });
+    let accepted_re =
+        ACCEPTED_RE.get_or_init(|| Regex::new(r"Accepted (\d+) blocks.*via relay").unwrap());
 
-    let throughput_re = THROUGHPUT_RE.get_or_init(|| {
-        Regex::new(r"Tx throughput stats: ([\d.]+) u-tps").unwrap()
-    });
+    let throughput_re =
+        THROUGHPUT_RE.get_or_init(|| Regex::new(r"Tx throughput stats: ([\d.]+) u-tps").unwrap());
 
-    let processed_re = PROCESSED_RE.get_or_init(|| {
-        Regex::new(r"Processed (\d+) blocks and (\d+) headers").unwrap()
-    });
+    let processed_re = PROCESSED_RE
+        .get_or_init(|| Regex::new(r"Processed (\d+) blocks and (\d+) headers").unwrap());
 
     let mut metrics = ServiceMetrics {
         is_healthy: true,
@@ -190,17 +188,12 @@ fn parse_execution_layer_logs(logs: &str) -> ServiceMetrics {
     static TX_RE: OnceLock<Regex> = OnceLock::new();
     static PEERS_RE: OnceLock<Regex> = OnceLock::new();
 
-    let block_re = BLOCK_RE.get_or_init(|| {
-        Regex::new(r"Block added to canonical chain.*number=(\d+)").unwrap()
-    });
+    let block_re = BLOCK_RE
+        .get_or_init(|| Regex::new(r"Block added to canonical chain.*number=(\d+)").unwrap());
 
-    let tx_re = TX_RE.get_or_init(|| {
-        Regex::new(r"txs=(\d+)").unwrap()
-    });
+    let tx_re = TX_RE.get_or_init(|| Regex::new(r"txs=(\d+)").unwrap());
 
-    let peers_re = PEERS_RE.get_or_init(|| {
-        Regex::new(r"peers=(\d+)").unwrap()
-    });
+    let peers_re = PEERS_RE.get_or_init(|| Regex::new(r"peers=(\d+)").unwrap());
 
     let mut metrics = ServiceMetrics {
         is_healthy: true,
@@ -241,17 +234,11 @@ fn parse_viaduct_logs(logs: &str) -> ServiceMetrics {
     static LATENCY_RE: OnceLock<Regex> = OnceLock::new();
     static QUEUE_RE: OnceLock<Regex> = OnceLock::new();
 
-    let daa_re = DAA_RE.get_or_init(|| {
-        Regex::new(r"with score (\d+) to the queue").unwrap()
-    });
+    let daa_re = DAA_RE.get_or_init(|| Regex::new(r"with score (\d+) to the queue").unwrap());
 
-    let latency_re = LATENCY_RE.get_or_init(|| {
-        Regex::new(r"Sending took (\d+) ms").unwrap()
-    });
+    let latency_re = LATENCY_RE.get_or_init(|| Regex::new(r"Sending took (\d+) ms").unwrap());
 
-    let queue_re = QUEUE_RE.get_or_init(|| {
-        Regex::new(r"len now (\d+)").unwrap()
-    });
+    let queue_re = QUEUE_RE.get_or_init(|| Regex::new(r"len now (\d+)").unwrap());
 
     let mut metrics = ServiceMetrics {
         is_healthy: true,
@@ -300,13 +287,11 @@ fn parse_block_builder_logs(logs: &str) -> ServiceMetrics {
     static BUILT_RE: OnceLock<Regex> = OnceLock::new();
     static BUILDING_RE: OnceLock<Regex> = OnceLock::new();
 
-    let built_re = BUILT_RE.get_or_init(|| {
-        Regex::new(r"Block built with (\d+) transactions").unwrap()
-    });
+    let built_re =
+        BUILT_RE.get_or_init(|| Regex::new(r"Block built with (\d+) transactions").unwrap());
 
-    let building_re = BUILDING_RE.get_or_init(|| {
-        Regex::new(r"Building payload on parent").unwrap()
-    });
+    let building_re =
+        BUILDING_RE.get_or_init(|| Regex::new(r"Building payload on parent").unwrap());
 
     let mut metrics = ServiceMetrics {
         is_healthy: true,
@@ -335,17 +320,11 @@ fn parse_rpc_provider_logs(logs: &str) -> ServiceMetrics {
     static TIME_US_RE: OnceLock<Regex> = OnceLock::new();
     static TIME_MS_RE: OnceLock<Regex> = OnceLock::new();
 
-    let request_re = REQUEST_RE.get_or_init(|| {
-        Regex::new(r"RPC REQUEST.*method=(\w+)").unwrap()
-    });
+    let request_re = REQUEST_RE.get_or_init(|| Regex::new(r"RPC REQUEST.*method=(\w+)").unwrap());
 
-    let time_us_re = TIME_US_RE.get_or_init(|| {
-        Regex::new(r"time=([\d.]+)µs").unwrap()
-    });
+    let time_us_re = TIME_US_RE.get_or_init(|| Regex::new(r"time=([\d.]+)µs").unwrap());
 
-    let time_ms_re = TIME_MS_RE.get_or_init(|| {
-        Regex::new(r"time=([\d.]+)ms").unwrap()
-    });
+    let time_ms_re = TIME_MS_RE.get_or_init(|| Regex::new(r"time=([\d.]+)ms").unwrap());
 
     let mut metrics = ServiceMetrics {
         is_healthy: true,
@@ -422,9 +401,8 @@ fn parse_kaswallet_logs(logs: &str) -> ServiceMetrics {
 fn parse_health_check_logs(logs: &str) -> ServiceMetrics {
     static CHECKPOINT_RE: OnceLock<Regex> = OnceLock::new();
 
-    let checkpoint_re = CHECKPOINT_RE.get_or_init(|| {
-        Regex::new(r"checkpoint block (\d+).*latest: (\d+)").unwrap()
-    });
+    let checkpoint_re =
+        CHECKPOINT_RE.get_or_init(|| Regex::new(r"checkpoint block (\d+).*latest: (\d+)").unwrap());
 
     let mut metrics = ServiceMetrics {
         is_healthy: true,
@@ -552,9 +530,15 @@ pub fn parse_docker_log_line(line: &str) -> ParsedLogLine {
         ).unwrap();
 
         if let Some(caps) = kaspad_regex.captures(rest) {
-            let timestamp = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let timestamp = caps
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             let level_str = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-            let message = caps.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let message = caps
+                .get(3)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
 
             let level = match level_str {
                 "ERROR" => LogLevel::Error,
@@ -582,10 +566,19 @@ pub fn parse_docker_log_line(line: &str) -> ParsedLogLine {
         ).unwrap();
 
         if let Some(caps) = bracketed_regex.captures(rest) {
-            let timestamp = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let timestamp = caps
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             let level_str = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-            let mut module_path = caps.get(3).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
-            let message = caps.get(4).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let mut module_path = caps
+                .get(3)
+                .map(|m| m.as_str().trim().to_string())
+                .unwrap_or_default();
+            let message = caps
+                .get(4)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
 
             // Handle block-builder format: "module::path: src/file.rs:line"
             if let Some(colon_pos) = module_path.find(": ") {
@@ -595,7 +588,11 @@ pub fn parse_docker_log_line(line: &str) -> ParsedLogLine {
                 }
             }
 
-            let module_short = module_path.split("::").last().unwrap_or(&module_path).to_string();
+            let module_short = module_path
+                .split("::")
+                .last()
+                .unwrap_or(&module_path)
+                .to_string();
 
             let level = match level_str {
                 "ERROR" => LogLevel::Error,
@@ -618,12 +615,15 @@ pub fn parse_docker_log_line(line: &str) -> ParsedLogLine {
         }
 
         // Try non-bracketed format: "HH:MM:SS LEVEL module::path: src/file.rs:line: message"
-        let nonbracketed_regex = Regex::new(
-            r"^(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(ERROR|WARN|INFO|DEBUG|TRACE)\s+(.+)$"
-        ).unwrap();
+        let nonbracketed_regex =
+            Regex::new(r"^(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(ERROR|WARN|INFO|DEBUG|TRACE)\s+(.+)$")
+                .unwrap();
 
         if let Some(caps) = nonbracketed_regex.captures(rest) {
-            let time_only = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let time_only = caps
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             let level_str = caps.get(2).map(|m| m.as_str()).unwrap_or("");
             let remainder = caps.get(3).map(|m| m.as_str().trim()).unwrap_or("");
 
@@ -633,7 +633,10 @@ pub fn parse_docker_log_line(line: &str) -> ParsedLogLine {
 
                 if after_colon.starts_with("src/") || after_colon.starts_with("/") {
                     if let Some(msg_pos) = after_colon.find(": ") {
-                        (before_colon.to_string(), after_colon[msg_pos + 2..].to_string())
+                        (
+                            before_colon.to_string(),
+                            after_colon[msg_pos + 2..].to_string(),
+                        )
                     } else {
                         (before_colon.to_string(), String::new())
                     }
@@ -644,7 +647,11 @@ pub fn parse_docker_log_line(line: &str) -> ParsedLogLine {
                 (String::new(), remainder.to_string())
             };
 
-            let module_short = module_path.split("::").last().unwrap_or(&module_path).to_string();
+            let module_short = module_path
+                .split("::")
+                .last()
+                .unwrap_or(&module_path)
+                .to_string();
 
             let level = match level_str {
                 "ERROR" => LogLevel::Error,
@@ -672,7 +679,10 @@ pub fn parse_docker_log_line(line: &str) -> ParsedLogLine {
         ).unwrap();
 
         if let Some(caps) = iso_format_regex.captures(rest) {
-            let iso_timestamp = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let iso_timestamp = caps
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             let level_str = caps.get(2).map(|m| m.as_str()).unwrap_or("");
             let remainder = caps.get(3).map(|m| m.as_str().trim()).unwrap_or("");
 
@@ -684,7 +694,11 @@ pub fn parse_docker_log_line(line: &str) -> ParsedLogLine {
                 (String::new(), remainder.to_string())
             };
 
-            let module_short = module_path.split("::").last().unwrap_or(&module_path).to_string();
+            let module_short = module_path
+                .split("::")
+                .last()
+                .unwrap_or(&module_path)
+                .to_string();
 
             let level = match level_str {
                 "ERROR" => LogLevel::Error,
@@ -708,8 +722,9 @@ pub fn parse_docker_log_line(line: &str) -> ParsedLogLine {
 
         // Final fallback: Just extract timestamp if present
         let simple_timestamp_regex = Regex::new(
-            r"^(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)"
-        ).unwrap();
+            r"^(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)",
+        )
+        .unwrap();
 
         if let Some(ts_match) = simple_timestamp_regex.find(rest) {
             let timestamp = ts_match.as_str().to_string();

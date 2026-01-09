@@ -1,12 +1,11 @@
+use anyhow::{Context, Result};
 /// Embedded default plugin configuration files
 ///
 /// This module embeds the default plugin TOML files into the binary
 /// and provides functionality to extract them to the filesystem on first run.
-
 use rust_embed::RustEmbed;
-use std::path::Path;
 use std::fs;
-use anyhow::{Result, Context};
+use std::path::Path;
 
 #[derive(RustEmbed)]
 #[folder = "plugins/"]
@@ -15,15 +14,12 @@ pub struct EmbeddedPlugins;
 
 /// Get list of all embedded plugin filenames
 pub fn list_embedded_plugins() -> Vec<String> {
-    EmbeddedPlugins::iter()
-        .map(|f| f.to_string())
-        .collect()
+    EmbeddedPlugins::iter().map(|f| f.to_string()).collect()
 }
 
 /// Get content of an embedded plugin by filename
 pub fn get_embedded_plugin(filename: &str) -> Option<Vec<u8>> {
-    EmbeddedPlugins::get(filename)
-        .map(|f| f.data.to_vec())
+    EmbeddedPlugins::get(filename).map(|f| f.data.to_vec())
 }
 
 /// Extract all embedded plugins to a directory
@@ -35,8 +31,10 @@ pub fn extract_plugins_to_dir<P: AsRef<Path>>(target_dir: P) -> Result<usize> {
     let target_dir = target_dir.as_ref();
 
     // Create directory if it doesn't exist
-    fs::create_dir_all(target_dir)
-        .context(format!("Failed to create plugin directory: {}", target_dir.display()))?;
+    fs::create_dir_all(target_dir).context(format!(
+        "Failed to create plugin directory: {}",
+        target_dir.display()
+    ))?;
 
     let mut extracted_count = 0;
 
@@ -50,10 +48,16 @@ pub fn extract_plugins_to_dir<P: AsRef<Path>>(target_dir: P) -> Result<usize> {
         }
 
         if let Some(content) = EmbeddedPlugins::get(&filename) {
-            fs::write(&target_path, content.data.as_ref())
-                .context(format!("Failed to write plugin file: {}", target_path.display()))?;
+            fs::write(&target_path, content.data.as_ref()).context(format!(
+                "Failed to write plugin file: {}",
+                target_path.display()
+            ))?;
 
-            eprintln!("[INFO] Extracted plugin: {} -> {}", filename, target_path.display());
+            eprintln!(
+                "[INFO] Extracted plugin: {} -> {}",
+                filename,
+                target_path.display()
+            );
             extracted_count += 1;
         }
     }
@@ -92,7 +96,9 @@ mod tests {
         assert!(!plugins.is_empty(), "Should have embedded plugins");
 
         // Check for some expected plugins
-        assert!(plugins.iter().any(|p| p.contains("reth") || p.contains("geth")));
+        assert!(plugins
+            .iter()
+            .any(|p| p.contains("reth") || p.contains("geth")));
     }
 
     #[test]

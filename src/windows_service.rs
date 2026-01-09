@@ -14,10 +14,10 @@ use windows_service::{
     service_dispatcher,
 };
 
+use anyhow::Result;
 use std::ffi::OsString;
 use std::sync::mpsc;
 use std::time::Duration;
-use anyhow::Result;
 
 /// Service name for Windows Service Manager
 pub const SERVICE_NAME: &str = "IgraWebUI";
@@ -26,7 +26,8 @@ pub const SERVICE_NAME: &str = "IgraWebUI";
 pub const SERVICE_DISPLAY_NAME: &str = "IGRA Orchestra Web Management UI";
 
 /// Service description
-pub const SERVICE_DESCRIPTION: &str = "Web-based management interface for IGRA Orchestra blockchain nodes";
+pub const SERVICE_DESCRIPTION: &str =
+    "Web-based management interface for IGRA Orchestra blockchain nodes";
 
 #[cfg(windows)]
 define_windows_service!(ffi_service_main, service_main);
@@ -43,8 +44,8 @@ fn service_main(_arguments: Vec<OsString>) {
 /// Run the service with proper state management
 #[cfg(windows)]
 fn run_service() -> Result<()> {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
 
     // Create a channel to receive shutdown signals
     let (shutdown_tx, shutdown_rx) = mpsc::channel();
@@ -86,8 +87,7 @@ fn run_service() -> Result<()> {
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(3000);
 
-    let host = std::env::var("IGRA_WEB_HOST")
-        .unwrap_or_else(|_| "0.0.0.0".to_string());
+    let host = std::env::var("IGRA_WEB_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
 
     let cors = std::env::var("IGRA_WEB_CORS")
         .ok()
@@ -205,11 +205,7 @@ pub fn install_service(
 
     // Set service description
     Command::new("sc")
-        .args(&[
-            "description",
-            SERVICE_NAME,
-            SERVICE_DESCRIPTION,
-        ])
+        .args(&["description", SERVICE_NAME, SERVICE_DESCRIPTION])
         .output()?;
 
     // Configure environment variables via registry
@@ -235,9 +231,7 @@ pub fn uninstall_service() -> Result<()> {
     use std::process::Command;
 
     // Stop the service first if running
-    let _ = Command::new("sc")
-        .args(&["stop", SERVICE_NAME])
-        .output();
+    let _ = Command::new("sc").args(&["stop", SERVICE_NAME]).output();
 
     // Delete the service
     let output = Command::new("sc")
@@ -258,25 +252,21 @@ pub fn uninstall_service() -> Result<()> {
 fn set_service_env_var(name: &str, value: &str) -> Result<()> {
     use std::process::Command;
 
-    let key = format!("HKLM\\SYSTEM\\CurrentControlSet\\Services\\{}\\Environment", SERVICE_NAME);
+    let key = format!(
+        "HKLM\\SYSTEM\\CurrentControlSet\\Services\\{}\\Environment",
+        SERVICE_NAME
+    );
 
     let output = Command::new("reg")
-        .args(&[
-            "add",
-            &key,
-            "/v",
-            name,
-            "/t",
-            "REG_SZ",
-            "/d",
-            value,
-            "/f",
-        ])
+        .args(&["add", &key, "/v", name, "/t", "REG_SZ", "/d", value, "/f"])
         .output()?;
 
     if !output.status.success() {
         let error = String::from_utf8_lossy(&output.stderr);
-        eprintln!("Warning: Failed to set environment variable {}: {}", name, error);
+        eprintln!(
+            "Warning: Failed to set environment variable {}: {}",
+            name, error
+        );
     }
 
     Ok(())
@@ -294,7 +284,13 @@ pub fn is_running_as_service() -> bool {
 }
 
 #[cfg(not(windows))]
-pub fn install_service(_binary_path: &str, _port: u16, _host: &str, _cors: bool, _token: &str) -> Result<()> {
+pub fn install_service(
+    _binary_path: &str,
+    _port: u16,
+    _host: &str,
+    _cors: bool,
+    _token: &str,
+) -> Result<()> {
     anyhow::bail!("Windows Service support is only available on Windows")
 }
 

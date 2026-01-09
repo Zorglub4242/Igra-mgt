@@ -1,9 +1,8 @@
 /// Version checking and update management
 /// Shared between TUI, Web UI API, and CLI
-
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
 use semver::Version;
+use serde::{Deserialize, Serialize};
 
 const GITHUB_API_URL: &str = "https://api.github.com/repos/Zorglub4242/Igra-mgt/releases/latest";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -41,8 +40,7 @@ struct GitHubAsset {
 /// This function is reused by TUI, Web API, and CLI
 pub async fn check_for_updates() -> Result<VersionInfo> {
     // Parse current version
-    let current = Version::parse(CURRENT_VERSION)
-        .context("Failed to parse current version")?;
+    let current = Version::parse(CURRENT_VERSION).context("Failed to parse current version")?;
 
     // Fetch latest release from GitHub
     let client = reqwest::Client::builder()
@@ -76,14 +74,14 @@ pub async fn check_for_updates() -> Result<VersionInfo> {
 
     // Parse latest version (remove 'v' prefix if present)
     let latest_tag = release.tag_name.trim_start_matches('v');
-    let latest = Version::parse(latest_tag)
-        .context("Failed to parse latest version")?;
+    let latest = Version::parse(latest_tag).context("Failed to parse latest version")?;
 
     // Compare versions
     let update_available = latest > current;
 
     // Find Linux x86_64 binary asset
-    let download_url = release.assets
+    let download_url = release
+        .assets
         .iter()
         .find(|asset| asset.name.contains("linux-x86_64"))
         .map(|asset| asset.browser_download_url.clone());
@@ -116,7 +114,8 @@ pub fn get_current_version() -> VersionInfo {
 pub async fn download_latest_release(destination: &std::path::Path) -> Result<()> {
     let version_info = check_for_updates().await?;
 
-    let download_url = version_info.download_url
+    let download_url = version_info
+        .download_url
         .ok_or_else(|| anyhow::anyhow!("No download URL found for latest release"))?;
 
     let client = reqwest::Client::builder()
@@ -139,8 +138,7 @@ pub async fn download_latest_release(destination: &std::path::Path) -> Result<()
         .await
         .context("Failed to read release bytes")?;
 
-    std::fs::write(destination, bytes)
-        .context("Failed to write downloaded file")?;
+    std::fs::write(destination, bytes).context("Failed to write downloaded file")?;
 
     Ok(())
 }

@@ -1,8 +1,6 @@
 /// Static file serving for embedded React UI
-
 use axum::{
     body::Body,
-    extract::Request,
     http::{header, StatusCode, Uri},
     response::{IntoResponse, Response},
 };
@@ -51,7 +49,9 @@ fn index_html() -> Response {
             .unwrap(),
         None => Response::builder()
             .status(StatusCode::NOT_FOUND)
-            .body(Body::from("index.html not found - build the React app first"))
+            .body(Body::from(
+                "index.html not found - build the React app first",
+            ))
             .unwrap(),
     }
 }

@@ -92,8 +92,8 @@ impl AuthnBackend for FileAuthBackend {
         }
 
         // Verify password
-        let password_valid = user_manager::verify_password(&creds.password, &user.password_hash)
-            .unwrap_or(false);
+        let password_valid =
+            user_manager::verify_password(&creds.password, &user.password_hash).unwrap_or(false);
 
         if !password_valid {
             return Ok(None);
@@ -205,7 +205,11 @@ mod tests {
         let backend = FileAuthBackend::new(user_manager);
 
         // Test get_user
-        let result = backend.get_user(&"operator".to_string()).await.ok().unwrap();
+        let result = backend
+            .get_user(&"operator".to_string())
+            .await
+            .ok()
+            .unwrap();
         assert!(result.is_some());
 
         let auth_user = result.unwrap();

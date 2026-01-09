@@ -15,7 +15,7 @@ use tokio::sync::RwLock;
 
 use super::auth_backend::{AuthenticatedUser, Credentials, FileAuthBackend};
 use super::ApiResponse;
-use crate::core::{audit, AuditLogger, IpAllowlist, SecurityManager};
+use crate::core::{AuditLogger, SecurityManager};
 
 /// Login request
 #[derive(Debug, Deserialize)]
@@ -251,8 +251,8 @@ pub async fn change_password(
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
         .join("igra-cli");
 
-    let user_manager = crate::core::UserManager::new(config_dir)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let user_manager =
+        crate::core::UserManager::new(config_dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Hash the new password using argon2
     let password_hash = crate::core::user_manager::hash_password(&payload.new_password)
@@ -272,7 +272,12 @@ pub async fn change_password(
     let _ = audit.log_password_changed(&user.username, &user.username);
 
     // Logout current session to force re-login with new password
-    auth_session.logout().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    auth_session
+        .logout()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(ApiResponse::ok("Password changed successfully".to_string())))
+    Ok(Json(ApiResponse::ok(
+        "Password changed successfully".to_string(),
+    )))
 }

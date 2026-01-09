@@ -1,4 +1,3 @@
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::process::Command;
@@ -87,7 +86,10 @@ impl NetworkInfoDetector {
                 if output.status.success() {
                     let ips = String::from_utf8_lossy(&output.stdout);
                     for ip in ips.split_whitespace() {
-                        if ip.starts_with("192.168.") || ip.starts_with("10.") || ip.starts_with("172.") {
+                        if ip.starts_with("192.168.")
+                            || ip.starts_with("10.")
+                            || ip.starts_with("172.")
+                        {
                             return Some(ip.to_string());
                         }
                     }
@@ -181,14 +183,42 @@ impl SecurityScanner {
         let mut warnings = Vec::new();
 
         let sensitive_ports = [
-            (3306, "MySQL", "Database server should not be publicly accessible"),
-            (5432, "PostgreSQL", "Database server should not be publicly accessible"),
-            (6379, "Redis", "Cache server should not be publicly accessible"),
-            (27017, "MongoDB", "Database server should not be publicly accessible"),
-            (3389, "RDP", "Remote desktop protocol should not be publicly accessible"),
+            (
+                3306,
+                "MySQL",
+                "Database server should not be publicly accessible",
+            ),
+            (
+                5432,
+                "PostgreSQL",
+                "Database server should not be publicly accessible",
+            ),
+            (
+                6379,
+                "Redis",
+                "Cache server should not be publicly accessible",
+            ),
+            (
+                27017,
+                "MongoDB",
+                "Database server should not be publicly accessible",
+            ),
+            (
+                3389,
+                "RDP",
+                "Remote desktop protocol should not be publicly accessible",
+            ),
             (5900, "VNC", "VNC server should not be publicly accessible"),
-            (9200, "Elasticsearch", "Search engine should not be publicly accessible"),
-            (8080, "Common HTTP Alt", "May expose admin panels or development servers"),
+            (
+                9200,
+                "Elasticsearch",
+                "Search engine should not be publicly accessible",
+            ),
+            (
+                8080,
+                "Common HTTP Alt",
+                "May expose admin panels or development servers",
+            ),
         ];
 
         for (port, service) in ports {
@@ -196,14 +226,23 @@ impl SecurityScanner {
                 if port == sensitive_port {
                     warnings.push(SecurityWarning {
                         issue_type: SecurityIssueType::PubliclyExposedSensitivePort,
-                        severity: if *sensitive_port == 3389 || *sensitive_port == 3306 || *sensitive_port == 5432 {
+                        severity: if *sensitive_port == 3389
+                            || *sensitive_port == 3306
+                            || *sensitive_port == 5432
+                        {
                             "critical".to_string()
                         } else {
                             "high".to_string()
                         },
                         service: service.clone(),
-                        description: format!("Port {} ({}) is publicly accessible: {}", port, service_name, desc),
-                        recommendation: format!("Use firewall rules to restrict access to {} or bind to 127.0.0.1 only", port),
+                        description: format!(
+                            "Port {} ({}) is publicly accessible: {}",
+                            port, service_name, desc
+                        ),
+                        recommendation: format!(
+                            "Use firewall rules to restrict access to {} or bind to 127.0.0.1 only",
+                            port
+                        ),
                     });
                 }
             }
@@ -244,6 +283,9 @@ mod tests {
         let ports = vec![(3389, "rdp-service".to_string()), (22, "ssh".to_string())];
         let warnings = scanner.scan_public_ports(&ports);
         assert!(!warnings.is_empty());
-        assert_eq!(warnings[0].issue_type, SecurityIssueType::PubliclyExposedSensitivePort);
+        assert_eq!(
+            warnings[0].issue_type,
+            SecurityIssueType::PubliclyExposedSensitivePort
+        );
     }
 }

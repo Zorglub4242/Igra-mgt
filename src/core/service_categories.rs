@@ -1,7 +1,6 @@
 /// Service Category Management
 ///
 /// Manages user-defined categories for organizing system services
-
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -44,10 +43,9 @@ impl CategoryManager {
         let config_path = config_dir.join("service_categories.json");
 
         let config = if config_path.exists() {
-            let content = fs::read_to_string(&config_path)
-                .context("Failed to read category config")?;
-            serde_json::from_str(&content)
-                .context("Failed to parse category config")?
+            let content =
+                fs::read_to_string(&config_path).context("Failed to read category config")?;
+            serde_json::from_str(&content).context("Failed to parse category config")?
         } else {
             Self::default_config()
         };
@@ -179,16 +177,17 @@ impl CategoryManager {
 
     /// Get a specific category by ID
     pub fn get_category(&self, id: &str) -> Option<ServiceCategory> {
-        self.config.categories.iter()
-            .find(|c| c.id == id)
-            .cloned()
+        self.config.categories.iter().find(|c| c.id == id).cloned()
     }
 
     /// Add a new category
     pub fn add_category(&mut self, category: ServiceCategory) -> Result<()> {
         // Check if ID already exists
         if self.config.categories.iter().any(|c| c.id == category.id) {
-            return Err(anyhow::anyhow!("Category with ID '{}' already exists", category.id));
+            return Err(anyhow::anyhow!(
+                "Category with ID '{}' already exists",
+                category.id
+            ));
         }
 
         self.config.categories.push(category);
@@ -197,7 +196,10 @@ impl CategoryManager {
 
     /// Update an existing category
     pub fn update_category(&mut self, id: &str, updated: ServiceCategory) -> Result<()> {
-        let index = self.config.categories.iter()
+        let index = self
+            .config
+            .categories
+            .iter()
             .position(|c| c.id == id)
             .ok_or_else(|| anyhow::anyhow!("Category '{}' not found", id))?;
 
@@ -208,7 +210,8 @@ impl CategoryManager {
     /// Delete a category
     pub fn delete_category(&mut self, id: &str) -> Result<()> {
         // Don't allow deletion of default categories
-        let category = self.get_category(id)
+        let category = self
+            .get_category(id)
             .ok_or_else(|| anyhow::anyhow!("Category '{}' not found", id))?;
 
         if category.is_default {
@@ -228,8 +231,15 @@ impl CategoryManager {
     }
 
     /// Add a service to a category
-    pub fn add_service_to_category(&mut self, category_id: &str, service_name: String) -> Result<()> {
-        let category = self.config.categories.iter_mut()
+    pub fn add_service_to_category(
+        &mut self,
+        category_id: &str,
+        service_name: String,
+    ) -> Result<()> {
+        let category = self
+            .config
+            .categories
+            .iter_mut()
             .find(|c| c.id == category_id)
             .ok_or_else(|| anyhow::anyhow!("Category '{}' not found", category_id))?;
 
@@ -238,7 +248,9 @@ impl CategoryManager {
         }
 
         // Update tracked service
-        self.config.tracked_services.entry(service_name.clone())
+        self.config
+            .tracked_services
+            .entry(service_name.clone())
             .and_modify(|t| t.category = category_id.to_string())
             .or_insert(TrackedService {
                 category: category_id.to_string(),
@@ -251,8 +263,15 @@ impl CategoryManager {
     }
 
     /// Remove a service from a category
-    pub fn remove_service_from_category(&mut self, category_id: &str, service_name: &str) -> Result<()> {
-        let category = self.config.categories.iter_mut()
+    pub fn remove_service_from_category(
+        &mut self,
+        category_id: &str,
+        service_name: &str,
+    ) -> Result<()> {
+        let category = self
+            .config
+            .categories
+            .iter_mut()
             .find(|c| c.id == category_id)
             .ok_or_else(|| anyhow::anyhow!("Category '{}' not found", category_id))?;
 
@@ -301,8 +320,12 @@ impl CategoryManager {
 
     /// Check if a service is tracked
     pub fn is_tracked(&self, service_name: &str) -> bool {
-        self.config.tracked_services.contains_key(service_name) ||
-        self.config.categories.iter().any(|c| c.services.contains(&service_name.to_string()))
+        self.config.tracked_services.contains_key(service_name)
+            || self
+                .config
+                .categories
+                .iter()
+                .any(|c| c.services.contains(&service_name.to_string()))
     }
 
     /// Reorder categories
@@ -323,26 +346,23 @@ impl CategoryManager {
 
         // Ensure parent directory exists
         if let Some(parent) = self.config_path.parent() {
-            fs::create_dir_all(parent)
-                .context("Failed to create config directory")?;
+            fs::create_dir_all(parent).context("Failed to create config directory")?;
         }
 
-        fs::write(&self.config_path, content)
-            .context("Failed to write category config")?;
+        fs::write(&self.config_path, content).context("Failed to write category config")?;
 
         Ok(())
     }
 
     /// Export categories configuration
     pub fn export_config(&self) -> Result<String> {
-        serde_json::to_string_pretty(&self.config)
-            .context("Failed to export config")
+        serde_json::to_string_pretty(&self.config).context("Failed to export config")
     }
 
     /// Import categories configuration
     pub fn import_config(&mut self, json: &str) -> Result<()> {
-        let new_config: CategoryConfig = serde_json::from_str(json)
-            .context("Failed to parse imported config")?;
+        let new_config: CategoryConfig =
+            serde_json::from_str(json).context("Failed to parse imported config")?;
 
         self.config = new_config;
         self.save_config()

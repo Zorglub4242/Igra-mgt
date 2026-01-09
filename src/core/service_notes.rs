@@ -2,12 +2,11 @@
 ///
 /// Provides user-editable notes for services with sensible defaults based on container image patterns.
 /// Notes are stored in JSON format in the user's config directory.
-
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::fs;
+use std::path::PathBuf;
 
 /// Service notes storage
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,12 +40,13 @@ impl ServiceNotes {
 
         // Ensure parent directory exists
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create config directory: {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create config directory: {}", parent.display())
+            })?;
         }
 
-        let content = serde_json::to_string_pretty(self)
-            .context("Failed to serialize service notes")?;
+        let content =
+            serde_json::to_string_pretty(self).context("Failed to serialize service notes")?;
 
         fs::write(&path, content)
             .with_context(|| format!("Failed to write service notes to {}", path.display()))?;
@@ -82,8 +82,7 @@ impl ServiceNotes {
 
     /// Get the config file path
     fn config_path() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir()
-            .context("Failed to determine config directory")?;
+        let config_dir = dirs::config_dir().context("Failed to determine config directory")?;
 
         Ok(config_dir.join("igra-cli").join("service_notes.json"))
     }
@@ -101,7 +100,8 @@ impl ServiceNotes {
              Alternative to Reth for running the execution layer.".to_string()
         } else if image_lower.contains("kaspad") {
             "Kaspa L1 node. Provides base layer security, consensus, and fast block confirmations. \
-             Required for entry transactions and L1 finality.".to_string()
+             Required for entry transactions and L1 finality."
+                .to_string()
         } else if image_lower.contains("viaduct") || image_lower.contains("bridge") {
             "Viaduct L1→L2 bridge. Monitors Kaspa for entry transactions, processes them after confirmation, \
              and forwards to the block builder. Maintains sync state in RocksDB.".to_string()
@@ -116,16 +116,20 @@ impl ServiceNotes {
              via Kaswallet for KAS→iKAS bridging. Can scale horizontally (up to 5 workers).".to_string()
         } else if image_lower.contains("kaswallet") {
             "Kaspa wallet daemon. Signs and submits entry transactions for the RPC provider. \
-             One wallet instance required per RPC worker.".to_string()
+             One wallet instance required per RPC worker."
+                .to_string()
         } else if image_lower.contains("kaspa-miner") {
             "Kaspa CPU miner. Optional service for isolated development environments. \
-             Mines blocks on local Kaspa testnet.".to_string()
+             Mines blocks on local Kaspa testnet."
+                .to_string()
         } else if image_lower.contains("postgres") || image_lower.contains("postgresql") {
-            "PostgreSQL database. Stores persistent data for services that require SQL storage.".to_string()
+            "PostgreSQL database. Stores persistent data for services that require SQL storage."
+                .to_string()
         } else if image_lower.contains("redis") {
             "Redis in-memory data store. Provides caching and pub/sub functionality.".to_string()
         } else if image_lower.contains("nginx") {
-            "Nginx web server and reverse proxy. Serves static content and routes HTTP traffic.".to_string()
+            "Nginx web server and reverse proxy. Serves static content and routes HTTP traffic."
+                .to_string()
         } else {
             format!("Service running {} image.", image)
         }

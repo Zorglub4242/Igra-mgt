@@ -4,7 +4,6 @@
 /// - Reth metrics endpoint (port 9001) for statistics
 /// - Ethereum JSON-RPC (port 9545) for transaction details
 /// - Kaspa wallet UTXO tracking for L1 fee correlation
-
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use ethers::prelude::*;
@@ -14,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::core::wallet::{WalletManager, UtxoInfo};
+use crate::core::wallet::{UtxoInfo, WalletManager};
 
 const METRICS_URL: &str = "http://localhost:9001/metrics";
 const RPC_URL: &str = "http://localhost:9545";
@@ -206,7 +205,8 @@ impl TransactionMonitor {
 
     /// Fetch and parse Prometheus metrics
     pub async fn fetch_metrics(&self) -> Result<HashMap<String, String>> {
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(METRICS_URL)
             .send()
             .await?
@@ -229,7 +229,8 @@ impl TransactionMonitor {
 
     /// Get current block number
     pub async fn get_block_number(&self) -> Result<u64> {
-        let block = self.provider
+        let block = self
+            .provider
             .get_block_number()
             .await
             .context("Failed to get block number")?;
@@ -237,8 +238,12 @@ impl TransactionMonitor {
     }
 
     /// Fetch transactions from a specific block
-    pub async fn fetch_block_transactions(&self, block_number: u64) -> Result<Vec<TransactionInfo>> {
-        let block = self.provider
+    pub async fn fetch_block_transactions(
+        &self,
+        block_number: u64,
+    ) -> Result<Vec<TransactionInfo>> {
+        let block = self
+            .provider
             .get_block_with_txs(BlockNumber::Number(block_number.into()))
             .await?
             .context(format!("Block {} not found", block_number))?;
@@ -247,12 +252,13 @@ impl TransactionMonitor {
 
         for tx in block.transactions {
             // Fetch receipt for gas used and status
-            let receipt = self.provider
-                .get_transaction_receipt(tx.hash)
-                .await?;
+            let receipt = self.provider.get_transaction_receipt(tx.hash).await?;
 
             let (gas_used, status) = if let Some(r) = receipt {
-                (Some(r.gas_used.unwrap_or_default()), r.status == Some(1.into()))
+                (
+                    Some(r.gas_used.unwrap_or_default()),
+                    r.status == Some(1.into()),
+                )
             } else {
                 (None, false)
             };
@@ -263,7 +269,9 @@ impl TransactionMonitor {
             // Get L1 fee if it's an entry transaction
             let l1_fee = if tx_type == TransactionType::Entry {
                 let value_ikas = wei_to_ikas(tx.value);
-                self.l1_tracker.get_l1_fee(&format!("{:?}", tx.hash), value_ikas).await
+                self.l1_tracker
+                    .get_l1_fee(&format!("{:?}", tx.hash), value_ikas)
+                    .await
             } else {
                 None
             };

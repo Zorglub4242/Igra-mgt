@@ -1,6 +1,5 @@
 /// RPC endpoint testing
-
-use anyhow::{Result};
+use anyhow::Result;
 use reqwest::Client;
 use serde_json::json;
 
@@ -46,7 +45,8 @@ impl RpcTester {
             "id": 1
         });
 
-        let response = match self.client
+        let response = match self
+            .client
             .post(&full_url)
             .header("Content-Type", "application/json")
             .json(&payload)

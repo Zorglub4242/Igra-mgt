@@ -1,8 +1,6 @@
 /// SSL/TLS certificate management
-
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Utc};
-use serde::{Deserialize};
 use serde_json::Value;
 use std::fs;
 use std::process::Command;
@@ -18,25 +16,6 @@ pub struct CertificateInfo {
     pub valid_until: Option<DateTime<Utc>>,
     pub days_remaining: Option<i64>,
     pub is_valid: bool,
-}
-
-#[derive(Debug, Deserialize)]
-struct AcmeData {
-    #[serde(default)]
-    #[serde(rename = "Certificates")]
-    certificates: Vec<AcmeCertificate>,
-}
-
-#[derive(Debug, Deserialize)]
-struct AcmeCertificate {
-    domain: AcmeDomain,
-}
-
-#[derive(Debug, Deserialize)]
-struct AcmeDomain {
-    main: String,
-    #[serde(default)]
-    sans: Vec<String>,
 }
 
 impl SslManager {
@@ -58,32 +37,29 @@ impl SslManager {
         }
 
         // Read and parse ACME JSON
-        let acme_content = fs::read_to_string(&acme_file)
-            .context("Failed to read acme.json")?;
+        let acme_content = fs::read_to_string(&acme_file).context("Failed to read acme.json")?;
 
-        let acme_json: Value = serde_json::from_str(&acme_content)
-            .context("Failed to parse acme.json")?;
+        let acme_json: Value =
+            serde_json::from_str(&acme_content).context("Failed to parse acme.json")?;
 
         // Extract certificate info
         // ACME JSON structure varies, try to find certificate
-        let cert_found = acme_json
-            .as_object()
-            .and_then(|obj| {
-                obj.values().find_map(|resolver| {
-                    resolver
-                        .get("Certificates")
-                        .and_then(|certs| certs.as_array())
-                        .and_then(|arr| {
-                            arr.iter().find(|cert| {
-                                cert.get("domain")
-                                    .and_then(|d| d.get("main"))
-                                    .and_then(|m| m.as_str())
-                                    .map(|s| s == domain)
-                                    .unwrap_or(false)
-                            })
+        let cert_found = acme_json.as_object().and_then(|obj| {
+            obj.values().find_map(|resolver| {
+                resolver
+                    .get("Certificates")
+                    .and_then(|certs| certs.as_array())
+                    .and_then(|arr| {
+                        arr.iter().find(|cert| {
+                            cert.get("domain")
+                                .and_then(|d| d.get("main"))
+                                .and_then(|m| m.as_str())
+                                .map(|s| s == domain)
+                                .unwrap_or(false)
                         })
-                })
-            });
+                    })
+            })
+        });
 
         if cert_found.is_none() {
             return Ok(CertificateInfo {
@@ -147,12 +123,8 @@ impl SslManager {
             (until - now).num_days()
         });
 
-        let is_valid = valid_until
-            .map(|until| until > Utc::now())
-            .unwrap_or(false)
-            && valid_from
-                .map(|from| from < Utc::now())
-                .unwrap_or(false);
+        let is_valid = valid_until.map(|until| until > Utc::now()).unwrap_or(false)
+            && valid_from.map(|from| from < Utc::now()).unwrap_or(false);
 
         Ok(CertificateInfo {
             domain: domain.to_string(),

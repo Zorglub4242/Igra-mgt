@@ -1,19 +1,30 @@
 /// Helper utilities for the IGRA CLI
-
 use anyhow::{Context, Result};
-use std::path::{Path, PathBuf};
 use chrono::{DateTime, Local};
+use std::path::{Path, PathBuf};
 
 /// Auto-detect project root from running Docker containers
 fn detect_from_docker() -> Option<PathBuf> {
     use std::process::Command;
 
     // Try to find IGRA Orchestra containers - check multiple containers
-    let container_names = ["traefik", "kaswallet-0", "execution-layer", "kaspad", "viaduct"];
+    let container_names = [
+        "traefik",
+        "kaswallet-0",
+        "execution-layer",
+        "kaspad",
+        "viaduct",
+    ];
 
     for container_name in &container_names {
         let output = Command::new("docker")
-            .args(&["ps", "--filter", &format!("name={}", container_name), "--format", "{{.ID}}"])
+            .args(&[
+                "ps",
+                "--filter",
+                &format!("name={}", container_name),
+                "--format",
+                "{{.ID}}",
+            ])
             .output()
             .ok()?;
 
@@ -85,7 +96,10 @@ pub fn get_project_root() -> Result<PathBuf> {
 
     // 3. Try to auto-detect from running Docker containers
     if let Some(detected_path) = detect_from_docker() {
-        eprintln!("✓ Auto-detected IGRA Orchestra at: {}", detected_path.display());
+        eprintln!(
+            "✓ Auto-detected IGRA Orchestra at: {}",
+            detected_path.display()
+        );
         eprintln!("  Saving to ~/.config/igra-cli/config.toml");
 
         // Save to config
@@ -97,8 +111,7 @@ pub fn get_project_root() -> Result<PathBuf> {
     }
 
     // 4. Search for docker-compose.yml in current and parent directories
-    let current_dir = std::env::current_dir()
-        .context("Failed to get current directory")?;
+    let current_dir = std::env::current_dir().context("Failed to get current directory")?;
 
     let mut dir = current_dir.as_path();
     loop {
@@ -243,9 +256,9 @@ pub fn is_valid_domain(domain: &str) -> bool {
 
     parts.iter().all(|part| {
         !part.is_empty()
-        && part.chars().all(|c| c.is_alphanumeric() || c == '-')
-        && !part.starts_with('-')
-        && !part.ends_with('-')
+            && part.chars().all(|c| c.is_alphanumeric() || c == '-')
+            && !part.starts_with('-')
+            && !part.ends_with('-')
     })
 }
 

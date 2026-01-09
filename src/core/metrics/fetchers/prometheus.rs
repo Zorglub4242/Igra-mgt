@@ -1,9 +1,8 @@
+use super::MetricFetcher;
 /// Prometheus metrics fetcher
 ///
 /// Fetches metrics from Prometheus-compatible HTTP endpoints using Docker exec with /dev/tcp
-
-use anyhow::{Result, Context};
-use super::MetricFetcher;
+use anyhow::{Context, Result};
 
 #[derive(Debug, Clone)]
 pub struct PrometheusFetcher {
@@ -100,7 +99,10 @@ some_metric_with_labels{label="value"} 99
 "#;
 
         assert_eq!(
-            PrometheusFetcher::parse_metric_value(sample, "reth_blockchain_tree_canonical_chain_height"),
+            PrometheusFetcher::parse_metric_value(
+                sample,
+                "reth_blockchain_tree_canonical_chain_height"
+            ),
             Some(123456.0)
         );
         assert_eq!(

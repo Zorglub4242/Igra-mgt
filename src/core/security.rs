@@ -1,5 +1,4 @@
 /// Security module for IP allowlisting and network access control
-
 use anyhow::{Context, Result};
 use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
@@ -129,8 +128,8 @@ impl SecurityManager {
         let content = std::fs::read_to_string(&self.config_path)
             .context("Failed to read security config file")?;
 
-        let config: SecurityConfig = serde_yaml::from_str(&content)
-            .context("Failed to parse security config file")?;
+        let config: SecurityConfig =
+            serde_yaml::from_str(&content).context("Failed to parse security config file")?;
 
         Ok(config.security)
     }
@@ -141,8 +140,8 @@ impl SecurityManager {
             security: allowlist.clone(),
         };
 
-        let content = serde_yaml::to_string(&config)
-            .context("Failed to serialize security config")?;
+        let content =
+            serde_yaml::to_string(&config).context("Failed to serialize security config")?;
 
         std::fs::write(&self.config_path, content)
             .context("Failed to write security config file")?;
@@ -178,11 +177,7 @@ impl SecurityManager {
 }
 
 /// Extract real IP from request, considering proxy headers
-pub fn extract_real_ip(
-    peer_ip: IpAddr,
-    proxy_header: Option<&str>,
-    trust_proxy: bool,
-) -> IpAddr {
+pub fn extract_real_ip(peer_ip: IpAddr, proxy_header: Option<&str>, trust_proxy: bool) -> IpAddr {
     if !trust_proxy {
         return peer_ip;
     }
@@ -316,29 +311,17 @@ mod tests {
         let forwarded_ip = "192.168.1.100";
 
         // Without trust_proxy, should return peer IP
-        assert_eq!(
-            extract_real_ip(peer_ip, Some(forwarded_ip), false),
-            peer_ip
-        );
+        assert_eq!(extract_real_ip(peer_ip, Some(forwarded_ip), false), peer_ip);
 
         // With trust_proxy, should return forwarded IP
         let expected = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100));
-        assert_eq!(
-            extract_real_ip(peer_ip, Some(forwarded_ip), true),
-            expected
-        );
+        assert_eq!(extract_real_ip(peer_ip, Some(forwarded_ip), true), expected);
 
         // With multiple IPs in header, should use first
         let multiple_ips = "192.168.1.100, 10.0.0.5";
-        assert_eq!(
-            extract_real_ip(peer_ip, Some(multiple_ips), true),
-            expected
-        );
+        assert_eq!(extract_real_ip(peer_ip, Some(multiple_ips), true), expected);
 
         // With invalid header, should fall back to peer IP
-        assert_eq!(
-            extract_real_ip(peer_ip, Some("invalid"), true),
-            peer_ip
-        );
+        assert_eq!(extract_real_ip(peer_ip, Some("invalid"), true), peer_ip);
     }
 }

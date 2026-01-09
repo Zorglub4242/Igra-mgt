@@ -2,15 +2,14 @@
 ///
 /// Manages a collection of plugins, matches containers to appropriate plugins,
 /// and fetches metrics using the configured fetchers.
-
-use anyhow::{Result, Context};
-use std::path::Path;
+use anyhow::{Context, Result};
 use std::collections::HashMap;
-use std::time::{Instant, Duration};
+use std::path::Path;
 use std::sync::RwLock;
+use std::time::{Duration, Instant};
 
-use super::plugin::{PluginConfig, DisplayPriority, FetcherType};
-use super::fetchers::{MetricValue, AnyFetcher, PrometheusFetcher, LogsFetcher, format_metric};
+use super::fetchers::{format_metric, AnyFetcher, LogsFetcher, MetricValue, PrometheusFetcher};
+use super::plugin::{DisplayPriority, FetcherType, PluginConfig};
 
 /// Cached metric value with timestamp
 #[derive(Debug, Clone)]
@@ -43,7 +42,10 @@ impl PluginRegistry {
 
         let dir_path = path.as_ref();
         if !dir_path.exists() {
-            eprintln!("[WARN] Plugins directory does not exist: {}", dir_path.display());
+            eprintln!(
+                "[WARN] Plugins directory does not exist: {}",
+                dir_path.display()
+            );
             return Ok(Self {
                 plugins,
                 cache: RwLock::new(HashMap::new()),
@@ -59,11 +61,19 @@ impl PluginRegistry {
             if path.extension().and_then(|s| s.to_str()) == Some("toml") {
                 match PluginConfig::load_from_file(&path) {
                     Ok(config) => {
-                        eprintln!("[INFO] Loaded plugin: {} from {}", config.plugin.name, path.display());
+                        eprintln!(
+                            "[INFO] Loaded plugin: {} from {}",
+                            config.plugin.name,
+                            path.display()
+                        );
                         plugins.push(config);
                     }
                     Err(e) => {
-                        eprintln!("[ERROR] Failed to load plugin from {}: {}", path.display(), e);
+                        eprintln!(
+                            "[ERROR] Failed to load plugin from {}: {}",
+                            path.display(),
+                            e
+                        );
                     }
                 }
             }
@@ -172,9 +182,15 @@ impl PluginRegistry {
             ("reth", include_str!("../../../plugins/reth.toml")),
             ("geth", include_str!("../../../plugins/geth.toml")),
             ("kaspad", include_str!("../../../plugins/kaspad.toml")),
-            ("block-builder", include_str!("../../../plugins/block-builder.toml")),
+            (
+                "block-builder",
+                include_str!("../../../plugins/block-builder.toml"),
+            ),
             ("kaswallet", include_str!("../../../plugins/kaswallet.toml")),
-            ("rpc-provider", include_str!("../../../plugins/rpc-provider.toml")),
+            (
+                "rpc-provider",
+                include_str!("../../../plugins/rpc-provider.toml"),
+            ),
             ("traefik", include_str!("../../../plugins/traefik.toml")),
             ("viaduct", include_str!("../../../plugins/viaduct.toml")),
         ];
@@ -198,7 +214,11 @@ impl PluginRegistry {
     }
 
     /// Find the first plugin that matches the given container
-    pub fn find_plugin(&self, container_name: &str, container_image: &str) -> Option<&PluginConfig> {
+    pub fn find_plugin(
+        &self,
+        container_name: &str,
+        container_image: &str,
+    ) -> Option<&PluginConfig> {
         self.plugins
             .iter()
             .find(|plugin| plugin.matches_container(container_name, container_image))
@@ -214,7 +234,8 @@ impl PluginRegistry {
     /// Check if a cached metric is still valid
     fn is_cache_valid(&self, container_name: &str, metric_name: &str, cache_duration: u64) -> bool {
         if let Ok(cache) = self.cache.read() {
-            if let Some(cached) = cache.get(&(container_name.to_string(), metric_name.to_string())) {
+            if let Some(cached) = cache.get(&(container_name.to_string(), metric_name.to_string()))
+            {
                 return cached.fetched_at.elapsed() < Duration::from_secs(cache_duration);
             }
         }
@@ -248,7 +269,11 @@ impl PluginRegistry {
             let cache_key = (container_name.to_string(), metric_def.name.clone());
 
             // Check if we have a valid cached value
-            let (value, formatted) = if self.is_cache_valid(container_name, &metric_def.name, metric_def.cache_duration()) {
+            let (value, formatted) = if self.is_cache_valid(
+                container_name,
+                &metric_def.name,
+                metric_def.cache_duration(),
+            ) {
                 // Use cached value
                 if let Ok(cache) = self.cache.read() {
                     if let Some(cached) = cache.get(&cache_key) {
@@ -277,11 +302,14 @@ impl PluginRegistry {
 
                     // Update cache
                     if let Ok(mut cache) = self.cache.write() {
-                        cache.insert(cache_key, CachedMetric {
-                            value: val,
-                            formatted: formatted.clone(),
-                            fetched_at: Instant::now(),
-                        });
+                        cache.insert(
+                            cache_key,
+                            CachedMetric {
+                                value: val,
+                                formatted: formatted.clone(),
+                                fetched_at: Instant::now(),
+                            },
+                        );
                     }
 
                     (Some(val), formatted)
@@ -324,7 +352,11 @@ impl PluginRegistry {
             let cache_key = (container_name.to_string(), metric_def.name.clone());
 
             // Check if we have a valid cached value
-            let (value, formatted) = if self.is_cache_valid(container_name, &metric_def.name, metric_def.cache_duration()) {
+            let (value, formatted) = if self.is_cache_valid(
+                container_name,
+                &metric_def.name,
+                metric_def.cache_duration(),
+            ) {
                 // Use cached value
                 if let Ok(cache) = self.cache.read() {
                     if let Some(cached) = cache.get(&cache_key) {
@@ -353,11 +385,14 @@ impl PluginRegistry {
 
                     // Update cache
                     if let Ok(mut cache) = self.cache.write() {
-                        cache.insert(cache_key, CachedMetric {
-                            value: val,
-                            formatted: formatted.clone(),
-                            fetched_at: Instant::now(),
-                        });
+                        cache.insert(
+                            cache_key,
+                            CachedMetric {
+                                value: val,
+                                formatted: formatted.clone(),
+                                fetched_at: Instant::now(),
+                            },
+                        );
                     }
 
                     (Some(val), formatted)
@@ -415,43 +450,48 @@ impl PluginRegistry {
             let cache_key = (service_name.to_string(), metric_def.name.clone());
 
             // Check if we have a valid cached value
-            let (value, formatted) = if self.is_cache_valid(service_name, &metric_def.name, metric_def.cache_duration()) {
-                // Use cached value
-                if let Ok(cache) = self.cache.read() {
-                    if let Some(cached) = cache.get(&cache_key) {
-                        (Some(cached.value), cached.formatted.clone())
+            let (value, formatted) =
+                if self.is_cache_valid(service_name, &metric_def.name, metric_def.cache_duration())
+                {
+                    // Use cached value
+                    if let Ok(cache) = self.cache.read() {
+                        if let Some(cached) = cache.get(&cache_key) {
+                            (Some(cached.value), cached.formatted.clone())
+                        } else {
+                            (None, String::new())
+                        }
                     } else {
                         (None, String::new())
                     }
                 } else {
-                    (None, String::new())
-                }
-            } else {
-                // Fetch new value from logs using regex pattern
-                let value = if let Some(regex_pattern) = &metric_def.regex_pattern {
-                    // Log-based metric with per-metric pattern
-                    LogsFetcher::parse_with_regex(&raw_logs, regex_pattern)
-                } else {
-                    None
-                };
+                    // Fetch new value from logs using regex pattern
+                    let value = if let Some(regex_pattern) = &metric_def.regex_pattern {
+                        // Log-based metric with per-metric pattern
+                        LogsFetcher::parse_with_regex(&raw_logs, regex_pattern)
+                    } else {
+                        None
+                    };
 
-                if let Some(val) = value {
-                    let formatted = format_metric(&metric_def.display_format, val);
+                    if let Some(val) = value {
+                        let formatted = format_metric(&metric_def.display_format, val);
 
-                    // Update cache
-                    if let Ok(mut cache) = self.cache.write() {
-                        cache.insert(cache_key, CachedMetric {
-                            value: val,
-                            formatted: formatted.clone(),
-                            fetched_at: Instant::now(),
-                        });
+                        // Update cache
+                        if let Ok(mut cache) = self.cache.write() {
+                            cache.insert(
+                                cache_key,
+                                CachedMetric {
+                                    value: val,
+                                    formatted: formatted.clone(),
+                                    fetched_at: Instant::now(),
+                                },
+                            );
+                        }
+
+                        (Some(val), formatted)
+                    } else {
+                        (None, String::new())
                     }
-
-                    (Some(val), formatted)
-                } else {
-                    (None, String::new())
-                }
-            };
+                };
 
             if let Some(val) = value {
                 metrics.push(MetricValue {
@@ -495,9 +535,9 @@ impl PluginRegistry {
                 }
             }
             // System service fetchers - not implemented yet, return an error
-            FetcherType::Systemd | FetcherType::SystemLogs => {
-                Err(anyhow::anyhow!("System service fetchers not yet implemented"))
-            }
+            FetcherType::Systemd | FetcherType::SystemLogs => Err(anyhow::anyhow!(
+                "System service fetchers not yet implemented"
+            )),
         }
     }
 }
@@ -522,12 +562,10 @@ mod tests {
                 name: "reth".to_string(),
                 description: "Reth client".to_string(),
             },
-            matchers: vec![
-                super::super::plugin::ContainerMatcher {
-                    match_type: super::super::plugin::MatchType::ImageContains,
-                    value: "reth".to_string(),
-                },
-            ],
+            matchers: vec![super::super::plugin::ContainerMatcher {
+                match_type: super::super::plugin::MatchType::ImageContains,
+                value: "reth".to_string(),
+            }],
             fetcher: super::super::plugin::FetcherConfig {
                 fetcher_type: FetcherType::Prometheus,
                 method: Some(super::super::plugin::FetchMethod::DockerExec),

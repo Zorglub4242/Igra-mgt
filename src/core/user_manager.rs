@@ -1,5 +1,4 @@
 /// User management with file-based storage and role-based access control
-
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -111,8 +110,7 @@ pub struct UserManager {
 impl UserManager {
     pub fn new(config_dir: PathBuf) -> Result<Self> {
         // Create config directory if it doesn't exist
-        std::fs::create_dir_all(&config_dir)
-            .context("Failed to create user config directory")?;
+        std::fs::create_dir_all(&config_dir).context("Failed to create user config directory")?;
 
         Ok(Self {
             config_path: config_dir.join("users.yaml"),
@@ -125,11 +123,11 @@ impl UserManager {
             return Ok(Vec::new());
         }
 
-        let content = std::fs::read_to_string(&self.config_path)
-            .context("Failed to read users file")?;
+        let content =
+            std::fs::read_to_string(&self.config_path).context("Failed to read users file")?;
 
-        let users_file: UsersFile = serde_yaml::from_str(&content)
-            .context("Failed to parse users file")?;
+        let users_file: UsersFile =
+            serde_yaml::from_str(&content).context("Failed to parse users file")?;
 
         Ok(users_file.users)
     }
@@ -140,11 +138,9 @@ impl UserManager {
             users: users.to_vec(),
         };
 
-        let content = serde_yaml::to_string(&users_file)
-            .context("Failed to serialize users")?;
+        let content = serde_yaml::to_string(&users_file).context("Failed to serialize users")?;
 
-        std::fs::write(&self.config_path, content)
-            .context("Failed to write users file")?;
+        std::fs::write(&self.config_path, content).context("Failed to write users file")?;
 
         Ok(())
     }

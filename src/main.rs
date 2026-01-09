@@ -1,21 +1,31 @@
 mod app;
 mod cli;
-mod core;
 mod screens;
-mod utils;
 mod widgets;
 
 #[cfg(feature = "server")]
-mod server;
+mod server {
+    pub use igra_cli::server::*;
+}
+
+mod core {
+    pub use igra_cli::core::*;
+}
+
+mod utils {
+    pub use igra_cli::utils::*;
+}
 
 use anyhow::Result;
 use clap::Parser;
 
 use app::App;
-use cli::{BackupCommands, Cli, Commands, ConfigCommands, RpcCommands, TokenCommands, WalletCommands};
-use core::{ConfigManager, DockerManager};
+use cli::{
+    BackupCommands, Cli, Commands, ConfigCommands, RpcCommands, TokenCommands, WalletCommands,
+};
 use core::rpc::RpcTester;
 use core::wallet::WalletManager;
+use core::{ConfigManager, DockerManager};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -27,7 +37,13 @@ async fn main() -> Result<()> {
             let mut app = App::new()?;
             app.run().await?;
         }
-        Some(Commands::Status { profiles, status, project, name, all }) => {
+        Some(Commands::Status {
+            profiles,
+            status,
+            project,
+            name,
+            all,
+        }) => {
             handle_status(profiles, status, project, name, all).await?;
         }
         Some(Commands::Start { profile, service }) => {
@@ -80,15 +96,30 @@ async fn main() -> Result<()> {
             println!("  2. .env file is configured (see .env.example)");
             println!("  3. Run: docker compose --profile <profile> up -d");
         }
-        Some(Commands::Watch { filter, record, format }) => {
+        Some(Commands::Watch {
+            filter,
+            record,
+            format,
+        }) => {
             handle_watch(filter, record, format).await?;
         }
         #[cfg(feature = "server")]
-        Some(Commands::Serve { port, host, cors, tls_cert, tls_key }) => {
+        Some(Commands::Serve {
+            port,
+            host,
+            cors,
+            tls_cert,
+            tls_key,
+        }) => {
             server::run(host, port, cors, tls_cert, tls_key).await?;
         }
         #[cfg(feature = "server")]
-        Some(Commands::InstallService { port, host, cors, user }) => {
+        Some(Commands::InstallService {
+            port,
+            host,
+            cors,
+            user,
+        }) => {
             handle_install_service(port, host, cors, user).await?;
         }
         #[cfg(feature = "server")]
@@ -129,12 +160,16 @@ async fn handle_status(
                 for s in statuses {
                     match s {
                         "healthy" => {
-                            if container.status.contains("Up") && container.status.contains("healthy") {
+                            if container.status.contains("Up")
+                                && container.status.contains("healthy")
+                            {
                                 status_match = true;
                             }
                         }
                         "running" => {
-                            if container.status.contains("Up") && !container.status.contains("healthy") {
+                            if container.status.contains("Up")
+                                && !container.status.contains("healthy")
+                            {
                                 status_match = true;
                             }
                         }
@@ -144,7 +179,9 @@ async fn handle_status(
                             }
                         }
                         "unhealthy" => {
-                            if container.status.contains("Up") && !container.status.contains("healthy") {
+                            if container.status.contains("Up")
+                                && !container.status.contains("healthy")
+                            {
                                 status_match = true;
                             }
                         }
@@ -247,7 +284,10 @@ async fn handle_logs(service: String, follow: bool, tail: usize) -> Result<()> {
         let logs = docker.get_logs(&service, Some(tail)).await?;
         print!("{}", logs);
 
-        println!("\nTip: Use 'docker compose logs -f {}' for continuous log streaming", service);
+        println!(
+            "\nTip: Use 'docker compose logs -f {}' for continuous log streaming",
+            service
+        );
     } else {
         let logs = docker.get_logs(&service, Some(tail)).await?;
         print!("{}", logs);
@@ -258,86 +298,90 @@ async fn handle_logs(service: String, follow: bool, tail: usize) -> Result<()> {
 
 async fn handle_rpc(command: RpcCommands) -> Result<()> {
     match command {
-        RpcCommands::Tokens { command } => {
-            match command {
-                Some(TokenCommands::List) | None => {
-                    let config = ConfigManager::load(".env")?;
-                    println!("RPC Access Tokens:\n");
-                    for (i, token) in config.get_rpc_tokens() {
-                        if let Some(t) = token {
-                            println!("TOKEN_{:02}: {}...{}", i, &t[..8], &t[t.len() - 8..]);
-                        } else {
-                            println!("TOKEN_{:02}: <not set>", i);
-                        }
-                    }
-                }
-                Some(TokenCommands::Generate) => {
-                    let mut config = ConfigManager::load(".env")?;
-                    println!("Generating all RPC access tokens...\n");
-
-                    let tokens = config.generate_all_rpc_tokens()?;
-                    config.save()?;
-
-                    println!("✓ Generated {} tokens", tokens.len());
-                    println!("\nTokens have been saved to .env file");
-                    println!("You can view them with: igra-cli rpc tokens list");
-                }
-                Some(TokenCommands::Test { token_number }) => {
-                    let config = ConfigManager::load(".env")?;
-                    let domain = config.get("IGRA_ORCHESTRA_DOMAIN")
-                        .ok_or_else(|| anyhow::anyhow!("IGRA_ORCHESTRA_DOMAIN not set in .env"))?;
-
-                    let tokens = config.get_rpc_tokens();
-                    let (_index, token_opt) = tokens.iter()
-                        .find(|(i, _)| *i == token_number)
-                        .ok_or_else(|| anyhow::anyhow!("Invalid token number"))?;
-
-                    let token = token_opt.as_ref()
-                        .ok_or_else(|| anyhow::anyhow!("Token {} is not set", token_number))?;
-
-                    println!("Testing RPC token {}...\n", token_number);
-
-                    let tester = RpcTester::new();
-                    let (http_result, https_result) = tester.test_both_endpoints(domain, token).await?;
-
-                    println!("HTTP Test:");
-                    if http_result.success {
-                        println!("  ✓ Success ({}ms)", http_result.response_time_ms);
-                        if let Some(bn) = http_result.block_number {
-                            println!("  Block Number: {}", bn);
-                        }
+        RpcCommands::Tokens { command } => match command {
+            Some(TokenCommands::List) | None => {
+                let config = ConfigManager::load(".env")?;
+                println!("RPC Access Tokens:\n");
+                for (i, token) in config.get_rpc_tokens() {
+                    if let Some(t) = token {
+                        println!("TOKEN_{:02}: {}...{}", i, &t[..8], &t[t.len() - 8..]);
                     } else {
-                        println!("  ✗ Failed: {}", http_result.error.unwrap_or_default());
-                    }
-
-                    println!("\nHTTPS Test:");
-                    if https_result.success {
-                        println!("  ✓ Success ({}ms)", https_result.response_time_ms);
-                        if let Some(bn) = https_result.block_number {
-                            println!("  Block Number: {}", bn);
-                        }
-                    } else {
-                        println!("  ✗ Failed: {}", https_result.error.unwrap_or_default());
+                        println!("TOKEN_{:02}: <not set>", i);
                     }
                 }
             }
-        }
+            Some(TokenCommands::Generate) => {
+                let mut config = ConfigManager::load(".env")?;
+                println!("Generating all RPC access tokens...\n");
+
+                let tokens = config.generate_all_rpc_tokens()?;
+                config.save()?;
+
+                println!("✓ Generated {} tokens", tokens.len());
+                println!("\nTokens have been saved to .env file");
+                println!("You can view them with: igra-cli rpc tokens list");
+            }
+            Some(TokenCommands::Test { token_number }) => {
+                let config = ConfigManager::load(".env")?;
+                let domain = config
+                    .get("IGRA_ORCHESTRA_DOMAIN")
+                    .ok_or_else(|| anyhow::anyhow!("IGRA_ORCHESTRA_DOMAIN not set in .env"))?;
+
+                let tokens = config.get_rpc_tokens();
+                let (_index, token_opt) = tokens
+                    .iter()
+                    .find(|(i, _)| *i == token_number)
+                    .ok_or_else(|| anyhow::anyhow!("Invalid token number"))?;
+
+                let token = token_opt
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("Token {} is not set", token_number))?;
+
+                println!("Testing RPC token {}...\n", token_number);
+
+                let tester = RpcTester::new();
+                let (http_result, https_result) = tester.test_both_endpoints(domain, token).await?;
+
+                println!("HTTP Test:");
+                if http_result.success {
+                    println!("  ✓ Success ({}ms)", http_result.response_time_ms);
+                    if let Some(bn) = http_result.block_number {
+                        println!("  Block Number: {}", bn);
+                    }
+                } else {
+                    println!("  ✗ Failed: {}", http_result.error.unwrap_or_default());
+                }
+
+                println!("\nHTTPS Test:");
+                if https_result.success {
+                    println!("  ✓ Success ({}ms)", https_result.response_time_ms);
+                    if let Some(bn) = https_result.block_number {
+                        println!("  Block Number: {}", bn);
+                    }
+                } else {
+                    println!("  ✗ Failed: {}", https_result.error.unwrap_or_default());
+                }
+            }
+        },
         RpcCommands::TestEndpoint { token } => {
             let config = ConfigManager::load(".env")?;
-            let domain = config.get("IGRA_ORCHESTRA_DOMAIN")
+            let domain = config
+                .get("IGRA_ORCHESTRA_DOMAIN")
                 .ok_or_else(|| anyhow::anyhow!("IGRA_ORCHESTRA_DOMAIN not set in .env"))?
                 .to_string();
 
             let test_token: String = if let Some(token_num) = token {
                 let tokens = config.get_rpc_tokens();
-                tokens.iter()
+                tokens
+                    .iter()
                     .find(|(i, _)| *i == token_num)
                     .and_then(|(_, t)| t.clone())
                     .ok_or_else(|| anyhow::anyhow!("Token {} not found", token_num))?
             } else {
                 // Use first available token
                 let tokens = config.get_rpc_tokens();
-                tokens.iter()
+                tokens
+                    .iter()
                     .find_map(|(_, t)| t.clone())
                     .ok_or_else(|| anyhow::anyhow!("No RPC tokens configured"))?
             };
@@ -345,7 +389,8 @@ async fn handle_rpc(command: RpcCommands) -> Result<()> {
             println!("Testing RPC endpoints...\n");
 
             let tester = RpcTester::new();
-            let (http_result, https_result) = tester.test_both_endpoints(&domain, &test_token).await?;
+            let (http_result, https_result) =
+                tester.test_both_endpoints(&domain, &test_token).await?;
 
             println!("HTTP Endpoint (http://{}:8545):", domain);
             if http_result.success {
@@ -380,7 +425,10 @@ async fn handle_wallet(command: WalletCommands) -> Result<()> {
             println!("IGRA Wallet Status\n");
             let wallets = wallet_manager.list_wallets().await?;
 
-            println!("{:<10} {:<12} {:<50} {:<15}", "Worker", "Status", "Address", "Balance");
+            println!(
+                "{:<10} {:<12} {:<50} {:<15}",
+                "Worker", "Status", "Address", "Balance"
+            );
             println!("{}", "-".repeat(90));
 
             for wallet in wallets {
@@ -555,7 +603,10 @@ async fn handle_diagnostics(report: bool) -> Result<()> {
         println!("=== IGRA Orchestra Diagnostics ===\n");
         println!("Services:");
         for container in &containers {
-            println!("  {} - {:?} ({})", container.name, container.state, container.status);
+            println!(
+                "  {} - {:?} ({})",
+                container.name, container.state, container.status
+            );
         }
 
         println!("\nFor detailed monitoring, use the TUI dashboard:");
@@ -592,7 +643,12 @@ async fn handle_watch(filter: String, record: Option<String>, format: String) ->
 }
 
 #[cfg(feature = "server")]
-async fn handle_install_service(port: u16, host: String, cors: bool, user: Option<String>) -> Result<()> {
+async fn handle_install_service(
+    port: u16,
+    host: String,
+    cors: bool,
+    user: Option<String>,
+) -> Result<()> {
     #[cfg(target_os = "linux")]
     {
         handle_install_service_linux(port, host, cors, user).await
@@ -612,9 +668,14 @@ async fn handle_install_service(port: u16, host: String, cors: bool, user: Optio
 }
 
 #[cfg(all(feature = "server", target_os = "linux"))]
-async fn handle_install_service_linux(port: u16, host: String, cors: bool, user: Option<String>) -> Result<()> {
-    use std::io::{self, Write};
+async fn handle_install_service_linux(
+    port: u16,
+    host: String,
+    cors: bool,
+    user: Option<String>,
+) -> Result<()> {
     use std::fs;
+    use std::io::{self, Write};
 
     let current_user = std::env::var("USER").unwrap_or_else(|_| "root".to_string());
     let service_user = user.unwrap_or(current_user);
@@ -636,7 +697,8 @@ async fn handle_install_service_linux(port: u16, host: String, cors: bool, user:
 
     let cors_flag = if cors { "--cors" } else { "" };
 
-    let service_content = format!(r#"[Unit]
+    let service_content = format!(
+        r#"[Unit]
 Description=IGRA Orchestra Web Management UI
 After=network.target docker.service
 Requires=docker.service
@@ -680,8 +742,10 @@ WantedBy=multi-user.target
             if e.kind() == std::io::ErrorKind::PermissionDenied {
                 println!("⚠️  Permission denied. Run with sudo:");
                 println!();
-                println!("   sudo {} install-service --port {} --host {} {}",
-                    binary_path_str, port, host, cors_flag);
+                println!(
+                    "   sudo {} install-service --port {} --host {} {}",
+                    binary_path_str, port, host, cors_flag
+                );
                 println!();
                 println!("Or manually create {} with:", service_file);
                 println!();
@@ -729,8 +793,8 @@ WantedBy=multi-user.target
 
 #[cfg(all(feature = "server", windows))]
 async fn handle_install_service_windows(port: u16, host: String, cors: bool) -> Result<()> {
-    use std::io::{self, Write};
     use igra_cli::windows_service;
+    use std::io::{self, Write};
 
     // Get binary path
     let binary_path = std::env::current_exe()?;
@@ -757,47 +821,59 @@ async fn handle_install_service_windows(port: u16, host: String, cors: bool) -> 
     println!();
 
     // Install the service
-    windows_service::install_service(
-        &binary_path_str,
-        port,
-        &host,
-        cors,
-        token,
-    )?;
+    windows_service::install_service(&binary_path_str, port, &host, cors, token)?;
 
     println!();
     println!("✅ IGRA Web UI service installed successfully!");
     println!();
     println!("📚 Useful commands:");
-    println!("   sc query {}                      - Check service status", windows_service::SERVICE_NAME);
-    println!("   sc stop {}                       - Stop service", windows_service::SERVICE_NAME);
-    println!("   sc start {}                      - Start service", windows_service::SERVICE_NAME);
-    println!("   sc delete {}                     - Uninstall service", windows_service::SERVICE_NAME);
-    println!("   Get-EventLog -LogName System -Source {} -Newest 20 - View logs", windows_service::SERVICE_NAME);
+    println!(
+        "   sc query {}                      - Check service status",
+        windows_service::SERVICE_NAME
+    );
+    println!(
+        "   sc stop {}                       - Stop service",
+        windows_service::SERVICE_NAME
+    );
+    println!(
+        "   sc start {}                      - Start service",
+        windows_service::SERVICE_NAME
+    );
+    println!(
+        "   sc delete {}                     - Uninstall service",
+        windows_service::SERVICE_NAME
+    );
+    println!(
+        "   Get-EventLog -LogName System -Source {} -Newest 20 - View logs",
+        windows_service::SERVICE_NAME
+    );
     println!();
     println!("🌐 Access the web UI at: http://{}:{}", host, port);
     println!();
     println!("⚠️  Note: The service will start automatically on system boot.");
-    println!("    To start it now, run: sc start {}", windows_service::SERVICE_NAME);
+    println!(
+        "    To start it now, run: sc start {}",
+        windows_service::SERVICE_NAME
+    );
 
     Ok(())
 }
 
 #[cfg(feature = "server")]
 async fn handle_user_command(command: cli::UserCommands) -> Result<()> {
-    use igra_cli::core::{UserManager, user_manager};
+    use igra_cli::core::{user_manager, UserManager};
     use std::io::{self, Write};
 
     let config_dir = dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("igra-cli");
-    
+
     let user_mgr = UserManager::new(config_dir)?;
 
     match command {
         cli::UserCommands::List => {
             let users = user_mgr.load_users()?;
-            
+
             if users.is_empty() {
                 println!("No users found.");
                 return Ok(());
@@ -805,19 +881,27 @@ async fn handle_user_command(command: cli::UserCommands) -> Result<()> {
 
             println!("\n{:<20} {:<30} {:<10}", "USERNAME", "ROLES", "ENABLED");
             println!("{}", "-".repeat(60));
-            
+
             for user in users {
                 let roles: Vec<String> = user.roles.iter().map(|r| r.to_string()).collect();
                 let roles_str = roles.join(", ");
                 let enabled_str = if user.enabled { "✓" } else { "✗" };
-                println!("{:<20} {:<30} {:<10}", user.username, roles_str, enabled_str);
+                println!(
+                    "{:<20} {:<30} {:<10}",
+                    user.username, roles_str, enabled_str
+                );
             }
             println!();
         }
-        
-        cli::UserCommands::Add { username, password, roles } => {
+
+        cli::UserCommands::Add {
+            username,
+            password,
+            roles,
+        } => {
             // Parse roles
-            let role_list: Vec<_> = roles.split(',')
+            let role_list: Vec<_> = roles
+                .split(',')
                 .map(|s| s.trim().parse())
                 .collect::<Result<_, _>>()?;
             let role_set: std::collections::HashSet<_> = role_list.into_iter().collect();
@@ -883,7 +967,8 @@ async fn handle_user_command(command: cli::UserCommands) -> Result<()> {
         }
 
         cli::UserCommands::Show { username } => {
-            let user = user_mgr.get_user(&username)?
+            let user = user_mgr
+                .get_user(&username)?
                 .ok_or_else(|| anyhow::anyhow!("User '{}' not found", username))?;
 
             println!("\nUser: {}", user.username);
@@ -906,7 +991,7 @@ async fn handle_security_command(command: cli::SecurityCommands) -> Result<()> {
     let config_dir = dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("igra-cli");
-    
+
     let security_mgr = SecurityManager::new(config_dir)?;
 
     match command {
@@ -915,19 +1000,22 @@ async fn handle_security_command(command: cli::SecurityCommands) -> Result<()> {
         }
         cli::SecurityCommands::Show => {
             let config = security_mgr.load_config()?;
-            
+
             println!("\nSecurity Configuration:");
             println!("  Block Tor: {}", config.block_tor);
             println!("  Block VPN: {}", config.block_vpn);
             println!("  Trust Proxy: {}", config.trust_proxy);
             println!("  Proxy Header: {}", config.proxy_header);
-            
+
             if config.allowed_countries.is_empty() {
                 println!("  Allowed Countries: All");
             } else {
-                println!("  Allowed Countries: {}", config.allowed_countries.join(", "));
+                println!(
+                    "  Allowed Countries: {}",
+                    config.allowed_countries.join(", ")
+                );
             }
-            
+
             println!("\nIP Allowlist:");
             if config.allowed_ips.is_empty() {
                 println!("  All IPs allowed (no restrictions)");
@@ -944,11 +1032,14 @@ async fn handle_security_command(command: cli::SecurityCommands) -> Result<()> {
 }
 
 #[cfg(feature = "server")]
-async fn handle_ip_command(command: cli::IpCommands, security_mgr: igra_cli::core::SecurityManager) -> Result<()> {
+async fn handle_ip_command(
+    command: cli::IpCommands,
+    security_mgr: igra_cli::core::SecurityManager,
+) -> Result<()> {
     match command {
         cli::IpCommands::List => {
             let config = security_mgr.load_config()?;
-            
+
             println!("\nAllowed IP Networks:");
             if config.allowed_ips.is_empty() {
                 println!("  (empty - all IPs allowed)");
@@ -977,7 +1068,7 @@ async fn handle_ip_command(command: cli::IpCommands, security_mgr: igra_cli::cor
         cli::IpCommands::Test { ip } => {
             let ip_addr: std::net::IpAddr = ip.parse()?;
             let allowed = security_mgr.is_ip_allowed(ip_addr)?;
-            
+
             if allowed {
                 println!("✓ IP {} is ALLOWED", ip);
             } else {
@@ -996,13 +1087,13 @@ async fn handle_audit_command(command: cli::AuditCommands) -> Result<()> {
     let config_dir = dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("igra-cli");
-    
+
     let audit_logger = AuditLogger::new(config_dir)?;
 
     match command {
         cli::AuditCommands::Show { limit } => {
             let events = audit_logger.read_recent(limit)?;
-            
+
             if events.is_empty() {
                 println!("No audit log entries found.");
                 return Ok(());
@@ -1010,17 +1101,22 @@ async fn handle_audit_command(command: cli::AuditCommands) -> Result<()> {
 
             println!("\nRecent Audit Events ({}): ", events.len());
             println!("{}", "-".repeat(100));
-            
+
             for event in events.iter().rev() {
                 let timestamp = event.timestamp.format("%Y-%m-%d %H:%M:%S");
                 let username = event.username.as_deref().unwrap_or("-");
-                let ip = event.ip.map(|i| i.to_string()).unwrap_or_else(|| "-".to_string());
+                let ip = event
+                    .ip
+                    .map(|i| i.to_string())
+                    .unwrap_or_else(|| "-".to_string());
                 let resource = event.resource.as_deref().unwrap_or("-");
                 let success = if event.success { "✓" } else { "✗" };
-                
-                println!("[{}] {} {:20} {:15} {:20} {:30}", 
-                    timestamp, success, event.event, username, ip, resource);
-                
+
+                println!(
+                    "[{}] {} {:20} {:15} {:20} {:30}",
+                    timestamp, success, event.event, username, ip, resource
+                );
+
                 if let Some(reason) = &event.reason {
                     println!("  Reason: {}", reason);
                 }

@@ -1,5 +1,4 @@
 /// Watch Screen - Real-time L2 transaction monitoring TUI
-
 use anyhow::Result;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
@@ -83,7 +82,11 @@ impl WatchState {
         }
     }
 
-    fn write_transaction_to_file_static(file: &mut std::fs::File, tx: &TransactionInfo, format: &str) -> Result<()> {
+    fn write_transaction_to_file_static(
+        file: &mut std::fs::File,
+        tx: &TransactionInfo,
+        format: &str,
+    ) -> Result<()> {
         use std::io::Write;
 
         match format {
@@ -121,53 +124,11 @@ impl WatchState {
                 if let Some(l1_fee) = tx.l1_fee {
                     writeln!(file, "  L1 Fee: {} KAS", l1_fee)?;
                 }
-                writeln!(file, "  Status: {}", if tx.status { "Success" } else { "Failed" })?;
-                writeln!(file)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn write_transaction_to_file(&self, file: &mut std::fs::File, tx: &TransactionInfo) -> Result<()> {
-        use std::io::Write;
-
-        match self.format.as_str() {
-            "json" => {
-                let json = serde_json::to_string(tx)?;
-                writeln!(file, "{}", json)?;
-            }
-            "csv" => {
-                // CSV header is written once at file creation
                 writeln!(
                     file,
-                    "{},{},{},{},{},{},{},{},{},{}",
-                    tx.timestamp.format("%Y-%m-%d %H:%M:%S"),
-                    tx.tx_type,
-                    tx.hash,
-                    tx.from,
-                    tx.to.as_deref().unwrap_or(""),
-                    tx.value_ikas(),
-                    tx.gas_fee_ikas(),
-                    tx.l1_fee.unwrap_or(0.0),
-                    tx.status,
-                    tx.block_number
+                    "  Status: {}",
+                    if tx.status { "Success" } else { "Failed" }
                 )?;
-            }
-            _ => {
-                // Text format
-                writeln!(file, "[{}] {}", tx.timestamp.format("%H:%M:%S"), tx.tx_type)?;
-                writeln!(file, "  Hash: {}", tx.hash)?;
-                writeln!(file, "  From: {}", tx.from)?;
-                if let Some(ref to) = tx.to {
-                    writeln!(file, "  To:   {}", to)?;
-                }
-                writeln!(file, "  Value: {} iKAS", tx.value_ikas())?;
-                writeln!(file, "  Gas: {} iKAS", tx.gas_fee_ikas())?;
-                if let Some(l1_fee) = tx.l1_fee {
-                    writeln!(file, "  L1 Fee: {} KAS", l1_fee)?;
-                }
-                writeln!(file, "  Status: {}", if tx.status { "Success" } else { "Failed" })?;
                 writeln!(file)?;
             }
         }
@@ -221,11 +182,7 @@ impl WatchState {
 }
 
 /// Run the watch TUI
-pub async fn run_watch_tui(
-    filter: String,
-    record: Option<String>,
-    format: String,
-) -> Result<()> {
+pub async fn run_watch_tui(filter: String, record: Option<String>, format: String) -> Result<()> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -329,24 +286,24 @@ async fn run_ui_loop<B: Backend>(
     }
 }
 
-fn ui(
-    f: &mut Frame,
-    stats: &crate::core::l2_monitor::Statistics,
-    state: &WatchState,
-) {
+fn ui(f: &mut Frame, stats: &crate::core::l2_monitor::Statistics, state: &WatchState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),  // Title
-            Constraint::Length(4),  // Stats header
-            Constraint::Min(0),     // Transaction list
-            Constraint::Length(1),  // Footer
+            Constraint::Length(1), // Title
+            Constraint::Length(4), // Stats header
+            Constraint::Min(0),    // Transaction list
+            Constraint::Length(1), // Footer
         ])
         .split(f.size());
 
     // Title
     let title = Paragraph::new("L2 Transaction Monitor - IGRA Testnet")
-        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
         .alignment(Alignment::Center);
     f.render_widget(title, chunks[0]);
 
@@ -356,7 +313,9 @@ fn ui(
             Span::styled("Block: ", Style::default().fg(Color::Gray)),
             Span::styled(
                 format!("#{}", stats.current_block),
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::raw("  │  "),
             Span::styled("TPS: ", Style::default().fg(Color::Gray)),
