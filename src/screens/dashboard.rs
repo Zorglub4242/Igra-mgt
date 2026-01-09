@@ -1,19 +1,21 @@
 /// Main dashboard screen
-
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Axis, Block, Borders, Cell, Chart, Dataset, GraphType, List, ListItem, Paragraph, Row, Table, Wrap},
+    widgets::{
+        Axis, Block, Borders, Cell, Chart, Dataset, GraphType, List, ListItem, Paragraph, Row,
+        Table, Wrap,
+    },
     Frame,
 };
 
 use crate::app::{Screen, SystemResources};
 use crate::core::docker::{ContainerInfo, ContainerStats};
-use crate::core::wallet::WalletInfo;
-use crate::core::ssl::CertificateInfo;
-use crate::core::reth_metrics::RethMetrics;
 use crate::core::l2_monitor::{Statistics, TransactionInfo, TransactionType};
+use crate::core::reth_metrics::RethMetrics;
+use crate::core::ssl::CertificateInfo;
+use crate::core::wallet::WalletInfo;
 use crate::screens::watch::TransactionFilter;
 use std::collections::HashMap;
 
@@ -57,7 +59,7 @@ fn format_timestamp_compact(timestamp: &str) -> String {
 #[derive(Debug, Clone)]
 struct LogGroup<'a> {
     level: crate::core::LogLevel,
-    module: String,        // Short module name
+    module: String, // Short module name
     logs: Vec<&'a crate::core::ParsedLogLine>,
 }
 
@@ -67,9 +69,10 @@ fn group_logs_by_level_module<'a>(logs: Vec<&'a crate::core::ParsedLogLine>) -> 
 
     for log in logs {
         // Check if we can add to current group (same level and module)
-        let can_add_to_current = groups.last().map(|g| {
-            g.level == log.level && g.module == log.module_short
-        }).unwrap_or(false);
+        let can_add_to_current = groups
+            .last()
+            .map(|g| g.level == log.level && g.module == log.module_short)
+            .unwrap_or(false);
 
         if can_add_to_current {
             // Add to existing group
@@ -129,7 +132,13 @@ impl Dashboard {
         }
     }
 
-    pub fn update_services(&mut self, containers: Vec<ContainerInfo>, profiles: Vec<String>, stats: HashMap<String, ContainerStats>, versions: HashMap<String, crate::core::versions::ImageVersion>) {
+    pub fn update_services(
+        &mut self,
+        containers: Vec<ContainerInfo>,
+        profiles: Vec<String>,
+        stats: HashMap<String, ContainerStats>,
+        versions: HashMap<String, crate::core::versions::ImageVersion>,
+    ) {
         self.containers = containers;
         self.profiles = profiles;
         self.container_stats = stats;
@@ -161,10 +170,68 @@ impl Dashboard {
         self.network = network;
     }
 
-    pub fn render(&self, frame: &mut Frame, current_screen: Screen, services_view: crate::app::ServicesView, config_section: crate::app::ConfigSection, selected_index: usize, status_message: Option<&str>, edit_mode: bool, edit_buffer: &str, detail_container: Option<&ContainerInfo>, detail_logs: &[crate::core::ParsedLogLine], detail_logs_live_mode: bool, detail_logs_grouping: bool, detail_logs_filter: Option<&crate::core::LogLevel>, detail_logs_scroll_offset: usize, system_resources: &SystemResources, show_help: bool, search_mode: bool, search_buffer: &str, filtered_indices: &[usize], show_send_dialog: bool, send_amount: &str, send_address: &str, send_input_field: usize, send_use_wallet_selector: bool, send_selected_wallet_index: usize, send_source_address: &str, wallets: &[crate::core::wallet::WalletInfo], reth_metrics: Option<&RethMetrics>, detail_wallet: Option<&WalletInfo>, detail_wallet_addresses: &[(String, f64, f64)], detail_wallet_utxos: &[crate::core::wallet::UtxoInfo], detail_wallet_scroll: usize, show_tx_detail: bool, selected_tx_index: Option<usize>, tx_search_mode: bool, tx_search_buffer: &str, filtered_tx_indices: &[usize], watch_stats: Option<&Statistics>, watch_transactions: &[TransactionInfo], watch_filter: &TransactionFilter, watch_scroll_offset: usize, storage_analysis: Option<&crate::core::storage::StorageAnalysis>, storage_scroll_offset: usize, storage_chart_days: u32, storage_show_details: bool) {
+    pub fn render(
+        &self,
+        frame: &mut Frame,
+        current_screen: Screen,
+        services_view: crate::app::ServicesView,
+        config_section: crate::app::ConfigSection,
+        selected_index: usize,
+        status_message: Option<&str>,
+        edit_mode: bool,
+        edit_buffer: &str,
+        detail_container: Option<&ContainerInfo>,
+        detail_logs: &[crate::core::ParsedLogLine],
+        detail_logs_live_mode: bool,
+        detail_logs_grouping: bool,
+        detail_logs_filter: Option<&crate::core::LogLevel>,
+        detail_logs_scroll_offset: usize,
+        system_resources: &SystemResources,
+        show_help: bool,
+        search_mode: bool,
+        search_buffer: &str,
+        filtered_indices: &[usize],
+        show_send_dialog: bool,
+        send_amount: &str,
+        send_address: &str,
+        send_input_field: usize,
+        send_use_wallet_selector: bool,
+        send_selected_wallet_index: usize,
+        send_source_address: &str,
+        wallets: &[crate::core::wallet::WalletInfo],
+        reth_metrics: Option<&RethMetrics>,
+        detail_wallet: Option<&WalletInfo>,
+        detail_wallet_addresses: &[(String, f64, f64)],
+        detail_wallet_utxos: &[crate::core::wallet::UtxoInfo],
+        detail_wallet_scroll: usize,
+        show_tx_detail: bool,
+        selected_tx_index: Option<usize>,
+        tx_search_mode: bool,
+        tx_search_buffer: &str,
+        filtered_tx_indices: &[usize],
+        watch_stats: Option<&Statistics>,
+        watch_transactions: &[TransactionInfo],
+        watch_filter: &TransactionFilter,
+        watch_scroll_offset: usize,
+        storage_analysis: Option<&crate::core::storage::StorageAnalysis>,
+        storage_scroll_offset: usize,
+        storage_chart_days: u32,
+        storage_show_details: bool,
+    ) {
         // If showing wallet detail view, render that instead
         if let Some(wallet) = detail_wallet {
-            self.render_wallet_detail(frame, wallet, detail_wallet_addresses, detail_wallet_utxos, status_message, detail_wallet_scroll, tx_search_mode, tx_search_buffer, filtered_tx_indices, selected_tx_index);
+            self.render_wallet_detail(
+                frame,
+                wallet,
+                detail_wallet_addresses,
+                detail_wallet_utxos,
+                status_message,
+                detail_wallet_scroll,
+                tx_search_mode,
+                tx_search_buffer,
+                filtered_tx_indices,
+                selected_tx_index,
+            );
             // Show transaction detail modal if requested
             if show_tx_detail {
                 if let Some(tx_idx) = selected_tx_index {
@@ -181,7 +248,17 @@ impl Dashboard {
 
         // If showing service detail view, render that instead
         if let Some(container) = detail_container {
-            self.render_service_detail(frame, container, detail_logs, detail_logs_live_mode, detail_logs_grouping, detail_logs_filter, detail_logs_scroll_offset, status_message, reth_metrics);
+            self.render_service_detail(
+                frame,
+                container,
+                detail_logs,
+                detail_logs_live_mode,
+                detail_logs_grouping,
+                detail_logs_filter,
+                detail_logs_scroll_offset,
+                status_message,
+                reth_metrics,
+            );
             // Still show help overlay if requested
             if show_help {
                 self.render_help(frame, current_screen);
@@ -191,10 +268,10 @@ impl Dashboard {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(5),  // Title (expanded for system info)
-                Constraint::Length(3),  // Menu
-                Constraint::Min(0),     // Content
-                Constraint::Length(3),  // Footer
+                Constraint::Length(5), // Title (expanded for system info)
+                Constraint::Length(3), // Menu
+                Constraint::Min(0),    // Content
+                Constraint::Length(3), // Footer
             ])
             .split(frame.size());
 
@@ -249,23 +326,29 @@ impl Dashboard {
             Span::styled("CPU: ", Style::default().fg(Color::Gray)),
             Span::styled(
                 format!("{:.1}%", system_resources.cpu_percent),
-                Style::default().fg(cpu_color).add_modifier(Modifier::BOLD)
+                Style::default().fg(cpu_color).add_modifier(Modifier::BOLD),
             ),
             Span::raw(" | "),
             Span::styled("Mem: ", Style::default().fg(Color::Gray)),
             Span::styled(
                 format!("{:.1}%", memory_percent),
-                Style::default().fg(mem_color).add_modifier(Modifier::BOLD)
+                Style::default().fg(mem_color).add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!(" ({:.1}/{:.1} GB)", system_resources.memory_used_gb, system_resources.memory_total_gb),
-                Style::default().fg(Color::Gray)
+                format!(
+                    " ({:.1}/{:.1} GB)",
+                    system_resources.memory_used_gb, system_resources.memory_total_gb
+                ),
+                Style::default().fg(Color::Gray),
             ),
             Span::raw(" | "),
             Span::styled("Disk: ", Style::default().fg(Color::Gray)),
             Span::styled(
-                format!("{:.1}/{:.1} GB Free", system_resources.disk_free_gb, system_resources.disk_total_gb),
-                Style::default().fg(disk_color).add_modifier(Modifier::BOLD)
+                format!(
+                    "{:.1}/{:.1} GB Free",
+                    system_resources.disk_free_gb, system_resources.disk_total_gb
+                ),
+                Style::default().fg(disk_color).add_modifier(Modifier::BOLD),
             ),
         ]);
 
@@ -273,23 +356,29 @@ impl Dashboard {
         let os_line = Line::from(vec![
             Span::styled("OS: ", Style::default().fg(Color::Gray)),
             Span::styled(
-                format!("{} {}", system_resources.os_name, system_resources.os_version),
-                Style::default().fg(Color::White)
+                format!(
+                    "{} {}",
+                    system_resources.os_name, system_resources.os_version
+                ),
+                Style::default().fg(Color::White),
             ),
             Span::raw(" | "),
             Span::styled("CPU: ", Style::default().fg(Color::Gray)),
             Span::styled(
                 if system_resources.cpu_frequency_ghz > 0.0 {
-                    format!("{} Cores @{:.2} GHz", system_resources.cpu_cores, system_resources.cpu_frequency_ghz)
+                    format!(
+                        "{} Cores @{:.2} GHz",
+                        system_resources.cpu_cores, system_resources.cpu_frequency_ghz
+                    )
                 } else {
                     format!("{} Cores", system_resources.cpu_cores)
                 },
-                Style::default().fg(Color::White)
+                Style::default().fg(Color::White),
             ),
             Span::raw("  "),
             Span::styled(
                 &system_resources.cpu_model,
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(Color::DarkGray),
             ),
         ]);
 
@@ -334,18 +423,48 @@ impl Dashboard {
             })
             .collect();
 
-        let menu = Paragraph::new(Line::from(menu_items))
-            .block(Block::default().borders(Borders::ALL));
+        let menu =
+            Paragraph::new(Line::from(menu_items)).block(Block::default().borders(Borders::ALL));
 
         frame.render_widget(menu, chunks[1]);
 
         // Content area - render based on current screen
         match current_screen {
-            Screen::Services => self.render_services(frame, chunks[2], services_view, selected_index, filtered_indices),
-            Screen::Wallets => self.render_wallets(frame, chunks[2], selected_index, filtered_indices),
-            Screen::Watch => self.render_watch(frame, chunks[2], watch_stats, watch_transactions, watch_filter, watch_scroll_offset),
-            Screen::Config => self.render_config(frame, chunks[2], config_section, selected_index, edit_mode, edit_buffer, filtered_indices),
-            Screen::Storage => self.render_storage(frame, chunks[2], storage_analysis, storage_scroll_offset, storage_chart_days, storage_show_details),
+            Screen::Services => self.render_services(
+                frame,
+                chunks[2],
+                services_view,
+                selected_index,
+                filtered_indices,
+            ),
+            Screen::Wallets => {
+                self.render_wallets(frame, chunks[2], selected_index, filtered_indices)
+            }
+            Screen::Watch => self.render_watch(
+                frame,
+                chunks[2],
+                watch_stats,
+                watch_transactions,
+                watch_filter,
+                watch_scroll_offset,
+            ),
+            Screen::Config => self.render_config(
+                frame,
+                chunks[2],
+                config_section,
+                selected_index,
+                edit_mode,
+                edit_buffer,
+                filtered_indices,
+            ),
+            Screen::Storage => self.render_storage(
+                frame,
+                chunks[2],
+                storage_analysis,
+                storage_scroll_offset,
+                storage_chart_days,
+                storage_show_details,
+            ),
             Screen::ServiceDetails(_) => {
                 // Service details screen rendered separately, not by dashboard
             }
@@ -372,7 +491,9 @@ impl Dashboard {
         let footer = Paragraph::new(footer_text)
             .alignment(Alignment::Center)
             .style(if status_message.is_some() {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             })
@@ -387,12 +508,21 @@ impl Dashboard {
 
         // Show send transaction dialog if requested
         if show_send_dialog {
-            self.render_send_dialog(frame, send_amount, send_address, send_input_field, send_use_wallet_selector, send_selected_wallet_index, send_source_address, wallets);
+            self.render_send_dialog(
+                frame,
+                send_amount,
+                send_address,
+                send_input_field,
+                send_use_wallet_selector,
+                send_selected_wallet_index,
+                send_source_address,
+                wallets,
+            );
         }
     }
 
     /// Render a tab bar showing available sub-views with the active one highlighted
-    fn render_tab_bar(&self, tabs: &[(&str, bool)]) -> Paragraph {
+    fn render_tab_bar(&self, tabs: &[(&str, bool)]) -> Paragraph<'_> {
         let mut tab_spans = Vec::new();
 
         for (i, (tab_name, is_active)) in tabs.iter().enumerate() {
@@ -420,14 +550,22 @@ impl Dashboard {
 
         tab_spans.push(Span::styled(
             "  Tab to switch",
-            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
         ));
 
-        Paragraph::new(Line::from(tab_spans))
-            .alignment(Alignment::Left)
+        Paragraph::new(Line::from(tab_spans)).alignment(Alignment::Left)
     }
 
-    fn render_services(&self, frame: &mut Frame, area: ratatui::layout::Rect, services_view: crate::app::ServicesView, selected_index: usize, filtered_indices: &[usize]) {
+    fn render_services(
+        &self,
+        frame: &mut Frame,
+        area: ratatui::layout::Rect,
+        services_view: crate::app::ServicesView,
+        selected_index: usize,
+        filtered_indices: &[usize],
+    ) {
         use crate::app::ServicesView;
 
         // Split area to add tab bar
@@ -446,12 +584,20 @@ impl Dashboard {
 
         // Delegate to appropriate view based on services_view
         match services_view {
-            ServicesView::Services => self.render_services_table(frame, chunks[1], selected_index, filtered_indices),
+            ServicesView::Services => {
+                self.render_services_table(frame, chunks[1], selected_index, filtered_indices)
+            }
             ServicesView::Profiles => self.render_profiles(frame, chunks[1], selected_index),
         }
     }
 
-    fn render_services_table(&self, frame: &mut Frame, area: ratatui::layout::Rect, selected_index: usize, filtered_indices: &[usize]) {
+    fn render_services_table(
+        &self,
+        frame: &mut Frame,
+        area: ratatui::layout::Rect,
+        selected_index: usize,
+        filtered_indices: &[usize],
+    ) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(4), Constraint::Min(0)])
@@ -465,209 +611,251 @@ impl Dashboard {
         };
 
         let total_services = self.containers.len();
-        let running_services = self.containers.iter().filter(|c| c.status.contains("Up")).count();
+        let running_services = self
+            .containers
+            .iter()
+            .filter(|c| c.status.contains("Up"))
+            .count();
 
-        let summary = Paragraph::new(vec![
-            Line::from(vec![
-                Span::styled("Services: ", Style::default().fg(Color::White)),
-                Span::styled(
-                    format!("{}/{} running", running_services, total_services),
-                    if running_services == total_services {
-                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-                    }
-                ),
-                Span::raw("  |  "),
-                Span::styled(profiles_text, Style::default().fg(Color::Cyan)),
-            ]),
-        ])
+        let summary = Paragraph::new(vec![Line::from(vec![
+            Span::styled("Services: ", Style::default().fg(Color::White)),
+            Span::styled(
+                format!("{}/{} running", running_services, total_services),
+                if running_services == total_services {
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD)
+                },
+            ),
+            Span::raw("  |  "),
+            Span::styled(profiles_text, Style::default().fg(Color::Cyan)),
+        ])])
         .block(Block::default().borders(Borders::ALL).title("Status"));
 
         frame.render_widget(summary, chunks[0]);
 
         // Services table
-        let header = Row::new(vec!["Service", "Status", "Metrics", "Ports", "CPU", "Memory", "Storage", "Image:Tag"])
-            .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
-            .bottom_margin(1);
+        let header = Row::new(vec![
+            "Service",
+            "Status",
+            "Metrics",
+            "Ports",
+            "CPU",
+            "Memory",
+            "Storage",
+            "Image:Tag",
+        ])
+        .style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+        .bottom_margin(1);
 
-        let rows: Vec<Row> = self.containers.iter().enumerate().map(|(idx, container)| {
-            let is_selected = idx == selected_index;
-            let is_filtered = !filtered_indices.is_empty() && filtered_indices.contains(&idx);
+        let rows: Vec<Row> = self
+            .containers
+            .iter()
+            .enumerate()
+            .map(|(idx, container)| {
+                let is_selected = idx == selected_index;
+                let is_filtered = !filtered_indices.is_empty() && filtered_indices.contains(&idx);
 
-            let status_color = if container.status.contains("Up") {
-                Color::Green
-            } else {
-                Color::Red
-            };
-
-            let _health_color = match container.health.as_deref() {
-                Some("healthy") => Color::Green,
-                Some("unhealthy") => Color::Red,
-                Some("starting") => Color::Yellow,
-                _ => Color::Gray,
-            };
-
-            let name = container.name.clone();
-            let status = container.status.clone();
-            let _health = container.health.as_deref().unwrap_or("N/A").to_string();
-
-            // Get stats if available with color-coding
-            let (cpu_cell, mem_cell, storage_cell, _net_rx_text, _net_tx_text) = if let Some(stats) = self.container_stats.get(&container.name) {
-                // CPU with color coding
-                let cpu_percent = stats.cpu_percent;
-                let cpu_color = if cpu_percent > 80.0 {
+                let status_color = if container.status.contains("Up") {
+                    Color::Green
+                } else {
                     Color::Red
-                } else if cpu_percent > 60.0 {
-                    Color::Yellow
-                } else {
-                    Color::White
-                };
-                let cpu_cell = Cell::from(Span::styled(
-                    format!("{:.1}%", cpu_percent),
-                    Style::default().fg(cpu_color)
-                ));
-
-                // Memory with color coding
-                let mem_mb = stats.memory_usage / 1024 / 1024;
-                let mem_percent = if stats.memory_limit > 0 {
-                    (stats.memory_usage as f64 / stats.memory_limit as f64 * 100.0)
-                } else {
-                    0.0
-                };
-                let mem_color = if mem_percent > 80.0 {
-                    Color::Red
-                } else if mem_percent > 60.0 {
-                    Color::Yellow
-                } else {
-                    Color::White
-                };
-                let mem_cell = Cell::from(Span::styled(
-                    format!("{} MB", mem_mb),
-                    Style::default().fg(mem_color)
-                ));
-
-                // Storage with color coding
-                let container_mb = stats.container_size / 1024 / 1024;
-                let volume_gb = stats.volume_size as f64 / 1024.0 / 1024.0 / 1024.0;
-
-                let storage_color = if volume_gb > 50.0 {
-                    Color::Red
-                } else if volume_gb > 20.0 {
-                    Color::Yellow
-                } else {
-                    Color::White
                 };
 
-                let storage_cell = Cell::from(Span::styled(
-                    if volume_gb > 0.0 {
-                        format!("{}M/{}G", container_mb, volume_gb as u64)
-                    } else {
-                        format!("{} MB", container_mb)
-                    },
-                    Style::default().fg(storage_color)
-                ));
+                let _health_color = match container.health.as_deref() {
+                    Some("healthy") => Color::Green,
+                    Some("unhealthy") => Color::Red,
+                    Some("starting") => Color::Yellow,
+                    _ => Color::Gray,
+                };
 
-                // Format network I/O
-                let rx = Self::format_bytes(stats.network_rx);
-                let tx = Self::format_bytes(stats.network_tx);
+                let name = container.name.clone();
+                let status = container.status.clone();
+                let _health = container.health.as_deref().unwrap_or("N/A").to_string();
 
-                (cpu_cell, mem_cell, storage_cell, rx, tx)
-            } else {
-                (
-                    Cell::from(Span::styled("N/A", Style::default().fg(Color::Gray))),
-                    Cell::from(Span::styled("N/A", Style::default().fg(Color::Gray))),
-                    Cell::from(Span::styled("N/A", Style::default().fg(Color::Gray))),
-                    "N/A".to_string(),
-                    "N/A".to_string()
-                )
-            };
-
-            // Extract image name and tag
-            let image_str = container.image
-                .split('/')
-                .last()
-                .unwrap_or(&container.image);
-
-            let (image_name, current_tag) = if let Some((name, tag)) = image_str.split_once(':') {
-                (name, tag)
-            } else {
-                (image_str, "latest")
-            };
-
-            // Check for version info and update availability
-            let (image_display, image_color) = if let Some(version_info) = self.image_versions.get(image_name) {
-                if version_info.update_available {
-                    if let Some(ref latest) = version_info.latest {
-                        (
-                            format!("{}:{} → {} 🔄", image_name, current_tag, latest),
+                // Get stats if available with color-coding
+                let (cpu_cell, mem_cell, storage_cell, _net_rx_text, _net_tx_text) =
+                    if let Some(stats) = self.container_stats.get(&container.name) {
+                        // CPU with color coding
+                        let cpu_percent = stats.cpu_percent;
+                        let cpu_color = if cpu_percent > 80.0 {
+                            Color::Red
+                        } else if cpu_percent > 60.0 {
                             Color::Yellow
+                        } else {
+                            Color::White
+                        };
+                        let cpu_cell = Cell::from(Span::styled(
+                            format!("{:.1}%", cpu_percent),
+                            Style::default().fg(cpu_color),
+                        ));
+
+                        // Memory with color coding
+                        let mem_mb = stats.memory_usage / 1024 / 1024;
+                        let mem_percent = if stats.memory_limit > 0 {
+                            stats.memory_usage as f64 / stats.memory_limit as f64 * 100.0
+                        } else {
+                            0.0
+                        };
+                        let mem_color = if mem_percent > 80.0 {
+                            Color::Red
+                        } else if mem_percent > 60.0 {
+                            Color::Yellow
+                        } else {
+                            Color::White
+                        };
+                        let mem_cell = Cell::from(Span::styled(
+                            format!("{} MB", mem_mb),
+                            Style::default().fg(mem_color),
+                        ));
+
+                        // Storage with color coding
+                        let container_mb = stats.container_size / 1024 / 1024;
+                        let volume_gb = stats.volume_size as f64 / 1024.0 / 1024.0 / 1024.0;
+
+                        let storage_color = if volume_gb > 50.0 {
+                            Color::Red
+                        } else if volume_gb > 20.0 {
+                            Color::Yellow
+                        } else {
+                            Color::White
+                        };
+
+                        let storage_cell = Cell::from(Span::styled(
+                            if volume_gb > 0.0 {
+                                format!("{}M/{}G", container_mb, volume_gb as u64)
+                            } else {
+                                format!("{} MB", container_mb)
+                            },
+                            Style::default().fg(storage_color),
+                        ));
+
+                        // Format network I/O
+                        let rx = Self::format_bytes(stats.network_rx);
+                        let tx = Self::format_bytes(stats.network_tx);
+
+                        (cpu_cell, mem_cell, storage_cell, rx, tx)
+                    } else {
+                        (
+                            Cell::from(Span::styled("N/A", Style::default().fg(Color::Gray))),
+                            Cell::from(Span::styled("N/A", Style::default().fg(Color::Gray))),
+                            Cell::from(Span::styled("N/A", Style::default().fg(Color::Gray))),
+                            "N/A".to_string(),
+                            "N/A".to_string(),
                         )
+                    };
+
+                // Extract image name and tag
+                let image_str = container
+                    .image
+                    .split('/')
+                    .last()
+                    .unwrap_or(&container.image);
+
+                let (image_name, current_tag) = if let Some((name, tag)) = image_str.split_once(':')
+                {
+                    (name, tag)
+                } else {
+                    (image_str, "latest")
+                };
+
+                // Check for version info and update availability
+                let (image_display, image_color) =
+                    if let Some(version_info) = self.image_versions.get(image_name) {
+                        if version_info.update_available {
+                            if let Some(ref latest) = version_info.latest {
+                                (
+                                    format!("{}:{} → {} 🔄", image_name, current_tag, latest),
+                                    Color::Yellow,
+                                )
+                            } else {
+                                (format!("{}:{}", image_name, current_tag), Color::White)
+                            }
+                        } else {
+                            (format!("{}:{} ✓", image_name, current_tag), Color::Green)
+                        }
                     } else {
                         (format!("{}:{}", image_name, current_tag), Color::White)
-                    }
+                    };
+
+                // Format ports
+                let ports_text = if container.ports.is_empty() {
+                    "-".to_string()
                 } else {
-                    (format!("{}:{} ✓", image_name, current_tag), Color::Green)
+                    container.ports.join(", ")
+                };
+
+                // Format metrics from log parsing
+                let metrics_text = if let Some(ref status_text) = container.metrics.status_text {
+                    let mut parts = vec![status_text.clone()];
+                    if let Some(ref primary) = container.metrics.primary_metric {
+                        parts.push(primary.clone());
+                    }
+                    parts.join(" ")
+                } else {
+                    "-".to_string()
+                };
+
+                let metrics_color = if container.metrics.is_healthy {
+                    Color::Green
+                } else {
+                    Color::Yellow
+                };
+
+                let row = Row::new(vec![
+                    Cell::from(name),
+                    Cell::from(Span::styled(status, Style::default().fg(status_color))),
+                    Cell::from(Span::styled(
+                        metrics_text,
+                        Style::default().fg(metrics_color),
+                    )),
+                    Cell::from(ports_text),
+                    cpu_cell,
+                    mem_cell,
+                    storage_cell,
+                    Cell::from(Span::styled(
+                        image_display,
+                        Style::default().fg(image_color),
+                    )),
+                ]);
+
+                if is_selected {
+                    row.style(
+                        Style::default()
+                            .bg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                } else if is_filtered {
+                    row.style(
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                } else {
+                    row
                 }
-            } else {
-                (format!("{}:{}", image_name, current_tag), Color::White)
-            };
-
-            // Format ports
-            let ports_text = if container.ports.is_empty() {
-                "-".to_string()
-            } else {
-                container.ports.join(", ")
-            };
-
-            // Format metrics from log parsing
-            let metrics_text = if let Some(ref status_text) = container.metrics.status_text {
-                let mut parts = vec![status_text.clone()];
-                if let Some(ref primary) = container.metrics.primary_metric {
-                    parts.push(primary.clone());
-                }
-                parts.join(" ")
-            } else {
-                "-".to_string()
-            };
-
-            let metrics_color = if container.metrics.is_healthy {
-                Color::Green
-            } else {
-                Color::Yellow
-            };
-
-            let row = Row::new(vec![
-                Cell::from(name),
-                Cell::from(Span::styled(status, Style::default().fg(status_color))),
-                Cell::from(Span::styled(metrics_text, Style::default().fg(metrics_color))),
-                Cell::from(ports_text),
-                cpu_cell,
-                mem_cell,
-                storage_cell,
-                Cell::from(Span::styled(image_display, Style::default().fg(image_color))),
-            ]);
-
-            if is_selected {
-                row.style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
-            } else if is_filtered {
-                row.style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-            } else {
-                row
-            }
-        }).collect();
+            })
+            .collect();
 
         let table = Table::new(
             rows,
             [
-                Constraint::Length(22),  // Service
-                Constraint::Length(12),  // Status
-                Constraint::Length(22),  // Metrics
-                Constraint::Length(16),  // Ports
-                Constraint::Length(7),   // CPU
-                Constraint::Length(10),  // Memory
-                Constraint::Length(12),  // Storage
-                Constraint::Min(15),     // Image:Tag
+                Constraint::Length(22), // Service
+                Constraint::Length(12), // Status
+                Constraint::Length(22), // Metrics
+                Constraint::Length(16), // Ports
+                Constraint::Length(7),  // CPU
+                Constraint::Length(10), // Memory
+                Constraint::Length(12), // Storage
+                Constraint::Min(15),    // Image:Tag
             ],
         )
         .header(header)
@@ -692,7 +880,12 @@ impl Dashboard {
         }
     }
 
-    fn render_profiles(&self, frame: &mut Frame, area: ratatui::layout::Rect, selected_index: usize) {
+    fn render_profiles(
+        &self,
+        frame: &mut Frame,
+        area: ratatui::layout::Rect,
+        selected_index: usize,
+    ) {
         let all_profiles = vec![
             ("kaspad", "Kaspad consensus node"),
             ("backend", "Execution layer + Block builder + Viaduct"),
@@ -704,31 +897,43 @@ impl Dashboard {
         ];
 
         let header = Row::new(vec!["Profile", "Description", "Status"])
-            .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+            .style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
             .bottom_margin(1);
 
-        let rows: Vec<Row> = all_profiles.iter().enumerate().map(|(idx, (profile, description))| {
-            let is_selected = idx == selected_index;
-            let is_active = self.active_profiles.contains(&profile.to_string());
+        let rows: Vec<Row> = all_profiles
+            .iter()
+            .enumerate()
+            .map(|(idx, (profile, description))| {
+                let is_selected = idx == selected_index;
+                let is_active = self.active_profiles.contains(&profile.to_string());
 
-            let status = if is_active {
-                ("Running", Color::Green)
-            } else {
-                ("Stopped", Color::Gray)
-            };
+                let status = if is_active {
+                    ("Running", Color::Green)
+                } else {
+                    ("Stopped", Color::Gray)
+                };
 
-            let row = Row::new(vec![
-                Cell::from(*profile),
-                Cell::from(*description),
-                Cell::from(Span::styled(status.0, Style::default().fg(status.1))),
-            ]);
+                let row = Row::new(vec![
+                    Cell::from(*profile),
+                    Cell::from(*description),
+                    Cell::from(Span::styled(status.0, Style::default().fg(status.1))),
+                ]);
 
-            if is_selected {
-                row.style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
-            } else {
-                row
-            }
-        }).collect();
+                if is_selected {
+                    row.style(
+                        Style::default()
+                            .bg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                } else {
+                    row
+                }
+            })
+            .collect();
 
         let table = Table::new(
             rows,
@@ -739,65 +944,96 @@ impl Dashboard {
             ],
         )
         .header(header)
-        .block(Block::default().borders(Borders::ALL).title("Docker Compose Profiles"));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Docker Compose Profiles"),
+        );
 
         frame.render_widget(table, area);
     }
 
-    fn render_wallets(&self, frame: &mut Frame, area: ratatui::layout::Rect, selected_index: usize, filtered_indices: &[usize]) {
+    fn render_wallets(
+        &self,
+        frame: &mut Frame,
+        area: ratatui::layout::Rect,
+        selected_index: usize,
+        filtered_indices: &[usize],
+    ) {
         // Determine currency label based on network
-        let currency = if self.network == "mainnet" { "KAS" } else { "TKAS" };
+        let currency = if self.network == "mainnet" {
+            "KAS"
+        } else {
+            "TKAS"
+        };
 
         let header = Row::new(vec!["Worker", "Status", "Address", "Balance", "Fees Spent"])
-            .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+            .style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
             .bottom_margin(1);
 
-        let rows: Vec<Row> = self.wallets.iter().enumerate().map(|(idx, wallet)| {
-            let is_selected = idx == selected_index;
-            let is_filtered = !filtered_indices.is_empty() && filtered_indices.contains(&idx);
+        let rows: Vec<Row> = self
+            .wallets
+            .iter()
+            .enumerate()
+            .map(|(idx, wallet)| {
+                let is_selected = idx == selected_index;
+                let is_filtered = !filtered_indices.is_empty() && filtered_indices.contains(&idx);
 
-            let status = if wallet.container_running {
-                ("Running", Color::Green)
-            } else {
-                ("Stopped", Color::Red)
-            };
-
-            let address = wallet.address.as_deref().unwrap_or("Not generated");
-            let balance = wallet
-                .balance
-                .map(|b| format!("{:.8} {}", b, currency))
-                .unwrap_or_else(|| "N/A".to_string());
-
-            // Format fees spent with color coding
-            let (fees_text, fees_color) = if let Some(fees) = wallet.fees_spent {
-                let color = if fees == 0.0 {
-                    Color::Green
-                } else if fees < 5.0 {
-                    Color::Yellow
+                let status = if wallet.container_running {
+                    ("Running", Color::Green)
                 } else {
-                    Color::Red
+                    ("Stopped", Color::Red)
                 };
-                (format!("{:.8} {}", fees, currency), color)
-            } else {
-                ("N/A".to_string(), Color::Gray)
-            };
 
-            let row = Row::new(vec![
-                Cell::from(format!("Worker {}", wallet.worker_id)),
-                Cell::from(Span::styled(status.0, Style::default().fg(status.1))),
-                Cell::from(address),
-                Cell::from(balance),
-                Cell::from(Span::styled(fees_text, Style::default().fg(fees_color))),
-            ]);
+                let address = wallet.address.as_deref().unwrap_or("Not generated");
+                let balance = wallet
+                    .balance
+                    .map(|b| format!("{:.8} {}", b, currency))
+                    .unwrap_or_else(|| "N/A".to_string());
 
-            if is_selected {
-                row.style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
-            } else if is_filtered {
-                row.style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-            } else {
-                row
-            }
-        }).collect();
+                // Format fees spent with color coding
+                let (fees_text, fees_color) = if let Some(fees) = wallet.fees_spent {
+                    let color = if fees == 0.0 {
+                        Color::Green
+                    } else if fees < 5.0 {
+                        Color::Yellow
+                    } else {
+                        Color::Red
+                    };
+                    (format!("{:.8} {}", fees, currency), color)
+                } else {
+                    ("N/A".to_string(), Color::Gray)
+                };
+
+                let row = Row::new(vec![
+                    Cell::from(format!("Worker {}", wallet.worker_id)),
+                    Cell::from(Span::styled(status.0, Style::default().fg(status.1))),
+                    Cell::from(address),
+                    Cell::from(balance),
+                    Cell::from(Span::styled(fees_text, Style::default().fg(fees_color))),
+                ]);
+
+                if is_selected {
+                    row.style(
+                        Style::default()
+                            .bg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                } else if is_filtered {
+                    row.style(
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                } else {
+                    row
+                }
+            })
+            .collect();
 
         let table = Table::new(
             rows,
@@ -815,12 +1051,20 @@ impl Dashboard {
         frame.render_widget(table, area);
     }
 
-    fn render_watch(&self, frame: &mut Frame, area: ratatui::layout::Rect, stats: Option<&Statistics>, transactions: &[TransactionInfo], filter: &TransactionFilter, _scroll_offset: usize) {
+    fn render_watch(
+        &self,
+        frame: &mut Frame,
+        area: ratatui::layout::Rect,
+        stats: Option<&Statistics>,
+        transactions: &[TransactionInfo],
+        filter: &TransactionFilter,
+        _scroll_offset: usize,
+    ) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(5),  // Stats header
-                Constraint::Min(0),     // Transaction list
+                Constraint::Length(5), // Stats header
+                Constraint::Min(0),    // Transaction list
             ])
             .split(area);
 
@@ -831,7 +1075,9 @@ impl Dashboard {
                     Span::styled("Block: ", Style::default().fg(Color::Gray)),
                     Span::styled(
                         format!("#{}", stats.current_block),
-                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Span::raw("  │  "),
                     Span::styled("TPS: ", Style::default().fg(Color::Gray)),
@@ -923,7 +1169,10 @@ impl Dashboard {
                     ]),
                     Line::from(vec![
                         Span::raw("  Hash: "),
-                        Span::styled(tx.hash.chars().take(16).collect::<String>() + "...", Style::default().fg(Color::Gray)),
+                        Span::styled(
+                            tx.hash.chars().take(16).collect::<String>() + "...",
+                            Style::default().fg(Color::Gray),
+                        ),
                     ]),
                 ];
 
@@ -961,51 +1210,75 @@ impl Dashboard {
             TransactionFilter::Entry => "Entry",
         };
 
-        let list = List::new(items)
-            .block(Block::default().borders(Borders::ALL).title(format!("Transactions - Filter: {} ({} shown)", filter_text, filtered_txs.len())));
+        let list = List::new(items).block(Block::default().borders(Borders::ALL).title(format!(
+            "Transactions - Filter: {} ({} shown)",
+            filter_text,
+            filtered_txs.len()
+        )));
 
         frame.render_widget(list, chunks[1]);
     }
 
-    fn render_rpc_tokens(&self, frame: &mut Frame, area: ratatui::layout::Rect, selected_index: usize) {
+    fn render_rpc_tokens(
+        &self,
+        frame: &mut Frame,
+        area: ratatui::layout::Rect,
+        selected_index: usize,
+    ) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(3), Constraint::Min(0)])
             .split(area);
 
         // Header info
-        let info = Paragraph::new(format!("Domain: {} | Total Tokens: {}",
-            self.rpc_domain, self.rpc_tokens.len()))
-            .block(Block::default().borders(Borders::ALL).title("RPC Configuration"));
+        let info = Paragraph::new(format!(
+            "Domain: {} | Total Tokens: {}",
+            self.rpc_domain,
+            self.rpc_tokens.len()
+        ))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("RPC Configuration"),
+        );
 
         frame.render_widget(info, chunks[0]);
 
         // Tokens table
         let header = Row::new(vec!["Token #", "Value", "Status"])
-            .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+            .style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
             .bottom_margin(1);
 
-        let rows: Vec<Row> = self.rpc_tokens.iter().enumerate().map(|(idx, (i, token))| {
-            let is_selected = idx == selected_index;
+        let rows: Vec<Row> = self
+            .rpc_tokens
+            .iter()
+            .enumerate()
+            .map(|(idx, (i, token))| {
+                let is_selected = idx == selected_index;
 
-            let (value, status, color) = if let Some(t) = token {
-                (t.clone(), "✓ Set", Color::Green)
-            } else {
-                ("<not set>".to_string(), "✗ Missing", Color::Red)
-            };
+                let (value, status, color) = if let Some(t) = token {
+                    (t.clone(), "✓ Set", Color::Green)
+                } else {
+                    ("<not set>".to_string(), "✗ Missing", Color::Red)
+                };
 
-            let row = Row::new(vec![
-                Cell::from(format!("TOKEN_{:02}", i)),
-                Cell::from(value),
-                Cell::from(Span::styled(status, Style::default().fg(color))),
-            ]);
+                let row = Row::new(vec![
+                    Cell::from(format!("TOKEN_{:02}", i)),
+                    Cell::from(value),
+                    Cell::from(Span::styled(status, Style::default().fg(color))),
+                ]);
 
-            if is_selected {
-                row.style(Style::default().bg(Color::DarkGray).fg(Color::White))
-            } else {
-                row
-            }
-        }).collect();
+                if is_selected {
+                    row.style(Style::default().bg(Color::DarkGray).fg(Color::White))
+                } else {
+                    row
+                }
+            })
+            .collect();
 
         let table = Table::new(
             rows,
@@ -1016,12 +1289,25 @@ impl Dashboard {
             ],
         )
         .header(header)
-        .block(Block::default().borders(Borders::ALL).title(format!("RPC Tokens (Total: {})", self.rpc_tokens.len())));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(format!("RPC Tokens (Total: {})", self.rpc_tokens.len())),
+        );
 
         frame.render_widget(table, chunks[1]);
     }
 
-    fn render_config(&self, frame: &mut Frame, area: ratatui::layout::Rect, config_section: crate::app::ConfigSection, selected_index: usize, edit_mode: bool, edit_buffer: &str, filtered_indices: &[usize]) {
+    fn render_config(
+        &self,
+        frame: &mut Frame,
+        area: ratatui::layout::Rect,
+        config_section: crate::app::ConfigSection,
+        selected_index: usize,
+        edit_mode: bool,
+        edit_buffer: &str,
+        filtered_indices: &[usize],
+    ) {
         use crate::app::ConfigSection;
 
         // Split area to add tab bar
@@ -1034,75 +1320,110 @@ impl Dashboard {
         let tabs = [
             ("Environment", config_section == ConfigSection::Environment),
             ("RPC Tokens", config_section == ConfigSection::RpcTokens),
-            ("SSL Certificates", config_section == ConfigSection::SslCerts),
+            (
+                "SSL Certificates",
+                config_section == ConfigSection::SslCerts,
+            ),
         ];
         let tab_bar = self.render_tab_bar(&tabs);
         frame.render_widget(tab_bar, chunks[0]);
 
         // Delegate to appropriate tab based on config_section
         match config_section {
-            ConfigSection::Environment => self.render_config_environment(frame, chunks[1], selected_index, edit_mode, edit_buffer, filtered_indices),
+            ConfigSection::Environment => self.render_config_environment(
+                frame,
+                chunks[1],
+                selected_index,
+                edit_mode,
+                edit_buffer,
+                filtered_indices,
+            ),
             ConfigSection::RpcTokens => self.render_rpc_tokens(frame, chunks[1], selected_index),
             ConfigSection::SslCerts => self.render_ssl(frame, chunks[1]),
         }
     }
 
-    fn render_config_environment(&self, frame: &mut Frame, area: ratatui::layout::Rect, selected_index: usize, edit_mode: bool, edit_buffer: &str, filtered_indices: &[usize]) {
+    fn render_config_environment(
+        &self,
+        frame: &mut Frame,
+        area: ratatui::layout::Rect,
+        selected_index: usize,
+        edit_mode: bool,
+        edit_buffer: &str,
+        filtered_indices: &[usize],
+    ) {
         let header = Row::new(vec!["Key", "Value"])
-            .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+            .style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
             .bottom_margin(1);
 
-        let rows: Vec<Row> = self.config_data.iter().take(30).enumerate().map(|(idx, (key, value))| {
-            let is_selected = idx == selected_index;
-            let is_filtered = !filtered_indices.is_empty() && filtered_indices.contains(&idx);
+        let rows: Vec<Row> = self
+            .config_data
+            .iter()
+            .take(30)
+            .enumerate()
+            .map(|(idx, (key, value))| {
+                let is_selected = idx == selected_index;
+                let is_filtered = !filtered_indices.is_empty() && filtered_indices.contains(&idx);
 
-            // If this is the selected row and we're in edit mode, show the edit buffer
-            let display_value = if is_selected && edit_mode {
-                edit_buffer.to_string()
-            } else {
-                // Mask sensitive values
-                if key.contains("PASSWORD")
-                    || key.contains("SECRET")
-                    || key.contains("KEY")
-                    || key.contains("TOKEN")
-                {
-                    "****".to_string()
+                // If this is the selected row and we're in edit mode, show the edit buffer
+                let display_value = if is_selected && edit_mode {
+                    edit_buffer.to_string()
                 } else {
-                    if value.len() > 50 {
-                        format!("{}...", &value[..47])
+                    // Mask sensitive values
+                    if key.contains("PASSWORD")
+                        || key.contains("SECRET")
+                        || key.contains("KEY")
+                        || key.contains("TOKEN")
+                    {
+                        "****".to_string()
                     } else {
-                        value.clone()
+                        if value.len() > 50 {
+                            format!("{}...", &value[..47])
+                        } else {
+                            value.clone()
+                        }
                     }
-                }
-            };
+                };
 
-            let row = Row::new(vec![
-                Cell::from(key.clone()),
-                Cell::from(display_value),
-            ]);
+                let row = Row::new(vec![Cell::from(key.clone()), Cell::from(display_value)]);
 
-            if is_selected {
-                if edit_mode {
-                    row.style(Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD))
+                if is_selected {
+                    if edit_mode {
+                        row.style(
+                            Style::default()
+                                .bg(Color::Blue)
+                                .fg(Color::White)
+                                .add_modifier(Modifier::BOLD),
+                        )
+                    } else {
+                        row.style(
+                            Style::default()
+                                .bg(Color::DarkGray)
+                                .add_modifier(Modifier::BOLD),
+                        )
+                    }
+                } else if is_filtered {
+                    row.style(
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )
                 } else {
-                    row.style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+                    row
                 }
-            } else if is_filtered {
-                row.style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-            } else {
-                row
-            }
-        }).collect();
+            })
+            .collect();
 
-        let table = Table::new(
-            rows,
-            [
-                Constraint::Length(35),
-                Constraint::Min(20),
-            ],
-        )
-        .header(header)
-        .block(Block::default().borders(Borders::ALL).title(format!("Configuration (showing 30 of {} keys)", self.config_data.len())));
+        let table = Table::new(rows, [Constraint::Length(35), Constraint::Min(20)])
+            .header(header)
+            .block(Block::default().borders(Borders::ALL).title(format!(
+                "Configuration (showing 30 of {} keys)",
+                self.config_data.len()
+            )));
 
         frame.render_widget(table, area);
     }
@@ -1111,7 +1432,9 @@ impl Dashboard {
         let mut text = vec![
             Line::from(Span::styled(
                 "SSL Certificate Management",
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
         ];
@@ -1120,7 +1443,12 @@ impl Dashboard {
         if let Some(cert_info) = &self.ssl_cert_info {
             text.push(Line::from(vec![
                 Span::styled("Domain: ", Style::default().fg(Color::White)),
-                Span::styled(&cert_info.domain, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    &cert_info.domain,
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
             ]));
             text.push(Line::from(""));
 
@@ -1132,14 +1460,22 @@ impl Dashboard {
             };
             text.push(Line::from(vec![
                 Span::styled("Status: ", Style::default().fg(Color::White)),
-                Span::styled(status_text, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    status_text,
+                    Style::default()
+                        .fg(status_color)
+                        .add_modifier(Modifier::BOLD),
+                ),
             ]));
 
             // Valid from
             if let Some(from) = cert_info.valid_from {
                 text.push(Line::from(vec![
                     Span::styled("Valid From: ", Style::default().fg(Color::White)),
-                    Span::styled(from.format("%Y-%m-%d %H:%M:%S UTC").to_string(), Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        from.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                        Style::default().fg(Color::Gray),
+                    ),
                 ]));
             }
 
@@ -1147,7 +1483,10 @@ impl Dashboard {
             if let Some(until) = cert_info.valid_until {
                 text.push(Line::from(vec![
                     Span::styled("Valid Until: ", Style::default().fg(Color::White)),
-                    Span::styled(until.format("%Y-%m-%d %H:%M:%S UTC").to_string(), Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        until.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                        Style::default().fg(Color::Gray),
+                    ),
                 ]));
             }
 
@@ -1164,7 +1503,7 @@ impl Dashboard {
                     Span::styled("Days Remaining: ", Style::default().fg(Color::White)),
                     Span::styled(
                         format!("{} days", days),
-                        Style::default().fg(days_color).add_modifier(Modifier::BOLD)
+                        Style::default().fg(days_color).add_modifier(Modifier::BOLD),
                     ),
                 ]));
             }
@@ -1181,27 +1520,46 @@ impl Dashboard {
         text.push(Line::from(""));
         text.push(Line::from(Span::styled(
             "Available Actions:",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         )));
         text.push(Line::from("  [c] Check certificate"));
         text.push(Line::from("  [n] Force renewal (restart Traefik)"));
         text.push(Line::from("  [r] Refresh"));
 
         let paragraph = Paragraph::new(text)
-            .block(Block::default().borders(Borders::ALL).title("SSL/TLS Certificates"))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("SSL/TLS Certificates"),
+            )
             .wrap(Wrap { trim: true });
 
         frame.render_widget(paragraph, area);
     }
 
-    fn render_storage(&self, frame: &mut Frame, area: Rect, storage_analysis: Option<&crate::core::storage::StorageAnalysis>, scroll_offset: usize, chart_days: u32, show_details: bool) {
+    fn render_storage(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        storage_analysis: Option<&crate::core::storage::StorageAnalysis>,
+        scroll_offset: usize,
+        chart_days: u32,
+        show_details: bool,
+    ) {
         use crate::core::storage::format_bytes;
 
         // If no analysis yet, show loading
         let Some(analysis) = storage_analysis else {
-            let paragraph = Paragraph::new("Analyzing storage... (requires sudo access for volume sizes)")
-                .block(Block::default().borders(Borders::ALL).title("Storage Analysis"))
-                .alignment(ratatui::layout::Alignment::Center);
+            let paragraph =
+                Paragraph::new("Analyzing storage... (requires sudo access for volume sizes)")
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title("Storage Analysis"),
+                    )
+                    .alignment(ratatui::layout::Alignment::Center);
             frame.render_widget(paragraph, area);
             return;
         };
@@ -1243,46 +1601,87 @@ impl Dashboard {
             ]),
             Line::from(vec![
                 Span::raw("Total: "),
-                Span::styled(format_bytes(disk.total_bytes), Style::default().fg(Color::White)),
+                Span::styled(
+                    format_bytes(disk.total_bytes),
+                    Style::default().fg(Color::White),
+                ),
                 Span::raw("  |  Used: "),
-                Span::styled(format_bytes(disk.used_bytes), Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    format_bytes(disk.used_bytes),
+                    Style::default().fg(Color::Yellow),
+                ),
                 Span::raw(format!(" ({:.1}%)", disk.use_percent)),
                 Span::raw("  |  Available: "),
-                Span::styled(format_bytes(disk.available_bytes), Style::default().fg(Color::Green)),
+                Span::styled(
+                    format_bytes(disk.available_bytes),
+                    Style::default().fg(Color::Green),
+                ),
             ]),
         ];
 
-        let disk_paragraph = Paragraph::new(disk_text)
-            .block(Block::default().borders(Borders::ALL).title("System Disk Usage"));
+        let disk_paragraph = Paragraph::new(disk_text).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("System Disk Usage"),
+        );
         frame.render_widget(disk_paragraph, chunks[0]);
 
         // Docker Summary
         let docker_text = vec![
             Line::from(vec![
                 Span::raw("Images: "),
-                Span::styled(format_bytes(analysis.docker_images.total_bytes), Style::default().fg(Color::Cyan)),
-                Span::raw(format!(" ({} total, {} active)", analysis.docker_images.total_count, analysis.docker_images.active_count)),
+                Span::styled(
+                    format_bytes(analysis.docker_images.total_bytes),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::raw(format!(
+                    " ({} total, {} active)",
+                    analysis.docker_images.total_count, analysis.docker_images.active_count
+                )),
                 Span::raw("  |  Reclaimable: "),
-                Span::styled(format_bytes(analysis.docker_images.reclaimable_bytes), Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    format_bytes(analysis.docker_images.reclaimable_bytes),
+                    Style::default().fg(Color::Yellow),
+                ),
             ]),
             Line::from(vec![
                 Span::raw("Volumes: "),
-                Span::styled(format_bytes(analysis.docker_volumes.iter().map(|v| v.size_bytes).sum::<u64>()), Style::default().fg(Color::Cyan)),
+                Span::styled(
+                    format_bytes(
+                        analysis
+                            .docker_volumes
+                            .iter()
+                            .map(|v| v.size_bytes)
+                            .sum::<u64>(),
+                    ),
+                    Style::default().fg(Color::Cyan),
+                ),
                 Span::raw(format!(" ({} total)", analysis.docker_volumes.len())),
             ]),
             Line::from(vec![
                 Span::raw("Build Cache: "),
-                Span::styled(format_bytes(analysis.docker_build_cache.total_bytes), Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    format_bytes(analysis.docker_build_cache.total_bytes),
+                    Style::default().fg(Color::Yellow),
+                ),
                 Span::raw(" (100% reclaimable - run 'docker builder prune')"),
             ]),
             Line::from(vec![
                 Span::raw("Total Reclaimable: "),
-                Span::styled(format_bytes(analysis.reclaimable_space), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    format_bytes(analysis.reclaimable_space),
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
             ]),
         ];
 
-        let docker_paragraph = Paragraph::new(docker_text)
-            .block(Block::default().borders(Borders::ALL).title("Docker Storage"));
+        let docker_paragraph = Paragraph::new(docker_text).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Docker Storage"),
+        );
         frame.render_widget(docker_paragraph, chunks[1]);
 
         // Historical Storage Chart
@@ -1293,64 +1692,69 @@ impl Dashboard {
             self.render_storage_details(frame, chunks[3], chart_days);
         } else {
             // Volumes List - show all volumes with scrolling
-        let mut volumes_text = vec![
-            Line::from(vec![
+            let mut volumes_text = vec![Line::from(vec![
                 Span::styled("Volume Name", Style::default().add_modifier(Modifier::BOLD)),
                 Span::raw("  |  "),
                 Span::styled("Size", Style::default().add_modifier(Modifier::BOLD)),
                 Span::raw("  |  "),
                 Span::styled("Status", Style::default().add_modifier(Modifier::BOLD)),
-            ]),
-        ];
+            ])];
 
-        // Calculate visible area (subtract borders and header) - use chunks[3] for volumes area
-        let visible_height = chunks[3].height.saturating_sub(3) as usize;
-        let total_volumes = analysis.docker_volumes.len();
+            // Calculate visible area (subtract borders and header) - use chunks[3] for volumes area
+            let visible_height = chunks[3].height.saturating_sub(3) as usize;
+            let total_volumes = analysis.docker_volumes.len();
 
-        // Apply scrolling - show window of volumes
-        let start_idx = scroll_offset.min(total_volumes.saturating_sub(1));
-        let end_idx = (start_idx + visible_height).min(total_volumes);
+            // Apply scrolling - show window of volumes
+            let start_idx = scroll_offset.min(total_volumes.saturating_sub(1));
+            let end_idx = (start_idx + visible_height).min(total_volumes);
 
-        for vol in &analysis.docker_volumes[start_idx..end_idx] {
-            let status_color = if vol.critical {
-                Color::Red
-            } else if vol.in_use {
-                Color::Green
-            } else {
-                Color::Gray
-            };
-
-            let status_text = if vol.critical {
-                "CRITICAL"
-            } else if vol.in_use {
-                "In Use"
-            } else {
-                "Unused"
-            };
-
-            volumes_text.push(Line::from(vec![
-                Span::raw(if vol.name.len() > 40 {
-                    format!("{}...", &vol.name[..37])
+            for vol in &analysis.docker_volumes[start_idx..end_idx] {
+                let status_color = if vol.critical {
+                    Color::Red
+                } else if vol.in_use {
+                    Color::Green
                 } else {
-                    vol.name.clone()
-                }),
-                Span::raw("  |  "),
-                Span::styled(format!("{:>8}", format_bytes(vol.size_bytes)), Style::default().fg(Color::Cyan)),
-                Span::raw("  |  "),
-                Span::styled(status_text, Style::default().fg(status_color)),
-            ]));
-        }
+                    Color::Gray
+                };
 
-        // Show scroll indicator if there are more volumes
-        let title = if total_volumes > visible_height {
-            format!("Docker Volumes ({}/{} shown - ↑↓ to scroll)", end_idx - start_idx, total_volumes)
-        } else {
-            format!("Docker Volumes ({} total)", total_volumes)
-        };
+                let status_text = if vol.critical {
+                    "CRITICAL"
+                } else if vol.in_use {
+                    "In Use"
+                } else {
+                    "Unused"
+                };
 
-        let volumes_paragraph = Paragraph::new(volumes_text)
-            .block(Block::default().borders(Borders::ALL).title(title));
-        frame.render_widget(volumes_paragraph, chunks[3]);
+                volumes_text.push(Line::from(vec![
+                    Span::raw(if vol.name.len() > 40 {
+                        format!("{}...", &vol.name[..37])
+                    } else {
+                        vol.name.clone()
+                    }),
+                    Span::raw("  |  "),
+                    Span::styled(
+                        format!("{:>8}", format_bytes(vol.size_bytes)),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                    Span::raw("  |  "),
+                    Span::styled(status_text, Style::default().fg(status_color)),
+                ]));
+            }
+
+            // Show scroll indicator if there are more volumes
+            let title = if total_volumes > visible_height {
+                format!(
+                    "Docker Volumes ({}/{} shown - ↑↓ to scroll)",
+                    end_idx - start_idx,
+                    total_volumes
+                )
+            } else {
+                format!("Docker Volumes ({} total)", total_volumes)
+            };
+
+            let volumes_paragraph = Paragraph::new(volumes_text)
+                .block(Block::default().borders(Borders::ALL).title(title));
+            frame.render_widget(volumes_paragraph, chunks[3]);
         } // end if show_details
 
         // Growth Rate & Predictions
@@ -1363,17 +1767,15 @@ impl Dashboard {
 
             let trend_text = format!("{:?}", growth.trend);
 
-            let mut lines = vec![
-                Line::from(vec![
-                    Span::raw("Growth Rate: "),
-                    Span::styled(
-                        format!("{}/day", format_bytes(growth.bytes_per_day.abs() as u64)),
-                        Style::default().fg(trend_color)
-                    ),
-                    Span::raw("  |  Trend: "),
-                    Span::styled(trend_text, Style::default().fg(trend_color)),
-                ]),
-            ];
+            let mut lines = vec![Line::from(vec![
+                Span::raw("Growth Rate: "),
+                Span::styled(
+                    format!("{}/day", format_bytes(growth.bytes_per_day.abs() as u64)),
+                    Style::default().fg(trend_color),
+                ),
+                Span::raw("  |  Trend: "),
+                Span::styled(trend_text, Style::default().fg(trend_color)),
+            ])];
 
             if let Some(days) = growth.days_to_full {
                 let warning_color = if days < 30 {
@@ -1386,23 +1788,33 @@ impl Dashboard {
 
                 lines.push(Line::from(vec![
                     Span::raw("Days to 90% full: "),
-                    Span::styled(format!("{} days", days), Style::default().fg(warning_color).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        format!("{} days", days),
+                        Style::default()
+                            .fg(warning_color)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                 ]));
             }
 
             lines
         } else {
-            vec![Line::from("Collecting data... (growth prediction available after 2+ days)")]
+            vec![Line::from(
+                "Collecting data... (growth prediction available after 2+ days)",
+            )]
         };
 
-        let growth_paragraph = Paragraph::new(growth_text)
-            .block(Block::default().borders(Borders::ALL).title("Storage Growth Prediction"));
+        let growth_paragraph = Paragraph::new(growth_text).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Storage Growth Prediction"),
+        );
         frame.render_widget(growth_paragraph, chunks[4]);
     }
 
     /// Render historical storage chart
     fn render_storage_chart(&self, frame: &mut Frame, area: Rect, chart_days: u32) {
-        use crate::core::storage::{StorageHistory, format_bytes};
+        use crate::core::storage::{format_bytes, StorageHistory};
 
         // Load storage history
         let history = match StorageHistory::load() {
@@ -1420,9 +1832,16 @@ impl Dashboard {
         let measurements = history.get_last_n_days(chart_days);
 
         if measurements.len() < 2 {
-            let msg = Paragraph::new(format!("Insufficient data. Need at least 2 measurements. Currently: {}", measurements.len()))
-                .block(Block::default().borders(Borders::ALL).title(format!("Storage History (Last {} Days)", chart_days)))
-                .alignment(Alignment::Center);
+            let msg = Paragraph::new(format!(
+                "Insufficient data. Need at least 2 measurements. Currently: {}",
+                measurements.len()
+            ))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(format!("Storage History (Last {} Days)", chart_days)),
+            )
+            .alignment(Alignment::Center);
             frame.render_widget(msg, area);
             return;
         }
@@ -1443,7 +1862,11 @@ impl Dashboard {
 
         // Calculate Y-axis bounds
         let max_y = total_data.iter().map(|(_, y)| *y).fold(0.0, f64::max);
-        let min_y = total_data.iter().map(|(_, y)| *y).fold(max_y, f64::min).min(0.0);
+        let min_y = total_data
+            .iter()
+            .map(|(_, y)| *y)
+            .fold(max_y, f64::min)
+            .min(0.0);
         let y_padding = (max_y - min_y) * 0.1;
 
         // Create datasets
@@ -1493,24 +1916,24 @@ impl Dashboard {
         );
 
         let chart = Chart::new(datasets)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(format!("Storage History (Last {} Days) - {} measurements", chart_days, measurements.len()))
-            )
+            .block(Block::default().borders(Borders::ALL).title(format!(
+                "Storage History (Last {} Days) - {} measurements",
+                chart_days,
+                measurements.len()
+            )))
             .x_axis(
                 Axis::default()
                     .title("Days Ago")
                     .style(Style::default().fg(Color::Gray))
                     .labels(x_labels)
-                    .bounds([0.0, max_x])
+                    .bounds([0.0, max_x]),
             )
             .y_axis(
                 Axis::default()
                     .title("Storage (GB)")
                     .style(Style::default().fg(Color::Gray))
                     .labels(y_labels)
-                    .bounds([min_y - y_padding, max_y + y_padding])
+                    .bounds([min_y - y_padding, max_y + y_padding]),
             )
             .legend_position(None); // We'll show legend in title
 
@@ -1519,13 +1942,17 @@ impl Dashboard {
 
     /// Render storage details table
     fn render_storage_details(&self, frame: &mut Frame, area: Rect, chart_days: u32) {
-        use crate::core::storage::{StorageHistory, format_bytes};
+        use crate::core::storage::{format_bytes, StorageHistory};
 
         let history = match StorageHistory::load() {
             Ok(h) => h,
             Err(_) => {
                 let msg = Paragraph::new("No historical data available")
-                    .block(Block::default().borders(Borders::ALL).title("Storage Details"))
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title("Storage Details"),
+                    )
                     .alignment(Alignment::Center);
                 frame.render_widget(msg, area);
                 return;
@@ -1536,7 +1963,11 @@ impl Dashboard {
 
         if measurements.is_empty() {
             let msg = Paragraph::new("No measurements in selected time range")
-                .block(Block::default().borders(Borders::ALL).title("Storage Details"))
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Storage Details"),
+                )
                 .alignment(Alignment::Center);
             frame.render_widget(msg, area);
             return;
@@ -1580,30 +2011,50 @@ impl Dashboard {
             ]));
         }
 
-        let table = Table::new(rows, vec![
-            Constraint::Length(12), // Date
-            Constraint::Length(7),  // Time
-            Constraint::Length(12), // Total
-            Constraint::Length(12), // Volumes
-            Constraint::Length(12), // Images
-            Constraint::Length(10), // Change
-        ])
+        let table = Table::new(
+            rows,
+            vec![
+                Constraint::Length(12), // Date
+                Constraint::Length(7),  // Time
+                Constraint::Length(12), // Total
+                Constraint::Length(12), // Volumes
+                Constraint::Length(12), // Images
+                Constraint::Length(10), // Change
+            ],
+        )
         .header(
-            Row::new(vec!["Date", "Time", "Total Used", "Volumes", "Images", "Change"])
-                .style(Style::default().add_modifier(Modifier::BOLD))
-                .bottom_margin(1)
+            Row::new(vec![
+                "Date",
+                "Time",
+                "Total Used",
+                "Volumes",
+                "Images",
+                "Change",
+            ])
+            .style(Style::default().add_modifier(Modifier::BOLD))
+            .bottom_margin(1),
         )
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(format!("Storage Details (Last {} measurements)", display_count))
-        )
+        .block(Block::default().borders(Borders::ALL).title(format!(
+            "Storage Details (Last {} measurements)",
+            display_count
+        )))
         .style(Style::default().fg(Color::White));
 
         frame.render_widget(table, area);
     }
 
-    fn render_service_detail(&self, frame: &mut Frame, container: &ContainerInfo, logs: &[crate::core::ParsedLogLine], live_mode: bool, grouping_enabled: bool, log_filter: Option<&crate::core::LogLevel>, scroll_offset: usize, status_message: Option<&str>, reth_metrics: Option<&RethMetrics>) {
+    fn render_service_detail(
+        &self,
+        frame: &mut Frame,
+        container: &ContainerInfo,
+        logs: &[crate::core::ParsedLogLine],
+        live_mode: bool,
+        grouping_enabled: bool,
+        log_filter: Option<&crate::core::LogLevel>,
+        scroll_offset: usize,
+        status_message: Option<&str>,
+        reth_metrics: Option<&RethMetrics>,
+    ) {
         // Determine if we should show metrics section
         let show_metrics = container.name == "execution-layer" && reth_metrics.is_some();
 
@@ -1611,16 +2062,16 @@ impl Dashboard {
             .direction(Direction::Vertical)
             .constraints(if show_metrics {
                 vec![
-                    Constraint::Length(3),   // Title (single line)
-                    Constraint::Length(9),   // Metrics section (7 rows + 2 for borders)
-                    Constraint::Min(0),      // Logs
-                    Constraint::Length(3),   // Footer
+                    Constraint::Length(3), // Title (single line)
+                    Constraint::Length(9), // Metrics section (7 rows + 2 for borders)
+                    Constraint::Min(0),    // Logs
+                    Constraint::Length(3), // Footer
                 ]
             } else {
                 vec![
-                    Constraint::Length(3),   // Title (single line)
-                    Constraint::Min(0),      // Logs
-                    Constraint::Length(3),   // Footer
+                    Constraint::Length(3), // Title (single line)
+                    Constraint::Min(0),    // Logs
+                    Constraint::Length(3), // Footer
                 ]
             })
             .split(frame.size());
@@ -1639,15 +2090,32 @@ impl Dashboard {
             _ => Color::Gray,
         };
 
-        let title_text = vec![
-            Line::from(vec![
-                Span::styled(&container.name, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::raw("  |  "),
-                Span::styled(&container.status, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
-                Span::raw("  |  "),
-                Span::styled(&container.image, Style::default().fg(Color::Gray)),
-            ]),
-        ];
+        let health_text = container.health.as_deref().unwrap_or("unknown");
+
+        let title_text = vec![Line::from(vec![
+            Span::styled(
+                &container.name,
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  |  "),
+            Span::styled(
+                &container.status,
+                Style::default()
+                    .fg(status_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  |  "),
+            Span::styled(
+                health_text,
+                Style::default()
+                    .fg(health_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  |  "),
+            Span::styled(&container.image, Style::default().fg(Color::Gray)),
+        ])];
 
         let title = Paragraph::new(title_text)
             .alignment(Alignment::Left)
@@ -1676,20 +2144,31 @@ impl Dashboard {
                 metrics_lines.push(Line::from(vec![
                     Span::styled("Block: ", Style::default().fg(Color::Gray)),
                     Span::styled(
-                        metrics.blocks_processed.map(|v| format!("#{}", format_number(v))).unwrap_or("N/A".to_string()),
-                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                        metrics
+                            .blocks_processed
+                            .map(|v| format!("#{}", format_number(v)))
+                            .unwrap_or("N/A".to_string()),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Span::raw("  "),
                     Span::styled("Canonical: ", Style::default().fg(Color::Gray)),
                     Span::styled(
-                        metrics.canonical_chain_height.map(|v| format!("#{}", format_number(v))).unwrap_or("N/A".to_string()),
-                        Style::default().fg(Color::Cyan)
+                        metrics
+                            .canonical_chain_height
+                            .map(|v| format!("#{}", format_number(v)))
+                            .unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::Cyan),
                     ),
                     Span::raw("  "),
                     Span::styled("Headers: ", Style::default().fg(Color::Gray)),
                     Span::styled(
-                        metrics.headers_synced.map(|v| format_number(v)).unwrap_or("N/A".to_string()),
-                        Style::default().fg(Color::White)
+                        metrics
+                            .headers_synced
+                            .map(|v| format_number(v))
+                            .unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White),
                     ),
                 ]));
 
@@ -1698,13 +2177,20 @@ impl Dashboard {
                     Span::styled("Sync: ", Style::default().fg(Color::Gray)),
                     Span::styled(
                         metrics.sync_stage.as_deref().unwrap_or("N/A"),
-                        Style::default().fg(if metrics.sync_stage.as_deref() == Some("Synced") { Color::Green } else { Color::Yellow })
+                        Style::default().fg(if metrics.sync_stage.as_deref() == Some("Synced") {
+                            Color::Green
+                        } else {
+                            Color::Yellow
+                        }),
                     ),
                     Span::raw("  "),
                     Span::styled("Checkpoint: ", Style::default().fg(Color::Gray)),
                     Span::styled(
-                        metrics.sync_checkpoint.map(|v| format_number(v)).unwrap_or("N/A".to_string()),
-                        Style::default().fg(Color::White)
+                        metrics
+                            .sync_checkpoint
+                            .map(|v| format_number(v))
+                            .unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White),
                     ),
                 ]));
 
@@ -1712,11 +2198,16 @@ impl Dashboard {
                 metrics_lines.push(Line::from(vec![
                     Span::styled("Peers: ", Style::default().fg(Color::Gray)),
                     Span::styled(
-                        format!("{} connected / {} tracked",
+                        format!(
+                            "{} connected / {} tracked",
                             metrics.peers_connected.unwrap_or(0),
                             metrics.peers_tracked.unwrap_or(0)
                         ),
-                        Style::default().fg(if metrics.peers_connected.unwrap_or(0) > 0 { Color::Green } else { Color::Yellow })
+                        Style::default().fg(if metrics.peers_connected.unwrap_or(0) > 0 {
+                            Color::Green
+                        } else {
+                            Color::Yellow
+                        }),
                     ),
                 ]));
 
@@ -1724,20 +2215,29 @@ impl Dashboard {
                 metrics_lines.push(Line::from(vec![
                     Span::styled("Transactions: ", Style::default().fg(Color::Gray)),
                     Span::styled(
-                        metrics.transactions_total.map(|v| format_number(v)).unwrap_or("N/A".to_string()),
-                        Style::default().fg(Color::Cyan)
+                        metrics
+                            .transactions_total
+                            .map(|v| format_number(v))
+                            .unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::Cyan),
                     ),
                     Span::raw("  "),
                     Span::styled("Pending: ", Style::default().fg(Color::Gray)),
                     Span::styled(
-                        metrics.transactions_pending.map(|v| v.to_string()).unwrap_or("N/A".to_string()),
-                        Style::default().fg(Color::White)
+                        metrics
+                            .transactions_pending
+                            .map(|v| v.to_string())
+                            .unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White),
                     ),
                     Span::raw("  "),
                     Span::styled("Blob: ", Style::default().fg(Color::Gray)),
                     Span::styled(
-                        metrics.transactions_blob.map(|v| v.to_string()).unwrap_or("N/A".to_string()),
-                        Style::default().fg(Color::White)
+                        metrics
+                            .transactions_blob
+                            .map(|v| v.to_string())
+                            .unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White),
                     ),
                 ]));
 
@@ -1745,14 +2245,22 @@ impl Dashboard {
                 metrics_lines.push(Line::from(vec![
                     Span::styled("TPS: ", Style::default().fg(Color::Gray)),
                     Span::styled(
-                        metrics.tps.map(|v| format!("{:.2} tx/s", v)).unwrap_or("Calculating...".to_string()),
-                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                        metrics
+                            .tps
+                            .map(|v| format!("{:.2} tx/s", v))
+                            .unwrap_or("Calculating...".to_string()),
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Span::raw("  "),
                     Span::styled("Inserted: ", Style::default().fg(Color::Gray)),
                     Span::styled(
-                        metrics.transactions_inserted.map(|v| format_number(v)).unwrap_or("N/A".to_string()),
-                        Style::default().fg(Color::White)
+                        metrics
+                            .transactions_inserted
+                            .map(|v| format_number(v))
+                            .unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White),
                     ),
                 ]));
 
@@ -1762,20 +2270,27 @@ impl Dashboard {
                 metrics_lines.push(Line::from(vec![
                     Span::styled("Memory: ", Style::default().fg(Color::Gray)),
                     Span::styled(
-                        memory_mb.map(|m| format!("{:.1} MB", m)).unwrap_or("N/A".to_string()),
-                        Style::default().fg(Color::White)
+                        memory_mb
+                            .map(|m| format!("{:.1} MB", m))
+                            .unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White),
                     ),
                     Span::raw("  "),
                     Span::styled("Gas: ", Style::default().fg(Color::Gray)),
                     Span::styled(
-                        gas_billions.map(|g| format!("{:.2}B", g)).unwrap_or("N/A".to_string()),
-                        Style::default().fg(Color::White)
+                        gas_billions
+                            .map(|g| format!("{:.2}B", g))
+                            .unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White),
                     ),
                     Span::raw("  "),
                     Span::styled("Payloads: ", Style::default().fg(Color::Gray)),
                     Span::styled(
-                        metrics.payloads_initiated.map(|v| v.to_string()).unwrap_or("N/A".to_string()),
-                        Style::default().fg(Color::White)
+                        metrics
+                            .payloads_initiated
+                            .map(|v| v.to_string())
+                            .unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White),
                     ),
                 ]));
 
@@ -1783,20 +2298,33 @@ impl Dashboard {
                 metrics_lines.push(Line::from(vec![
                     Span::styled("In-mem blocks: ", Style::default().fg(Color::Gray)),
                     Span::styled(
-                        metrics.in_mem_blocks.map(|v| v.to_string()).unwrap_or("N/A".to_string()),
-                        Style::default().fg(Color::White)
+                        metrics
+                            .in_mem_blocks
+                            .map(|v| v.to_string())
+                            .unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White),
                     ),
                     Span::raw("  "),
                     Span::styled("Reorgs: ", Style::default().fg(Color::Gray)),
                     Span::styled(
-                        metrics.reorgs_total.map(|v| v.to_string()).unwrap_or("N/A".to_string()),
-                        Style::default().fg(if metrics.reorgs_total.unwrap_or(0) > 0 { Color::Yellow } else { Color::Green })
+                        metrics
+                            .reorgs_total
+                            .map(|v| v.to_string())
+                            .unwrap_or("N/A".to_string()),
+                        Style::default().fg(if metrics.reorgs_total.unwrap_or(0) > 0 {
+                            Color::Yellow
+                        } else {
+                            Color::Green
+                        }),
                     ),
                     Span::raw("  "),
                     Span::styled("Depth: ", Style::default().fg(Color::Gray)),
                     Span::styled(
-                        metrics.reorg_depth.map(|v| v.to_string()).unwrap_or("N/A".to_string()),
-                        Style::default().fg(Color::White)
+                        metrics
+                            .reorg_depth
+                            .map(|v| v.to_string())
+                            .unwrap_or("N/A".to_string()),
+                        Style::default().fg(Color::White),
                     ),
                 ]));
 
@@ -1805,13 +2333,14 @@ impl Dashboard {
 
                 frame.render_widget(metrics_widget, chunks[1]);
             }
-            2  // Logs are in chunk 2 when metrics are shown (title=0, metrics=1, logs=2)
+            2 // Logs are in chunk 2 when metrics are shown (title=0, metrics=1, logs=2)
         } else {
-            1  // Logs are in chunk 1 when no metrics (title=0, logs=1)
+            1 // Logs are in chunk 1 when no metrics (title=0, logs=1)
         };
 
         // Logs section - Filter and apply scroll windowing to pre-parsed logs
-        let filtered_logs: Vec<&crate::core::ParsedLogLine> = logs.iter()
+        let filtered_logs: Vec<&crate::core::ParsedLogLine> = logs
+            .iter()
             .filter(|log| {
                 if let Some(filter_level) = log_filter {
                     &log.level == filter_level
@@ -1826,7 +2355,8 @@ impl Dashboard {
         let total_logs = filtered_logs.len();
         let end_idx = total_logs.saturating_sub(scroll_offset);
         let start_idx = 0; // Show all logs from beginning to end_idx
-        let windowed_logs: Vec<&crate::core::ParsedLogLine> = filtered_logs[start_idx..end_idx].to_vec();
+        let windowed_logs: Vec<&crate::core::ParsedLogLine> =
+            filtered_logs[start_idx..end_idx].to_vec();
 
         let mut log_lines: Vec<Line> = Vec::new();
 
@@ -1843,7 +2373,10 @@ impl Dashboard {
                 log_lines.push(Line::from(vec![
                     Span::styled(
                         format!("[{}]", level_text),
-                        Style::default().fg(Color::Black).bg(level_color).add_modifier(Modifier::BOLD)
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(level_color)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(module_text, Style::default().fg(Color::Gray)),
                 ]));
@@ -1851,7 +2384,11 @@ impl Dashboard {
                 // Group items with tree characters
                 let logs_count = group.logs.len();
                 for (idx, log) in group.logs.into_iter().enumerate() {
-                    let prefix = if idx == logs_count - 1 { "  └─ " } else { "  ├─ " };
+                    let prefix = if idx == logs_count - 1 {
+                        "  └─ "
+                    } else {
+                        "  ├─ "
+                    };
                     let time = format_timestamp_compact(&log.timestamp);
                     let level_color = log.level.color();
 
@@ -1875,25 +2412,37 @@ impl Dashboard {
                     Span::raw(" "),
                     Span::styled(
                         format!("[{}]", level_text),
-                        Style::default().fg(Color::Black).bg(level_color).add_modifier(Modifier::BOLD)
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(level_color)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Span::raw(" "),
-                    Span::styled(format!("{}: ", log.module_short), Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format!("{}: ", log.module_short),
+                        Style::default().fg(Color::Gray),
+                    ),
                     Span::styled(&log.message, Style::default().fg(level_color)),
                 ]));
             }
         }
 
         // Build title with indicators
-        let mode_text = if grouping_enabled { " grouped" } else { " chronological" };
+        let mode_text = if grouping_enabled {
+            " grouped"
+        } else {
+            " chronological"
+        };
         let live_indicator = if live_mode { "[LIVE]" } else { "" };
         let scroll_indicator = if scroll_offset > 0 {
             format!(" ↑{}", scroll_offset)
         } else {
             String::new()
         };
-        let title = format!("Logs {}{} {}/{}{}",
-            live_indicator, scroll_indicator, end_idx, total_logs, mode_text);
+        let title = format!(
+            "Logs {}{} {}/{}{}",
+            live_indicator, scroll_indicator, end_idx, total_logs, mode_text
+        );
 
         // Calculate scroll position for Paragraph widget
         // When scroll_offset = 0, show the bottom (latest logs)
@@ -1907,7 +2456,9 @@ impl Dashboard {
             // Scrolled up - calculate position based on scroll_offset
             // We want to show logs ending at (total - scroll_offset)
             // But we need to account for the fact that we've already windowed the logs
-            total_rendered_lines.saturating_sub(available_height).saturating_sub(scroll_offset.min(total_rendered_lines))
+            total_rendered_lines
+                .saturating_sub(available_height)
+                .saturating_sub(scroll_offset.min(total_rendered_lines))
         };
 
         let logs_widget = Paragraph::new(log_lines)
@@ -1928,7 +2479,9 @@ impl Dashboard {
         let footer = Paragraph::new(footer_text)
             .alignment(Alignment::Center)
             .style(if status_message.is_some() {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             })
@@ -1978,103 +2531,198 @@ impl Dashboard {
         // Screen-specific help
         match current_screen {
             Screen::Services => {
-                help_text.push(Line::from(Span::styled("Services Screen:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
-                help_text.push(Line::from("  [Tab]          Switch between Services and Profiles views"));
+                help_text.push(Line::from(Span::styled(
+                    "Services Screen:",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )));
+                help_text.push(Line::from(
+                    "  [Tab]          Switch between Services and Profiles views",
+                ));
                 help_text.push(Line::from(""));
-                help_text.push(Line::from(Span::styled("Services View:", Style::default().fg(Color::Cyan))));
+                help_text.push(Line::from(Span::styled(
+                    "Services View:",
+                    Style::default().fg(Color::Cyan),
+                )));
                 help_text.push(Line::from("  [Enter]        View service details and logs"));
                 help_text.push(Line::from("  [s]            Start selected service"));
                 help_text.push(Line::from("  [x]            Stop selected service"));
                 help_text.push(Line::from("  [R]            Restart selected service"));
                 help_text.push(Line::from("  [/]            Search/filter services"));
                 help_text.push(Line::from(""));
-                help_text.push(Line::from(Span::styled("Profiles View:", Style::default().fg(Color::Cyan))));
-                help_text.push(Line::from("  [Enter]        Start selected profile (service group)"));
+                help_text.push(Line::from(Span::styled(
+                    "Profiles View:",
+                    Style::default().fg(Color::Cyan),
+                )));
+                help_text.push(Line::from(
+                    "  [Enter]        Start selected profile (service group)",
+                ));
             }
             Screen::Wallets => {
-                help_text.push(Line::from(Span::styled("Wallets Screen:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+                help_text.push(Line::from(Span::styled(
+                    "Wallets Screen:",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )));
                 help_text.push(Line::from("  [Enter]        Show wallet details"));
-                help_text.push(Line::from("  [g]            Generate new wallet for selected worker"));
+                help_text.push(Line::from(
+                    "  [g]            Generate new wallet for selected worker",
+                ));
                 help_text.push(Line::from("  [t]            Transfer/Send KAS transaction"));
                 help_text.push(Line::from("  [/]            Search/filter wallets"));
                 help_text.push(Line::from(""));
-                help_text.push(Line::from(Span::styled("Wallet Detail View:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
-                help_text.push(Line::from("  [Enter]        View transaction details (modal)"));
-                help_text.push(Line::from("  [/]            Search transactions (by TxID, address, amount)"));
+                help_text.push(Line::from(Span::styled(
+                    "Wallet Detail View:",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )));
+                help_text.push(Line::from(
+                    "  [Enter]        View transaction details (modal)",
+                ));
+                help_text.push(Line::from(
+                    "  [/]            Search transactions (by TxID, address, amount)",
+                ));
                 help_text.push(Line::from("  [↑↓] / [j/k]   Scroll through transactions"));
                 help_text.push(Line::from("  [Esc] / [q]    Return to wallet list"));
                 help_text.push(Line::from("  [r]            Refresh wallet data"));
             }
             Screen::Watch => {
-                help_text.push(Line::from(Span::styled("Watch Screen:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+                help_text.push(Line::from(Span::styled(
+                    "Watch Screen:",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )));
                 help_text.push(Line::from("  [↑↓] / [j/k]   Scroll through transactions"));
-                help_text.push(Line::from("  [f]            Filter transactions (All/Transfer/Contract/Entry)"));
-                help_text.push(Line::from("  [r]            Start/stop recording transactions"));
+                help_text.push(Line::from(
+                    "  [f]            Filter transactions (All/Transfer/Contract/Entry)",
+                ));
+                help_text.push(Line::from(
+                    "  [r]            Start/stop recording transactions",
+                ));
                 help_text.push(Line::from("  [c]            Clear transaction history"));
             }
             Screen::Config => {
-                help_text.push(Line::from(Span::styled("Configuration Screen:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
-                help_text.push(Line::from("  [Tab]          Cycle tabs (Environment ↔ RPC Tokens ↔ SSL Certificates)"));
+                help_text.push(Line::from(Span::styled(
+                    "Configuration Screen:",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )));
+                help_text.push(Line::from(
+                    "  [Tab]          Cycle tabs (Environment ↔ RPC Tokens ↔ SSL Certificates)",
+                ));
                 help_text.push(Line::from(""));
-                help_text.push(Line::from(Span::styled("Environment Tab:", Style::default().fg(Color::Cyan))));
+                help_text.push(Line::from(Span::styled(
+                    "Environment Tab:",
+                    Style::default().fg(Color::Cyan),
+                )));
                 help_text.push(Line::from("  [e]            Edit selected config value"));
                 help_text.push(Line::from("  [Enter]        Save changes (when editing)"));
                 help_text.push(Line::from("  [Esc]          Cancel edit (when editing)"));
                 help_text.push(Line::from("  [/]            Search/filter config keys"));
                 help_text.push(Line::from(""));
-                help_text.push(Line::from(Span::styled("RPC Tokens Tab:", Style::default().fg(Color::Cyan))));
+                help_text.push(Line::from(Span::styled(
+                    "RPC Tokens Tab:",
+                    Style::default().fg(Color::Cyan),
+                )));
                 help_text.push(Line::from("  [Enter]        Test RPC endpoint"));
                 help_text.push(Line::from("  [g]            Generate all RPC tokens"));
                 help_text.push(Line::from(""));
-                help_text.push(Line::from(Span::styled("SSL Certificates Tab:", Style::default().fg(Color::Cyan))));
+                help_text.push(Line::from(Span::styled(
+                    "SSL Certificates Tab:",
+                    Style::default().fg(Color::Cyan),
+                )));
                 help_text.push(Line::from("  [c]            Check certificate status"));
-                help_text.push(Line::from("  [n]            Force renewal (restart Traefik)"));
+                help_text.push(Line::from(
+                    "  [n]            Force renewal (restart Traefik)",
+                ));
             }
             Screen::Storage => {
-                help_text.push(Line::from(Span::styled("Storage Screen:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+                help_text.push(Line::from(Span::styled(
+                    "Storage Screen:",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )));
                 help_text.push(Line::from("  [r]            Refresh storage analysis"));
                 help_text.push(Line::from("  [[]            Show last 7 days in chart"));
-                help_text.push(Line::from("  [t]            Show last 30 days in chart (Thirty)"));
-                help_text.push(Line::from("  []]            Show last 90 days in chart (default)"));
-                help_text.push(Line::from("  [D]            Toggle detailed measurements table (capital D)"));
+                help_text.push(Line::from(
+                    "  [t]            Show last 30 days in chart (Thirty)",
+                ));
+                help_text.push(Line::from(
+                    "  []]            Show last 90 days in chart (default)",
+                ));
+                help_text.push(Line::from(
+                    "  [D]            Toggle detailed measurements table (capital D)",
+                ));
                 help_text.push(Line::from("  [p]            Prune Docker build cache"));
-                help_text.push(Line::from("  [I]            Prune unused Docker images (capital I)"));
+                help_text.push(Line::from(
+                    "  [I]            Prune unused Docker images (capital I)",
+                ));
                 help_text.push(Line::from("  [↑↓]           Scroll Docker volumes list"));
                 help_text.push(Line::from(""));
-                help_text.push(Line::from(Span::styled("Chart Information:", Style::default().fg(Color::Cyan))));
+                help_text.push(Line::from(Span::styled(
+                    "Chart Information:",
+                    Style::default().fg(Color::Cyan),
+                )));
                 help_text.push(Line::from("  Cyan line:     Total disk used"));
                 help_text.push(Line::from("  Green line:    Docker volumes"));
                 help_text.push(Line::from("  Yellow line:   Docker images"));
                 help_text.push(Line::from(""));
-                help_text.push(Line::from("Note: Storage analysis requires sudo access for volume sizes"));
+                help_text.push(Line::from(
+                    "Note: Storage analysis requires sudo access for volume sizes",
+                ));
             }
             Screen::ServiceDetails(_) => {
-                help_text.push(Line::from(Span::styled("Service Details Screen:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+                help_text.push(Line::from(Span::styled(
+                    "Service Details Screen:",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )));
                 help_text.push(Line::from("  [Tab]          Next tab"));
                 help_text.push(Line::from("  [Shift+Tab]    Previous tab"));
                 help_text.push(Line::from("  [↑↓]           Scroll content"));
                 help_text.push(Line::from("  [r]            Refresh service details"));
                 help_text.push(Line::from("  [Esc] / [q]    Back to services list"));
                 help_text.push(Line::from(""));
-                help_text.push(Line::from(Span::styled("Available Tabs:", Style::default().fg(Color::Cyan))));
-                help_text.push(Line::from("  Overview       Basic info, resource usage, description"));
-                help_text.push(Line::from("  Metrics        Plugin metrics (DAA score, TPS, requests, etc.)"));
-                help_text.push(Line::from("  Configuration  Environment variables, command, entrypoint"));
+                help_text.push(Line::from(Span::styled(
+                    "Available Tabs:",
+                    Style::default().fg(Color::Cyan),
+                )));
+                help_text.push(Line::from(
+                    "  Overview       Basic info, resource usage, description",
+                ));
+                help_text.push(Line::from(
+                    "  Metrics        Plugin metrics (DAA score, TPS, requests, etc.)",
+                ));
+                help_text.push(Line::from(
+                    "  Configuration  Environment variables, command, entrypoint",
+                ));
                 help_text.push(Line::from("  Storage        Volume mounts and bind paths"));
-                help_text.push(Line::from("  Network        Networks, IP addresses, port mappings"));
-                help_text.push(Line::from("  Logs           Service logs (future enhancement)"));
+                help_text.push(Line::from(
+                    "  Network        Networks, IP addresses, port mappings",
+                ));
+                help_text.push(Line::from(
+                    "  Logs           Service logs (future enhancement)",
+                ));
             }
         }
 
         help_text.push(Line::from(""));
         help_text.push(Line::from(Span::styled(
             "Press [?] or [Esc] to close this help",
-            Style::default().fg(Color::Gray).add_modifier(Modifier::ITALIC),
+            Style::default()
+                .fg(Color::Gray)
+                .add_modifier(Modifier::ITALIC),
         )));
 
         // Clear the popup area with a semi-transparent effect
-        let clear_block = Block::default()
-            .style(Style::default().bg(Color::Black));
+        let clear_block = Block::default().style(Style::default().bg(Color::Black));
         frame.render_widget(clear_block, popup_area);
 
         // Render help content
@@ -2083,14 +2731,29 @@ impl Dashboard {
                 Block::default()
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Cyan))
-                    .title(Span::styled(" Help ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                    .title(Span::styled(
+                        " Help ",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )),
             )
             .wrap(Wrap { trim: true });
 
         frame.render_widget(help_widget, popup_area);
     }
 
-    fn render_send_dialog(&self, frame: &mut Frame, amount: &str, address: &str, active_field: usize, use_wallet_selector: bool, selected_wallet_index: usize, source_address: &str, wallets: &[crate::core::wallet::WalletInfo]) {
+    fn render_send_dialog(
+        &self,
+        frame: &mut Frame,
+        amount: &str,
+        address: &str,
+        active_field: usize,
+        use_wallet_selector: bool,
+        selected_wallet_index: usize,
+        source_address: &str,
+        wallets: &[crate::core::wallet::WalletInfo],
+    ) {
         use ratatui::layout::Rect;
 
         // Create centered dialog
@@ -2108,19 +2771,22 @@ impl Dashboard {
         };
 
         // Clear the dialog area
-        let clear_block = Block::default()
-            .style(Style::default().bg(Color::Black));
+        let clear_block = Block::default().style(Style::default().bg(Color::Black));
         frame.render_widget(clear_block, dialog_area);
 
         // Create dialog content
         let amount_field_style = if active_field == 0 {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::White)
         };
 
         let address_field_style = if active_field == 1 {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::White)
         };
@@ -2128,7 +2794,9 @@ impl Dashboard {
         let mut dialog_text = vec![
             Line::from(Span::styled(
                 "Send KAS Transaction",
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
             Line::from(vec![
@@ -2141,10 +2809,12 @@ impl Dashboard {
                 Span::styled(
                     if amount.is_empty() { "_" } else { amount },
                     if active_field == 0 {
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::UNDERLINED)
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::UNDERLINED)
                     } else {
                         Style::default().fg(Color::Gray)
-                    }
+                    },
                 ),
             ]),
             Line::from(""),
@@ -2154,7 +2824,12 @@ impl Dashboard {
         if use_wallet_selector {
             dialog_text.push(Line::from(vec![
                 Span::styled("Destination: ", address_field_style),
-                Span::styled("[Wallet Selector - Use ↑↓ to select]", Style::default().fg(Color::Cyan).add_modifier(Modifier::ITALIC)),
+                Span::styled(
+                    "[Wallet Selector - Use ↑↓ to select]",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::ITALIC),
+                ),
             ]));
             dialog_text.push(Line::from(""));
 
@@ -2170,33 +2845,38 @@ impl Dashboard {
                 dialog_text.push(Line::from(Span::styled(
                     wallet_text,
                     if is_selected {
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD)
                     } else {
                         Style::default().fg(Color::Gray)
-                    }
+                    },
                 )));
             }
         } else {
-            dialog_text.push(Line::from(vec![
-                Span::styled("Destination Address: ", address_field_style),
-            ]));
-            dialog_text.push(Line::from(vec![
-                Span::styled(
-                    if address.is_empty() { "_" } else { address },
-                    if active_field == 1 {
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::UNDERLINED)
-                    } else {
-                        Style::default().fg(Color::Gray)
-                    }
-                ),
-            ]));
+            dialog_text.push(Line::from(vec![Span::styled(
+                "Destination Address: ",
+                address_field_style,
+            )]));
+            dialog_text.push(Line::from(vec![Span::styled(
+                if address.is_empty() { "_" } else { address },
+                if active_field == 1 {
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::UNDERLINED)
+                } else {
+                    Style::default().fg(Color::Gray)
+                },
+            )]));
         }
 
         dialog_text.push(Line::from(""));
         dialog_text.push(Line::from(""));
         dialog_text.push(Line::from(Span::styled(
             "Tab: Switch | s: Toggle wallet/manual | Enter: Send | Esc: Cancel",
-            Style::default().fg(Color::Gray).add_modifier(Modifier::ITALIC),
+            Style::default()
+                .fg(Color::Gray)
+                .add_modifier(Modifier::ITALIC),
         )));
 
         let dialog_widget = Paragraph::new(dialog_text)
@@ -2204,30 +2884,56 @@ impl Dashboard {
                 Block::default()
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Cyan))
-                    .title(Span::styled(" Send Transaction ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                    .title(Span::styled(
+                        " Send Transaction ",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )),
             )
             .wrap(Wrap { trim: true });
 
         frame.render_widget(dialog_widget, dialog_area);
     }
 
-    fn render_wallet_detail(&self, frame: &mut Frame, wallet: &WalletInfo, addresses: &[(String, f64, f64)], utxos: &[crate::core::wallet::UtxoInfo], status_message: Option<&str>, scroll_offset: usize, tx_search_mode: bool, tx_search_buffer: &str, filtered_tx_indices: &[usize], selected_tx_index: Option<usize>) {
-        let currency = if self.network == "mainnet" { "KAS" } else { "TKAS" };
+    fn render_wallet_detail(
+        &self,
+        frame: &mut Frame,
+        wallet: &WalletInfo,
+        addresses: &[(String, f64, f64)],
+        utxos: &[crate::core::wallet::UtxoInfo],
+        status_message: Option<&str>,
+        scroll_offset: usize,
+        tx_search_mode: bool,
+        tx_search_buffer: &str,
+        filtered_tx_indices: &[usize],
+        selected_tx_index: Option<usize>,
+    ) {
+        let currency = if self.network == "mainnet" {
+            "KAS"
+        } else {
+            "TKAS"
+        };
+
+        let search_indicator = if tx_search_mode { " [SEARCH]" } else { "" };
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),   // Title
-                Constraint::Length(8),   // Wallet info section
-                Constraint::Length((addresses.len().min(5) + 3) as u16),  // Address balances (limited height)
-                Constraint::Min(0),      // Activity (UTXOs)
-                Constraint::Length(3),   // Footer
+                Constraint::Length(3),                                   // Title
+                Constraint::Length(8),                                   // Wallet info section
+                Constraint::Length((addresses.len().min(5) + 3) as u16), // Address balances (limited height)
+                Constraint::Min(0),                                      // Activity (UTXOs)
+                Constraint::Length(3),                                   // Footer
             ])
             .split(frame.size());
 
         // Title
         let title = Paragraph::new(vec![Line::from(vec![Span::styled(
-            format!("Wallet Details: Worker {}", wallet.worker_id),
+            format!(
+                "Wallet Details: Worker {}{}",
+                wallet.worker_id, search_indicator
+            ),
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
@@ -2271,20 +2977,31 @@ impl Dashboard {
             Line::from(vec![
                 Span::styled("Status: ", Style::default().fg(Color::White)),
                 Span::styled(
-                    if wallet.container_running { "Running" } else { "Stopped" },
-                    Style::default().fg(status_color).add_modifier(Modifier::BOLD)
+                    if wallet.container_running {
+                        "Running"
+                    } else {
+                        "Stopped"
+                    },
+                    Style::default()
+                        .fg(status_color)
+                        .add_modifier(Modifier::BOLD),
                 ),
             ]),
             Line::from(vec![
                 Span::styled("Address: ", Style::default().fg(Color::White)),
                 Span::styled(
                     wallet.address.as_deref().unwrap_or("Not generated"),
-                    Style::default().fg(Color::Cyan)
+                    Style::default().fg(Color::Cyan),
                 ),
             ]),
             Line::from(vec![
                 Span::styled("Total Balance: ", Style::default().fg(Color::White)),
-                Span::styled(balance_text, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    balance_text,
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
             ]),
             Line::from(vec![
                 Span::styled("Initial Balance: ", Style::default().fg(Color::White)),
@@ -2292,46 +3009,65 @@ impl Dashboard {
             ]),
             Line::from(vec![
                 Span::styled("Fees Spent: ", Style::default().fg(Color::White)),
-                Span::styled(fees_text, Style::default().fg(fees_color).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    fees_text,
+                    Style::default().fg(fees_color).add_modifier(Modifier::BOLD),
+                ),
             ]),
         ];
 
-        let info = Paragraph::new(info_text)
-            .block(Block::default().borders(Borders::ALL).title("Wallet Information"));
+        let info = Paragraph::new(info_text).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Wallet Information"),
+        );
 
         frame.render_widget(info, chunks[1]);
 
         // Address balances section
         if addresses.is_empty() {
-            let empty_text = vec![
-                Line::from(Span::styled(
-                    "No address balances available",
-                    Style::default().fg(Color::Yellow),
-                )),
-            ];
+            let empty_text = vec![Line::from(Span::styled(
+                "No address balances available",
+                Style::default().fg(Color::Yellow),
+            ))];
             let empty_widget = Paragraph::new(empty_text)
-                .block(Block::default().borders(Borders::ALL).title("Address Balances"))
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Address Balances"),
+                )
                 .alignment(Alignment::Center);
             frame.render_widget(empty_widget, chunks[2]);
         } else {
             let header = Row::new(vec!["Address", "Available", "Pending"])
-                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                .style(
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )
                 .bottom_margin(1);
 
             // Show all addresses (no limit)
-            let rows: Vec<Row> = addresses.iter().map(|(address, available, pending)| {
-                Row::new(vec![
-                    Cell::from(address.clone()),
-                    Cell::from(Span::styled(
-                        format!("{:.8} {}", available, currency),
-                        Style::default().fg(Color::Green)
-                    )),
-                    Cell::from(Span::styled(
-                        format!("{:.8} {}", pending, currency),
-                        if *pending > 0.0 { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) }
-                    )),
-                ])
-            }).collect();
+            let rows: Vec<Row> = addresses
+                .iter()
+                .map(|(address, available, pending)| {
+                    Row::new(vec![
+                        Cell::from(address.clone()),
+                        Cell::from(Span::styled(
+                            format!("{:.8} {}", available, currency),
+                            Style::default().fg(Color::Green),
+                        )),
+                        Cell::from(Span::styled(
+                            format!("{:.8} {}", pending, currency),
+                            if *pending > 0.0 {
+                                Style::default().fg(Color::Yellow)
+                            } else {
+                                Style::default().fg(Color::Gray)
+                            },
+                        )),
+                    ])
+                })
+                .collect();
 
             let table = Table::new(
                 rows,
@@ -2342,7 +3078,11 @@ impl Dashboard {
                 ],
             )
             .header(header)
-            .block(Block::default().borders(Borders::ALL).title(format!("Address Balances ({} addresses)", addresses.len())));
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(format!("Address Balances ({} addresses)", addresses.len())),
+            );
 
             frame.render_widget(table, chunks[2]);
         }
@@ -2362,27 +3102,37 @@ impl Dashboard {
                 )),
             ];
             let empty_widget = Paragraph::new(empty_text)
-                .block(Block::default().borders(Borders::ALL).title("Activity / Transaction History"))
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Activity / Transaction History"),
+                )
                 .alignment(Alignment::Center);
             frame.render_widget(empty_widget, chunks[3]);
         } else {
             // Determine which transactions to show
-            let (display_utxos, total_count): (Vec<&crate::core::wallet::UtxoInfo>, usize) = if !filtered_tx_indices.is_empty() {
-                // Show filtered transactions
-                let filtered: Vec<&crate::core::wallet::UtxoInfo> = filtered_tx_indices
-                    .iter()
-                    .filter_map(|&idx| utxos.get(idx))
-                    .collect();
-                let count = filtered.len();
-                (filtered, count)
-            } else {
-                // Show all transactions
-                (utxos.iter().collect(), utxos.len())
-            };
+            let (display_utxos, total_count): (Vec<&crate::core::wallet::UtxoInfo>, usize) =
+                if !filtered_tx_indices.is_empty() {
+                    // Show filtered transactions
+                    let filtered: Vec<&crate::core::wallet::UtxoInfo> = filtered_tx_indices
+                        .iter()
+                        .filter_map(|&idx| utxos.get(idx))
+                        .collect();
+                    let count = filtered.len();
+                    (filtered, count)
+                } else {
+                    // Show all transactions
+                    (utxos.iter().collect(), utxos.len())
+                };
 
             // Build header with search indicator
             let title = if !filtered_tx_indices.is_empty() {
-                format!("Transaction History ({} of {} UTXOs - filtered by '{}')", display_utxos.len(), utxos.len(), tx_search_buffer)
+                format!(
+                    "Transaction History ({} of {} UTXOs - filtered by '{}')",
+                    display_utxos.len(),
+                    utxos.len(),
+                    tx_search_buffer
+                )
             } else {
                 format!("Transaction History ({} UTXOs)", total_count)
             };
@@ -2390,15 +3140,25 @@ impl Dashboard {
             let mut tx_lines = vec![
                 Line::from(Span::styled(
                     title,
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
                 )),
                 Line::from(""),
             ];
 
             for (display_idx, utxo) in display_utxos.iter().enumerate() {
                 let is_selected = selected_tx_index == Some(display_idx);
-                let utxo_type = if utxo.is_coinbase { "Coinbase" } else { "Transfer" };
-                let type_color = if utxo.is_coinbase { Color::Yellow } else { Color::Cyan };
+                let utxo_type = if utxo.is_coinbase {
+                    "Coinbase"
+                } else {
+                    "Transfer"
+                };
+                let type_color = if utxo.is_coinbase {
+                    Color::Yellow
+                } else {
+                    Color::Cyan
+                };
 
                 // Format timestamp
                 let timestamp_str = if utxo.timestamp_ms > 0 {
@@ -2418,35 +3178,58 @@ impl Dashboard {
 
                 // Transaction header
                 tx_lines.push(Line::from(vec![
-                    Span::styled(format!("{}[{}] ", prefix, display_idx + 1), Style::default().fg(Color::Gray)),
-                    Span::styled(utxo_type, Style::default().fg(type_color).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        format!("{}[{}] ", prefix, display_idx + 1),
+                        Style::default().fg(Color::Gray),
+                    ),
+                    Span::styled(
+                        utxo_type,
+                        Style::default().fg(type_color).add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(
                         format!(" - {:.8} {}", utxo.amount_kas, currency),
-                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
                     ),
                 ]));
 
                 // Date/Time
                 tx_lines.push(Line::from(vec![
-                    Span::styled(format!("{}  Date: ", prefix), Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format!("{}  Date: ", prefix),
+                        Style::default().fg(Color::Gray),
+                    ),
                     Span::styled(timestamp_str, Style::default().fg(Color::Yellow)),
                 ]));
 
                 // Transaction ID (full)
                 tx_lines.push(Line::from(vec![
-                    Span::styled(format!("{}  TxID: ", prefix), Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format!("{}  TxID: ", prefix),
+                        Style::default().fg(Color::Gray),
+                    ),
                     Span::styled(&utxo.tx_id, Style::default().fg(Color::Cyan)),
                 ]));
 
                 // Block DAA Score
                 tx_lines.push(Line::from(vec![
-                    Span::styled(format!("{}  Block DAA: ", prefix), Style::default().fg(Color::Gray)),
-                    Span::styled(format!("{}", utxo.block_daa_score), Style::default().fg(Color::White)),
+                    Span::styled(
+                        format!("{}  Block DAA: ", prefix),
+                        Style::default().fg(Color::Gray),
+                    ),
+                    Span::styled(
+                        format!("{}", utxo.block_daa_score),
+                        Style::default().fg(Color::White),
+                    ),
                 ]));
 
                 // Address
                 tx_lines.push(Line::from(vec![
-                    Span::styled(format!("{}  Address: ", prefix), Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format!("{}  Address: ", prefix),
+                        Style::default().fg(Color::Gray),
+                    ),
                     Span::styled(&utxo.address, Style::default().fg(Color::Magenta)),
                 ]));
 
@@ -2461,7 +3244,10 @@ impl Dashboard {
             };
 
             let tx_paragraph = Paragraph::new(tx_lines)
-                .block(Block::default().borders(Borders::ALL).title(format!("Activity / Transaction History{}", scroll_indicator)))
+                .block(Block::default().borders(Borders::ALL).title(format!(
+                    "Activity / Transaction History{}",
+                    scroll_indicator
+                )))
                 .wrap(ratatui::widgets::Wrap { trim: false })
                 .scroll((scroll_offset as u16, 0));
 
@@ -2478,7 +3264,9 @@ impl Dashboard {
         let footer = Paragraph::new(footer_text)
             .alignment(Alignment::Center)
             .style(if status_message.is_some() {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             })
@@ -2487,8 +3275,16 @@ impl Dashboard {
         frame.render_widget(footer, chunks[4]);
     }
 
-    fn render_transaction_detail_modal(&self, frame: &mut Frame, utxo: &crate::core::wallet::UtxoInfo) {
-        let currency = if self.network == "mainnet" { "KAS" } else { "TKAS" };
+    fn render_transaction_detail_modal(
+        &self,
+        frame: &mut Frame,
+        utxo: &crate::core::wallet::UtxoInfo,
+    ) {
+        let currency = if self.network == "mainnet" {
+            "KAS"
+        } else {
+            "TKAS"
+        };
 
         // Create centered modal area (70% width, 80% height)
         let area = frame.size();
@@ -2509,8 +3305,7 @@ impl Dashboard {
         frame.render_widget(Clear, frame.size());
 
         // Add dark background
-        let overlay = Block::default()
-            .style(Style::default().bg(Color::Black));
+        let overlay = Block::default().style(Style::default().bg(Color::Black));
         frame.render_widget(overlay, frame.size());
 
         // Format timestamp and relative time
@@ -2543,75 +3338,149 @@ impl Dashboard {
             ("Unknown".to_string(), "Unknown".to_string())
         };
 
-        let utxo_type = if utxo.is_coinbase { "Coinbase Reward" } else { "Transfer" };
+        let utxo_type = if utxo.is_coinbase {
+            "Coinbase Reward"
+        } else {
+            "Transfer"
+        };
         let amount_sompi = (utxo.amount_kas * 100_000_000.0) as u64;
 
         // Build modal content with more details
         let mut lines = vec![
             Line::from(""),
+            Line::from(vec![Span::styled(
+                "━━━ TRANSACTION INFORMATION ━━━",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )]),
+            Line::from(""),
             Line::from(vec![
-                Span::styled("━━━ TRANSACTION INFORMATION ━━━", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "Type: ",
+                    Style::default()
+                        .fg(Color::Gray)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    utxo_type,
+                    Style::default()
+                        .fg(if utxo.is_coinbase {
+                            Color::Yellow
+                        } else {
+                            Color::Cyan
+                        })
+                        .add_modifier(Modifier::BOLD),
+                ),
             ]),
             Line::from(""),
             Line::from(vec![
-                Span::styled("Type: ", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
-                Span::styled(utxo_type, Style::default().fg(if utxo.is_coinbase { Color::Yellow } else { Color::Cyan }).add_modifier(Modifier::BOLD)),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("Amount: ", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "Amount: ",
+                    Style::default()
+                        .fg(Color::Gray)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(
                     format!("{:.8} {}", utxo.amount_kas, currency),
-                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
                 ),
             ]),
             Line::from(vec![
                 Span::styled("        ", Style::default()),
-                Span::styled(format!("({} sompi)", amount_sompi), Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("({} sompi)", amount_sompi),
+                    Style::default().fg(Color::DarkGray),
+                ),
             ]),
             Line::from(""),
-            Line::from(vec![
-                Span::styled("━━━ TIMING ━━━", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            ]),
+            Line::from(vec![Span::styled(
+                "━━━ TIMING ━━━",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )]),
             Line::from(""),
             Line::from(vec![
-                Span::styled("Date/Time: ", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "Date/Time: ",
+                    Style::default()
+                        .fg(Color::Gray)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(&timestamp_str, Style::default().fg(Color::Yellow)),
             ]),
             Line::from(vec![
-                Span::styled("Age:       ", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "Age:       ",
+                    Style::default()
+                        .fg(Color::Gray)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(relative_time, Style::default().fg(Color::Yellow)),
             ]),
             Line::from(""),
-            Line::from(vec![
-                Span::styled("━━━ BLOCKCHAIN DATA ━━━", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            ]),
+            Line::from(vec![Span::styled(
+                "━━━ BLOCKCHAIN DATA ━━━",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )]),
             Line::from(""),
-            Line::from(Span::styled("Transaction ID:", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(
+                "Transaction ID:",
+                Style::default()
+                    .fg(Color::Gray)
+                    .add_modifier(Modifier::BOLD),
+            )),
             Line::from(Span::styled(&utxo.tx_id, Style::default().fg(Color::Cyan))),
             Line::from(""),
             Line::from(vec![
-                Span::styled("Block DAA Score: ", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("{}", utxo.block_daa_score), Style::default().fg(Color::White)),
+                Span::styled(
+                    "Block DAA Score: ",
+                    Style::default()
+                        .fg(Color::Gray)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("{}", utxo.block_daa_score),
+                    Style::default().fg(Color::White),
+                ),
             ]),
             Line::from(""),
-            Line::from(Span::styled("Destination Address (Your Wallet):", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD))),
-            Line::from(Span::styled(&utxo.address, Style::default().fg(Color::Magenta))),
+            Line::from(Span::styled(
+                "Destination Address (Your Wallet):",
+                Style::default()
+                    .fg(Color::Gray)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled(
+                &utxo.address,
+                Style::default().fg(Color::Magenta),
+            )),
             Line::from(""),
         ];
 
         // Add source addresses for non-coinbase transactions
         if !utxo.is_coinbase {
             lines.push(Line::from(""));
-            lines.push(Line::from(vec![
-                Span::styled("━━━ TRANSACTION SOURCE ━━━", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            ]));
+            lines.push(Line::from(vec![Span::styled(
+                "━━━ TRANSACTION SOURCE ━━━",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )]));
             lines.push(Line::from(""));
 
             if !utxo.source_addresses.is_empty() {
-                lines.push(Line::from(vec![
-                    Span::styled("Source Address(es):", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
-                ]));
+                lines.push(Line::from(vec![Span::styled(
+                    "Source Address(es):",
+                    Style::default()
+                        .fg(Color::Gray)
+                        .add_modifier(Modifier::BOLD),
+                )]));
                 for (idx, source_addr) in utxo.source_addresses.iter().enumerate() {
                     let prefix = if utxo.source_addresses.len() > 1 {
                         format!("  [{}] ", idx + 1)
@@ -2625,32 +3494,53 @@ impl Dashboard {
                 }
             } else {
                 lines.push(Line::from(vec![
-                    Span::styled("Source Address: ", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
-                    Span::styled("Not available", Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)),
+                    Span::styled(
+                        "Source Address: ",
+                        Style::default()
+                            .fg(Color::Gray)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        "Not available",
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::ITALIC),
+                    ),
                 ]));
-                lines.push(Line::from(vec![
-                    Span::styled("  (Transaction confirmed in block, source data archived)", Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)),
-                ]));
+                lines.push(Line::from(vec![Span::styled(
+                    "  (Transaction confirmed in block, source data archived)",
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::ITALIC),
+                )]));
             }
         }
 
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-                "Press [Enter] or [Esc] to close",
-                Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)
-            )));
+            "Press [Enter] or [Esc] to close",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )));
 
         let modal_widget = Paragraph::new(lines)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                    .border_style(
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    )
                     .border_type(ratatui::widgets::BorderType::Double)
                     .title(Span::styled(
                         " 📋 Transaction Details ",
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
                     ))
-                    .style(Style::default().bg(Color::Black))
+                    .style(Style::default().bg(Color::Black)),
             )
             .alignment(Alignment::Left)
             .wrap(ratatui::widgets::Wrap { trim: false });

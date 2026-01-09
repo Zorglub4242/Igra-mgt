@@ -11,12 +11,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match WalletClient::connect(endpoint.clone()).await {
             Ok(mut client) => {
                 // Call NewAddress to generate an address if none exists
-                match client.new_address(tonic::Request::new(NewAddressRequest {})).await {
+                match client
+                    .new_address(tonic::Request::new(NewAddressRequest {}))
+                    .await
+                {
                     Ok(response) => {
                         let address = response.into_inner().address;
                         println!("W{}_WALLET_TO_ADDRESS={}", worker_id, address);
                     }
-                    Err(e) => eprintln!("Error getting new address for worker {}: {}", worker_id, e),
+                    Err(e) => {
+                        eprintln!("Error getting new address for worker {}: {}", worker_id, e)
+                    }
                 }
             }
             Err(e) => eprintln!("Error connecting to worker {}: {}", worker_id, e),

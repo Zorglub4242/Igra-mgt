@@ -1,20 +1,19 @@
 /// Docker and Docker Compose integration
 ///
 /// Manages Docker containers, images, and docker-compose operations
-
 use anyhow::{anyhow, Context, Result};
-use bollard::Docker;
 use bollard::container::{ListContainersOptions, LogsOptions, StatsOptions};
 use bollard::models::{ContainerSummary, MountPointTypeEnum};
+use bollard::Docker;
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
-use crate::utils::{get_project_root, ContainerState};
 use crate::core::log_parser::{parse_service_logs, ServiceMetrics};
 use crate::core::metrics::PluginRegistry;
+use crate::utils::{get_project_root, ContainerState};
 
 #[derive(Debug, Clone)]
 pub struct ContainerInfo {
@@ -27,8 +26,8 @@ pub struct ContainerInfo {
     pub created: i64,
     pub ports: Vec<String>,
     pub metrics: ServiceMetrics,
-    pub project_name: Option<String>,  // Docker Compose project name
-    pub depends_on: Vec<String>,       // Service dependencies from docker-compose
+    pub project_name: Option<String>, // Docker Compose project name
+    pub depends_on: Vec<String>,      // Service dependencies from docker-compose
 }
 
 #[derive(Debug, Clone)]
@@ -38,8 +37,8 @@ pub struct ContainerStats {
     pub memory_limit: u64,
     pub network_rx: u64,
     pub network_tx: u64,
-    pub container_size: u64,    // Container filesystem size in bytes
-    pub volume_size: u64,       // Total volume data size in bytes
+    pub container_size: u64, // Container filesystem size in bytes
+    pub volume_size: u64,    // Total volume data size in bytes
 }
 
 /// Service configuration from docker-compose.yml
@@ -78,7 +77,7 @@ pub struct ServiceConfigComparison {
     pub service_name: String,
     pub yaml_config: ComposeServiceConfig,
     pub running_config: Option<RunningServiceConfig>,
-    pub config_drift: Vec<String>,  // Human-readable drift descriptions
+    pub config_drift: Vec<String>, // Human-readable drift descriptions
 }
 
 /// Volume mount information
@@ -238,7 +237,7 @@ impl DockerManager {
         // Load metric plugins from standard system locations
         let metrics_registry = Arc::new(
             PluginRegistry::load_from_standard_locations()
-                .context("Failed to load metric plugins")?
+                .context("Failed to load metric plugins")?,
         );
 
         Ok(Self {
@@ -277,7 +276,10 @@ impl DockerManager {
         for summary in containers {
             if let Some(names) = &summary.names {
                 // Docker names start with '/', so match both "/name" and "name"
-                if names.iter().any(|n| n == name || n == &format!("/{}", name)) {
+                if names
+                    .iter()
+                    .any(|n| n == name || n == &format!("/{}", name))
+                {
                     return Ok(summary);
                 }
             }
@@ -302,7 +304,10 @@ impl DockerManager {
             let mut filters = HashMap::new();
             filters.insert(
                 "label".to_string(),
-                vec![format!("com.docker.compose.project=igra-orchestra-{}", self.network)],
+                vec![format!(
+                    "com.docker.compose.project=igra-orchestra-{}",
+                    self.network
+                )],
             );
 
             Some(ListContainersOptions {
@@ -334,7 +339,10 @@ impl DockerManager {
             let name = name.clone();
             async move {
                 // Fetch last 20 lines - enough for parsing, faster than 50
-                self.get_logs(&name, Some(20)).await.ok().map(|logs| (name.clone(), logs))
+                self.get_logs(&name, Some(20))
+                    .await
+                    .ok()
+                    .map(|logs| (name.clone(), logs))
             }
         });
 
@@ -346,13 +354,18 @@ impl DockerManager {
             let mut metrics = parse_service_logs(&name, &logs);
 
             // Get container image to detect execution client type
-            let container_image = container_infos.iter()
+            let container_image = container_infos
+                .iter()
                 .find(|c| c.name == name)
                 .map(|c| c.image.clone())
                 .unwrap_or_default();
 
             // Try to fetch plugin-based metrics
-            if let Ok((primary, secondary)) = self.metrics_registry.get_condensed_metrics(&name, &container_image).await {
+            if let Ok((primary, secondary)) = self
+                .metrics_registry
+                .get_condensed_metrics(&name, &container_image)
+                .await
+            {
                 if let Some(primary_value) = primary {
                     metrics.primary_metric = Some(primary_value);
                     metrics.is_healthy = true;
@@ -402,8 +415,8 @@ impl DockerManager {
 
         use futures::StreamExt;
         if let Some(Ok(stats)) = stats_stream.next().await {
-            let cpu_delta = stats.cpu_stats.cpu_usage.total_usage
-                - stats.precpu_stats.cpu_usage.total_usage;
+            let cpu_delta =
+                stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
             let system_delta = stats.cpu_stats.system_cpu_usage.unwrap_or(0)
                 - stats.precpu_stats.system_cpu_usage.unwrap_or(0);
             let num_cpus = stats.cpu_stats.online_cpus.unwrap_or(1) as u64;
@@ -422,15 +435,24 @@ impl DockerManager {
                 .networks
                 .as_ref()
                 .map(|networks| {
-                    networks.values().fold((0u64, 0u64), |(rx_sum, tx_sum), net| {
-                        (rx_sum + net.rx_bytes, tx_sum + net.tx_bytes)
-                    })
+                    networks
+                        .values()
+                        .fold((0u64, 0u64), |(rx_sum, tx_sum), net| {
+                            (rx_sum + net.rx_bytes, tx_sum + net.tx_bytes)
+                        })
                 })
                 .unwrap_or((0, 0));
 
             // Get container virtual size (image + container layers)
             let container_size = if let Ok(output) = tokio::process::Command::new("docker")
-                .args(&["ps", "--size", "--filter", &format!("id={}", container_id), "--format", "{{.Size}}"])
+                .args(&[
+                    "ps",
+                    "--size",
+                    "--filter",
+                    &format!("id={}", container_id),
+                    "--format",
+                    "{{.Size}}",
+                ])
                 .output()
                 .await
             {
@@ -448,7 +470,10 @@ impl DockerManager {
             };
 
             // Get actual volume sizes by inspecting mounts and querying docker system df
-            let volume_size = self.get_container_volume_size(&container_id).await.unwrap_or(0);
+            let volume_size = self
+                .get_container_volume_size(&container_id)
+                .await
+                .unwrap_or(0);
 
             Ok(Some(ContainerStats {
                 cpu_percent,
@@ -587,7 +612,8 @@ impl DockerManager {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let output = cmd.output()
+        let output = cmd
+            .output()
             .context("Failed to execute docker compose command")?;
 
         if !output.status.success() {
@@ -621,10 +647,13 @@ impl DockerManager {
     /// Stop specific service (uses Docker API directly for cross-project support)
     pub async fn stop_service(&self, service: &str) -> Result<()> {
         // Find container by name
-        let container = self.find_container_by_name(service).await
+        let container = self
+            .find_container_by_name(service)
+            .await
             .with_context(|| format!("Container '{}' not found", service))?;
 
-        let container_id = container.id
+        let container_id = container
+            .id
             .ok_or_else(|| anyhow!("Container '{}' has no ID", service))?;
 
         // Stop using Docker API (works for any container)
@@ -639,10 +668,13 @@ impl DockerManager {
     /// Start specific service (uses Docker API directly for cross-project support)
     pub async fn start_service(&self, service: &str) -> Result<()> {
         // Find container by name
-        let container = self.find_container_by_name(service).await
+        let container = self
+            .find_container_by_name(service)
+            .await
             .with_context(|| format!("Container '{}' not found", service))?;
 
-        let container_id = container.id
+        let container_id = container
+            .id
             .ok_or_else(|| anyhow!("Container '{}' has no ID", service))?;
 
         // Start using Docker API (works for any container)
@@ -657,10 +689,13 @@ impl DockerManager {
     /// Restart specific service (uses Docker API directly for cross-project support)
     pub async fn restart_service(&self, service: &str) -> Result<()> {
         // Find container by name
-        let container = self.find_container_by_name(service).await
+        let container = self
+            .find_container_by_name(service)
+            .await
             .with_context(|| format!("Container '{}' not found", service))?;
 
-        let container_id = container.id
+        let container_id = container
+            .id
             .ok_or_else(|| anyhow!("Container '{}' has no ID", service))?;
 
         // Restart using Docker API (works for any container)
@@ -675,16 +710,21 @@ impl DockerManager {
     /// Get logs for a service (uses Docker API directly for cross-project support)
     pub async fn get_logs(&self, service: &str, tail: Option<usize>) -> Result<String> {
         // Find container by name
-        let container = self.find_container_by_name(service).await
+        let container = self
+            .find_container_by_name(service)
+            .await
             .with_context(|| format!("Container '{}' not found", service))?;
 
-        let container_id = container.id
+        let container_id = container
+            .id
             .ok_or_else(|| anyhow!("Container '{}' has no ID", service))?;
 
         let options = LogsOptions {
             stdout: true,
             stderr: true,
-            tail: tail.map(|n| n.to_string()).unwrap_or_else(|| "all".to_string()),
+            tail: tail
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "all".to_string()),
             ..Default::default()
         };
 
@@ -709,10 +749,13 @@ impl DockerManager {
     /// Get logs since a specific timestamp (UNIX timestamp)
     pub async fn get_logs_since(&self, service: &str, since: i64) -> Result<String> {
         // Find container by name
-        let container = self.find_container_by_name(service).await
+        let container = self
+            .find_container_by_name(service)
+            .await
             .with_context(|| format!("Container '{}' not found", service))?;
 
-        let container_id = container.id
+        let container_id = container
+            .id
             .ok_or_else(|| anyhow!("Container '{}' has no ID", service))?;
 
         let options = LogsOptions {
@@ -768,7 +811,9 @@ impl DockerManager {
         let mut profiles = Vec::new();
 
         // Determine profiles based on running services
-        let has_kaspad = containers.iter().any(|c| c.name == "kaspad" && c.state.is_running());
+        let has_kaspad = containers
+            .iter()
+            .any(|c| c.name == "kaspad" && c.state.is_running());
         let has_backend = containers.iter().any(|c| {
             ["execution-layer", "block-builder", "viaduct"].contains(&c.name.as_str())
                 && c.state.is_running()
@@ -823,7 +868,10 @@ impl DockerManager {
             .map(|n| n.trim_start_matches('/').to_string())
             .unwrap_or_else(|| "unknown".to_string());
 
-        let status = summary.status.clone().unwrap_or_else(|| "unknown".to_string());
+        let status = summary
+            .status
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
         let state = summary
             .state
             .as_ref()
@@ -831,21 +879,18 @@ impl DockerManager {
             .unwrap_or("unknown")
             .into();
 
-        let health = summary
-            .status
-            .as_ref()
-            .and_then(|s| {
-                // Check unhealthy BEFORE healthy (unhealthy contains "healthy" as substring)
-                if s.contains("unhealthy") {
-                    Some("unhealthy".to_string())
-                } else if s.contains("starting") {
-                    Some("starting".to_string())
-                } else if s.contains("healthy") {
-                    Some("healthy".to_string())
-                } else {
-                    None
-                }
-            });
+        let health = summary.status.as_ref().and_then(|s| {
+            // Check unhealthy BEFORE healthy (unhealthy contains "healthy" as substring)
+            if s.contains("unhealthy") {
+                Some("unhealthy".to_string())
+            } else if s.contains("starting") {
+                Some("starting".to_string())
+            } else if s.contains("healthy") {
+                Some("healthy".to_string())
+            } else {
+                None
+            }
+        });
 
         let ports = summary
             .ports
@@ -856,19 +901,17 @@ impl DockerManager {
                 ports
                     .iter()
                     .filter_map(|p| {
-                        p.public_port.map(|pub_port| {
-                            // Create a unique key to deduplicate (port mapping, not IP)
-                            let key = format!("{}:{}", pub_port, p.private_port);
-                            if seen.insert(key) {
-                                Some(format!(
-                                    "0.0.0.0:{}->{}",
-                                    pub_port,
-                                    p.private_port
-                                ))
-                            } else {
-                                None
-                            }
-                        }).flatten()
+                        p.public_port
+                            .map(|pub_port| {
+                                // Create a unique key to deduplicate (port mapping, not IP)
+                                let key = format!("{}:{}", pub_port, p.private_port);
+                                if seen.insert(key) {
+                                    Some(format!("0.0.0.0:{}->{}", pub_port, p.private_port))
+                                } else {
+                                    None
+                                }
+                            })
+                            .flatten()
                     })
                     .collect()
             })
@@ -921,8 +964,8 @@ impl DockerManager {
         let compose_content = std::fs::read_to_string(&self.compose_file)
             .context("Failed to read docker-compose.yml")?;
 
-        let yaml: Value = serde_yaml::from_str(&compose_content)
-            .context("Failed to parse docker-compose.yml")?;
+        let yaml: Value =
+            serde_yaml::from_str(&compose_content).context("Failed to parse docker-compose.yml")?;
 
         let mut services = HashMap::new();
 
@@ -931,7 +974,8 @@ impl DockerManager {
             for (service_name, service_config) in services_map {
                 let name = service_name.as_str().unwrap_or("unknown").to_string();
 
-                let image = service_config.get("image")
+                let image = service_config
+                    .get("image")
                     .and_then(|i| i.as_str())
                     .map(|s| s.to_string());
 
@@ -956,7 +1000,8 @@ impl DockerManager {
                 }
 
                 // Parse volumes
-                let volumes = service_config.get("volumes")
+                let volumes = service_config
+                    .get("volumes")
                     .and_then(|v| v.as_sequence())
                     .map(|seq| {
                         seq.iter()
@@ -966,7 +1011,8 @@ impl DockerManager {
                     .unwrap_or_default();
 
                 // Parse ports
-                let ports = service_config.get("ports")
+                let ports = service_config
+                    .get("ports")
                     .and_then(|p| p.as_sequence())
                     .map(|seq| {
                         seq.iter()
@@ -984,7 +1030,8 @@ impl DockerManager {
                     .unwrap_or_default();
 
                 // Parse networks
-                let networks = service_config.get("networks")
+                let networks = service_config
+                    .get("networks")
                     .and_then(|n| n.as_sequence())
                     .map(|seq| {
                         seq.iter()
@@ -994,7 +1041,8 @@ impl DockerManager {
                     .unwrap_or_default();
 
                 // Parse profiles
-                let profiles = service_config.get("profiles")
+                let profiles = service_config
+                    .get("profiles")
                     .and_then(|p| p.as_sequence())
                     .map(|seq| {
                         seq.iter()
@@ -1004,22 +1052,26 @@ impl DockerManager {
                     .unwrap_or_default();
 
                 // Parse restart policy
-                let restart = service_config.get("restart")
+                let restart = service_config
+                    .get("restart")
                     .and_then(|r| r.as_str())
                     .map(|s| s.to_string());
 
                 // Parse command
-                let command = service_config.get("command")
+                let command = service_config
+                    .get("command")
                     .and_then(|c| c.as_str())
                     .map(|s| s.to_string());
 
                 // Parse entrypoint
-                let entrypoint = service_config.get("entrypoint")
+                let entrypoint = service_config
+                    .get("entrypoint")
                     .and_then(|e| e.as_str())
                     .map(|s| s.to_string());
 
                 // Parse depends_on
-                let depends_on = service_config.get("depends_on")
+                let depends_on = service_config
+                    .get("depends_on")
                     .and_then(|d| d.as_sequence())
                     .map(|seq| {
                         seq.iter()
@@ -1028,18 +1080,21 @@ impl DockerManager {
                     })
                     .unwrap_or_default();
 
-                services.insert(name.clone(), ComposeServiceConfig {
-                    image,
-                    environment,
-                    volumes,
-                    ports,
-                    networks,
-                    profiles,
-                    restart,
-                    command,
-                    entrypoint,
-                    depends_on,
-                });
+                services.insert(
+                    name.clone(),
+                    ComposeServiceConfig {
+                        image,
+                        environment,
+                        volumes,
+                        ports,
+                        networks,
+                        profiles,
+                        restart,
+                        command,
+                        entrypoint,
+                        depends_on,
+                    },
+                );
             }
         }
 
@@ -1047,10 +1102,14 @@ impl DockerManager {
     }
 
     /// Get service configuration comparison (YAML + Running state)
-    pub async fn get_service_config_comparison(&self, service_name: &str) -> Result<ServiceConfigComparison> {
+    pub async fn get_service_config_comparison(
+        &self,
+        service_name: &str,
+    ) -> Result<ServiceConfigComparison> {
         // 1. Parse YAML config
         let compose_configs = self.parse_compose_file()?;
-        let yaml_config = compose_configs.get(service_name)
+        let yaml_config = compose_configs
+            .get(service_name)
             .ok_or_else(|| anyhow!("Service '{}' not found in docker-compose.yml", service_name))?
             .clone();
 
@@ -1058,24 +1117,28 @@ impl DockerManager {
         let running_config = match self.docker.inspect_container(service_name, None).await {
             Ok(inspect) => {
                 // Extract image
-                let image = inspect.config
+                let image = inspect
+                    .config
                     .as_ref()
                     .and_then(|c| c.image.as_ref())
                     .map(|s| s.clone())
                     .unwrap_or_default();
 
                 // Extract and filter environment variables
-                let env_vars = inspect.config
+                let env_vars = inspect
+                    .config
                     .as_ref()
                     .and_then(|c| c.env.as_ref())
                     .map(|env| Self::filter_sensitive_env(env.clone()))
                     .unwrap_or_default();
 
                 // Extract volumes
-                let volumes = inspect.mounts
+                let volumes = inspect
+                    .mounts
                     .as_ref()
                     .map(|mounts| {
-                        mounts.iter()
+                        mounts
+                            .iter()
                             .filter_map(|m| {
                                 if let (Some(src), Some(dst)) = (&m.source, &m.destination) {
                                     Some(format!("{} -> {}", src, dst))
@@ -1088,17 +1151,25 @@ impl DockerManager {
                     .unwrap_or_default();
 
                 // Extract ports
-                let ports = inspect.network_settings
+                let ports = inspect
+                    .network_settings
                     .as_ref()
                     .and_then(|ns| ns.ports.as_ref())
                     .map(|ports_map| {
-                        ports_map.iter()
+                        ports_map
+                            .iter()
                             .filter_map(|(container_port, host_bindings)| {
                                 if let Some(bindings) = host_bindings {
-                                    bindings.iter()
+                                    bindings
+                                        .iter()
                                         .filter_map(|binding| {
-                                            if let (Some(ip), Some(port)) = (&binding.host_ip, &binding.host_port) {
-                                                Some(format!("{}:{} -> {}", ip, port, container_port))
+                                            if let (Some(ip), Some(port)) =
+                                                (&binding.host_ip, &binding.host_port)
+                                            {
+                                                Some(format!(
+                                                    "{}:{} -> {}",
+                                                    ip, port, container_port
+                                                ))
                                             } else {
                                                 None
                                             }
@@ -1113,14 +1184,16 @@ impl DockerManager {
                     .unwrap_or_default();
 
                 // Extract networks
-                let networks = inspect.network_settings
+                let networks = inspect
+                    .network_settings
                     .as_ref()
                     .and_then(|ns| ns.networks.as_ref())
                     .map(|nets| nets.keys().cloned().collect())
                     .unwrap_or_default();
 
                 // Extract restart policy
-                let restart_policy = inspect.host_config
+                let restart_policy = inspect
+                    .host_config
                     .as_ref()
                     .and_then(|hc| hc.restart_policy.as_ref())
                     .and_then(|rp| rp.name.as_ref())
@@ -1128,17 +1201,14 @@ impl DockerManager {
                     .unwrap_or_else(|| "no".to_string());
 
                 // Extract command
-                let command = inspect.config
-                    .as_ref()
-                    .and_then(|c| c.cmd.clone());
+                let command = inspect.config.as_ref().and_then(|c| c.cmd.clone());
 
                 // Extract entrypoint
-                let entrypoint = inspect.config
-                    .as_ref()
-                    .and_then(|c| c.entrypoint.clone());
+                let entrypoint = inspect.config.as_ref().and_then(|c| c.entrypoint.clone());
 
                 // Get status
-                let status = inspect.state
+                let status = inspect
+                    .state
                     .as_ref()
                     .and_then(|s| s.status.as_ref())
                     .map(|s| s.to_string())
@@ -1148,7 +1218,15 @@ impl DockerManager {
                 let uptime = if let Some(state) = inspect.state.as_ref() {
                     if let Some(started_at) = state.started_at.as_ref() {
                         // Parse and calculate uptime
-                        "TODO".to_string() // We'll implement this properly later
+                        if let Ok(start_time) = chrono::DateTime::parse_from_rfc3339(started_at) {
+                            let dur = chrono::Utc::now()
+                                .signed_duration_since(start_time.with_timezone(&chrono::Utc));
+                            dur.to_std()
+                                .map(|d| humantime::format_duration(d).to_string())
+                                .unwrap_or_else(|_| "N/A".to_string())
+                        } else {
+                            "N/A".to_string()
+                        }
                     } else {
                         "N/A".to_string()
                     }
@@ -1192,9 +1270,12 @@ impl DockerManager {
                     let key = parts[0];
                     let value = parts[1];
                     // Filter out sensitive keys
-                    if key.contains("PASSWORD") || key.contains("SECRET")
-                        || key.contains("KEY") || key.contains("TOKEN")
-                        || key.contains("API_KEY") {
+                    if key.contains("PASSWORD")
+                        || key.contains("SECRET")
+                        || key.contains("KEY")
+                        || key.contains("TOKEN")
+                        || key.contains("API_KEY")
+                    {
                         Some((key.to_string(), "***HIDDEN***".to_string()))
                     } else {
                         Some((key.to_string(), value.to_string()))
@@ -1207,14 +1288,20 @@ impl DockerManager {
     }
 
     /// Detect configuration drift between YAML and running state
-    fn detect_config_drift(yaml: &ComposeServiceConfig, running: &Option<RunningServiceConfig>) -> Vec<String> {
+    fn detect_config_drift(
+        yaml: &ComposeServiceConfig,
+        running: &Option<RunningServiceConfig>,
+    ) -> Vec<String> {
         let mut drift = Vec::new();
 
         if let Some(running) = running {
             // Compare image
             if let Some(yaml_image) = &yaml.image {
                 if yaml_image != &running.image {
-                    drift.push(format!("Image: YAML='{}' ≠ Running='{}'", yaml_image, running.image));
+                    drift.push(format!(
+                        "Image: YAML='{}' ≠ Running='{}'",
+                        yaml_image, running.image
+                    ));
                 }
             }
 
@@ -1230,33 +1317,43 @@ impl DockerManager {
     /// Get comprehensive service details for a container
     pub async fn get_service_details(&self, container_name: &str) -> Result<ServiceDetails> {
         use bollard::container::InspectContainerOptions;
-        use chrono::{DateTime, Utc};
 
         // Find container - search ALL containers, not just IGRA (to support geth, portainer, etc.)
         let containers = self.list_containers_filtered(true).await?;
-        let container = containers.iter()
+        let container = containers
+            .iter()
             .find(|c| c.name == container_name || c.name.trim_start_matches('/') == container_name)
             .ok_or_else(|| anyhow!("Container not found: {}", container_name))?;
 
         // Inspect container for detailed info
-        let inspect = self.docker.inspect_container(container_name, None::<InspectContainerOptions>).await?;
+        let inspect = self
+            .docker
+            .inspect_container(container_name, None::<InspectContainerOptions>)
+            .await?;
 
         // Load service notes
         let notes = crate::core::service_notes::ServiceNotes::load().unwrap_or_default();
         let note = notes.get_note(container_name, &container.image);
 
         // Get metrics from plugin system
-        let metrics = self.metrics_registry.fetch_all_metrics(container_name, &container.image).await
+        let metrics = self
+            .metrics_registry
+            .fetch_all_metrics(container_name, &container.image)
+            .await
             .unwrap_or_else(|_| Vec::new());
 
         // Parse timestamps
         let created = inspect.created.as_deref().unwrap_or("Unknown");
-        let started = inspect.state.as_ref()
+        let started = inspect
+            .state
+            .as_ref()
             .and_then(|s| s.started_at.as_deref())
             .unwrap_or("Unknown");
 
         // Build environment variables map
-        let env_vars: HashMap<String, String> = inspect.config.as_ref()
+        let env_vars: HashMap<String, String> = inspect
+            .config
+            .as_ref()
             .and_then(|c| c.env.as_ref())
             .map(|env| {
                 env.iter()
@@ -1266,8 +1363,11 @@ impl DockerManager {
                             let key = parts[0];
                             let value = parts[1];
                             // Filter sensitive vars
-                            if key.contains("PASSWORD") || key.contains("SECRET") ||
-                               key.contains("KEY") || key.contains("TOKEN") {
+                            if key.contains("PASSWORD")
+                                || key.contains("SECRET")
+                                || key.contains("KEY")
+                                || key.contains("TOKEN")
+                            {
                                 Some((key.to_string(), "***HIDDEN***".to_string()))
                             } else {
                                 Some((key.to_string(), value.to_string()))
@@ -1281,26 +1381,37 @@ impl DockerManager {
             .unwrap_or_default();
 
         // Build labels map
-        let labels = inspect.config.as_ref()
+        let labels = inspect
+            .config
+            .as_ref()
             .and_then(|c| c.labels.as_ref())
             .cloned()
             .unwrap_or_default();
 
         // Get command and entrypoint
-        let command = inspect.config.as_ref()
+        let command = inspect
+            .config
+            .as_ref()
             .and_then(|c| c.cmd.as_ref())
             .map(|cmd| cmd.join(" "));
 
-        let entrypoint = inspect.config.as_ref()
+        let entrypoint = inspect
+            .config
+            .as_ref()
             .and_then(|c| c.entrypoint.as_ref())
             .map(|ep| ep.join(" "));
 
         // Build volumes list
-        let volumes: Vec<VolumeMount> = inspect.mounts.as_ref()
+        let volumes: Vec<VolumeMount> = inspect
+            .mounts
+            .as_ref()
             .map(|mounts| {
-                mounts.iter()
+                mounts
+                    .iter()
                     .filter_map(|m| {
-                        if m.typ == Some(MountPointTypeEnum::VOLUME) || m.typ == Some(MountPointTypeEnum::BIND) {
+                        if m.typ == Some(MountPointTypeEnum::VOLUME)
+                            || m.typ == Some(MountPointTypeEnum::BIND)
+                        {
                             Some(VolumeMount {
                                 source: m.source.clone().unwrap_or_default(),
                                 destination: m.destination.clone().unwrap_or_default(),
@@ -1316,11 +1427,17 @@ impl DockerManager {
             .unwrap_or_default();
 
         // Build mounts list
-        let mounts: Vec<MountInfo> = inspect.mounts.as_ref()
+        let mounts: Vec<MountInfo> = inspect
+            .mounts
+            .as_ref()
             .map(|mounts| {
-                mounts.iter()
+                mounts
+                    .iter()
                     .map(|m| MountInfo {
-                        mount_type: format!("{:?}", m.typ.as_ref().unwrap_or(&MountPointTypeEnum::BIND)),
+                        mount_type: format!(
+                            "{:?}",
+                            m.typ.as_ref().unwrap_or(&MountPointTypeEnum::BIND)
+                        ),
                         source: m.source.clone().unwrap_or_default(),
                         destination: m.destination.clone().unwrap_or_default(),
                         mode: m.mode.clone().unwrap_or_default(),
@@ -1330,10 +1447,13 @@ impl DockerManager {
             .unwrap_or_default();
 
         // Build networks list
-        let networks: Vec<NetworkInfo> = inspect.network_settings.as_ref()
+        let networks: Vec<NetworkInfo> = inspect
+            .network_settings
+            .as_ref()
             .and_then(|ns| ns.networks.as_ref())
             .map(|networks| {
-                networks.iter()
+                networks
+                    .iter()
                     .map(|(name, network)| NetworkInfo {
                         name: name.clone(),
                         ip_address: network.ip_address.clone().unwrap_or_default(),
@@ -1345,10 +1465,13 @@ impl DockerManager {
             .unwrap_or_default();
 
         // Build ports list
-        let ports: Vec<PortMapping> = inspect.network_settings.as_ref()
+        let ports: Vec<PortMapping> = inspect
+            .network_settings
+            .as_ref()
             .and_then(|ns| ns.ports.as_ref())
             .map(|ports| {
-                ports.iter()
+                ports
+                    .iter()
                     .filter_map(|(port_proto, bindings)| {
                         // Parse "8080/tcp" format
                         let parts: Vec<&str> = port_proto.split('/').collect();
@@ -1356,7 +1479,8 @@ impl DockerManager {
                             let container_port = parts[0].parse::<u16>().ok()?;
                             let protocol = parts[1].to_string();
 
-                            let host_port = bindings.as_ref()
+                            let host_port = bindings
+                                .as_ref()
                                 .and_then(|b| b.first())
                                 .and_then(|binding| binding.host_port.as_ref())
                                 .and_then(|p| p.parse::<u16>().ok());
@@ -1375,7 +1499,9 @@ impl DockerManager {
             .unwrap_or_default();
 
         // Get stats (if running)
-        let (cpu_stats, memory_stats, block_io_stats, network_stats) = if container.state == ContainerState::Running {
+        let (cpu_stats, memory_stats, block_io_stats, network_stats) = if container.state
+            == ContainerState::Running
+        {
             match self.get_container_stats(container_name).await {
                 Ok(Some(stats)) => (
                     CpuStats {
@@ -1400,18 +1526,50 @@ impl DockerManager {
                     },
                 ),
                 _ => (
-                    CpuStats { cpu_percent: 0.0, cpu_usage: 0, system_cpu_usage: 0 },
-                    MemoryStats { usage: 0, limit: 0, percent: 0.0 },
-                    BlockIoStats { read_bytes: 0, write_bytes: 0 },
-                    NetworkStats { rx_bytes: 0, tx_bytes: 0, rx_packets: 0, tx_packets: 0 },
+                    CpuStats {
+                        cpu_percent: 0.0,
+                        cpu_usage: 0,
+                        system_cpu_usage: 0,
+                    },
+                    MemoryStats {
+                        usage: 0,
+                        limit: 0,
+                        percent: 0.0,
+                    },
+                    BlockIoStats {
+                        read_bytes: 0,
+                        write_bytes: 0,
+                    },
+                    NetworkStats {
+                        rx_bytes: 0,
+                        tx_bytes: 0,
+                        rx_packets: 0,
+                        tx_packets: 0,
+                    },
                 ),
             }
         } else {
             (
-                CpuStats { cpu_percent: 0.0, cpu_usage: 0, system_cpu_usage: 0 },
-                MemoryStats { usage: 0, limit: 0, percent: 0.0 },
-                BlockIoStats { read_bytes: 0, write_bytes: 0 },
-                NetworkStats { rx_bytes: 0, tx_bytes: 0, rx_packets: 0, tx_packets: 0 },
+                CpuStats {
+                    cpu_percent: 0.0,
+                    cpu_usage: 0,
+                    system_cpu_usage: 0,
+                },
+                MemoryStats {
+                    usage: 0,
+                    limit: 0,
+                    percent: 0.0,
+                },
+                BlockIoStats {
+                    read_bytes: 0,
+                    write_bytes: 0,
+                },
+                NetworkStats {
+                    rx_bytes: 0,
+                    tx_bytes: 0,
+                    rx_packets: 0,
+                    tx_packets: 0,
+                },
             )
         };
 
@@ -1443,8 +1601,12 @@ impl DockerManager {
     pub async fn get_network_info(&self, network_name: &str) -> Result<DockerNetworkInfo> {
         use bollard::models::Network;
 
-        let network: Network = self.docker
-            .inspect_network(network_name, None::<bollard::network::InspectNetworkOptions<String>>)
+        let network: Network = self
+            .docker
+            .inspect_network(
+                network_name,
+                None::<bollard::network::InspectNetworkOptions<String>>,
+            )
             .await
             .context(format!("Failed to inspect network {}", network_name))?;
 
@@ -1473,9 +1635,9 @@ impl DockerManager {
     /// Get all Docker networks with their CIDR ranges
     pub async fn list_networks(&self) -> Result<Vec<DockerNetworkInfo>> {
         use bollard::network::ListNetworksOptions;
-        use std::collections::HashMap;
 
-        let networks = self.docker
+        let networks = self
+            .docker
             .list_networks(None::<ListNetworksOptions<String>>)
             .await
             .context("Failed to list Docker networks")?;

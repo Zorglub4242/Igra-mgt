@@ -1,14 +1,13 @@
 /// System Service Management
 ///
 /// Manages native system services (systemd, processes) alongside Docker containers
-
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
-use std::fs;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -49,7 +48,7 @@ pub struct SystemServiceInfo {
     pub config_files: Vec<PathBuf>,
     pub log_paths: Vec<PathBuf>,
     pub dependencies: Vec<String>,
-    pub ports: Vec<String>, // Listening ports (e.g., ["80/tcp", "443/tcp"])
+    pub ports: Vec<String>,   // Listening ports (e.g., ["80/tcp", "443/tcp"])
     pub project_name: String, // "System Services"
     pub loaded: bool,
     pub active: bool,
@@ -87,7 +86,13 @@ impl SystemServiceManager {
     /// List all system services
     pub async fn list_services(&self) -> Result<Vec<SystemServiceInfo>> {
         let output = Command::new("systemctl")
-            .args(&["list-units", "--type=service", "--all", "--no-pager", "--no-legend"])
+            .args(&[
+                "list-units",
+                "--type=service",
+                "--all",
+                "--no-pager",
+                "--no-legend",
+            ])
             .output()
             .context("Failed to list systemd services")?;
 
@@ -316,9 +321,7 @@ impl SystemServiceManager {
     /// Detect listening ports for a given PID
     fn get_listening_ports(&self, pid: u32) -> Vec<String> {
         // Use ss command to find listening sockets for this PID
-        let output = Command::new("ss")
-            .args(&["-ltnp"])
-            .output();
+        let output = Command::new("ss").args(&["-ltnp"]).output();
 
         let Ok(output) = output else {
             return Vec::new();
@@ -366,7 +369,8 @@ impl SystemServiceManager {
 
         // Sort ports numerically
         ports.sort_by_key(|p| {
-            p.split('/').next()
+            p.split('/')
+                .next()
                 .and_then(|s| s.parse::<u16>().ok())
                 .unwrap_or(0)
         });
@@ -386,8 +390,8 @@ impl SystemServiceManager {
             return None;
         }
 
-        let utime: u64 = parts[13].parse().ok()?;  // user time
-        let stime: u64 = parts[14].parse().ok()?;  // system time
+        let utime: u64 = parts[13].parse().ok()?; // user time
+        let stime: u64 = parts[14].parse().ok()?; // system time
 
         // Get system uptime to calculate CPU percentage
         let uptime_content = fs::read_to_string("/proc/uptime").ok()?;
@@ -579,9 +583,18 @@ impl SystemServiceManager {
             }
         }
 
-        let active_state = props.get("ActiveState").map(|s| s.as_str()).unwrap_or("unknown");
-        let sub_state = props.get("SubState").map(|s| s.as_str()).unwrap_or("unknown");
-        let loaded = props.get("LoadState").map(|s| s == "loaded").unwrap_or(false);
+        let active_state = props
+            .get("ActiveState")
+            .map(|s| s.as_str())
+            .unwrap_or("unknown");
+        let sub_state = props
+            .get("SubState")
+            .map(|s| s.as_str())
+            .unwrap_or("unknown");
+        let loaded = props
+            .get("LoadState")
+            .map(|s| s == "loaded")
+            .unwrap_or(false);
 
         let status = match active_state {
             "active" if sub_state == "running" => ServiceStatus::Running,
@@ -594,30 +607,44 @@ impl SystemServiceManager {
         };
 
         let pid = props.get("MainPID").and_then(|s| s.parse().ok());
-        let enabled = props.get("UnitFileState").map(|s| s == "enabled").unwrap_or(false);
+        let enabled = props
+            .get("UnitFileState")
+            .map(|s| s == "enabled")
+            .unwrap_or(false);
         let description = props.get("Description").cloned().unwrap_or_default();
 
         // Get CPU, memory, uptime, and ports from /proc if PID is available
         let memory = pid.and_then(|p| self.get_process_memory(p));
         let cpu = pid.and_then(|p| self.get_process_cpu(p));
         let uptime = pid.and_then(|p| self.get_process_uptime(p));
-        // Note: Network stats are not available per-process for system services
-        // (they would only show host-level stats which are misleading)
-        let ports = pid.map(|p| self.get_listening_ports(p)).unwrap_or_else(Vec::new);
+        let (network_rx, network_tx) = pid
+            .and_then(|p| self.get_process_network_stats(p))
+            .map(|(rx, tx)| (Some(rx), Some(tx)))
+            .unwrap_or((None, None));
+        let ports = pid
+            .map(|p| self.get_listening_ports(p))
+            .unwrap_or_else(Vec::new);
 
         // Parse logs to extract metrics (similar to Docker services)
-        let (status_text, primary_metric, secondary_metric, is_healthy_metric) = if active_state == "active" {
-            match self.get_logs(name, 30).await {
-                Ok(logs) => {
-                    let service_base_name = name.trim_end_matches(".service");
-                    let metrics = crate::core::log_parser::parse_service_logs(service_base_name, &logs);
-                    (metrics.status_text, metrics.primary_metric, metrics.secondary_metric, metrics.is_healthy)
+        let (status_text, primary_metric, secondary_metric, is_healthy_metric) =
+            if active_state == "active" {
+                match self.get_logs(name, 30).await {
+                    Ok(logs) => {
+                        let service_base_name = name.trim_end_matches(".service");
+                        let metrics =
+                            crate::core::log_parser::parse_service_logs(service_base_name, &logs);
+                        (
+                            metrics.status_text,
+                            metrics.primary_metric,
+                            metrics.secondary_metric,
+                            metrics.is_healthy,
+                        )
+                    }
+                    Err(_) => (None, None, None, true),
                 }
-                Err(_) => (None, None, None, true),
-            }
-        } else {
-            (None, None, None, true)
-        };
+            } else {
+                (None, None, None, true)
+            };
 
         Ok(SystemServiceInfo {
             name: name.to_string(),
@@ -630,8 +657,8 @@ impl SystemServiceManager {
             memory,
             cpu,
             uptime,
-            network_rx: None,
-            network_tx: None,
+            network_rx,
+            network_tx,
             auto_restart: props.get("Restart").map(|s| s != "no").unwrap_or(false),
             enabled,
             config_files: Vec::new(),
@@ -646,25 +673,45 @@ impl SystemServiceManager {
             primary_metric,
             secondary_metric,
             is_healthy_metric,
-            has_metrics: false, // Will be set by handler if plugin exists
+            has_metrics: false,  // Will be set by handler if plugin exists
             metrics: Vec::new(), // Will be populated by handler
         })
     }
 
     /// Filter services by relevance (exclude system/core services)
-    pub fn filter_relevant_services(&self, services: Vec<SystemServiceInfo>) -> Vec<SystemServiceInfo> {
+    pub fn filter_relevant_services(
+        &self,
+        services: Vec<SystemServiceInfo>,
+    ) -> Vec<SystemServiceInfo> {
         let excluded_prefixes = vec![
-            "systemd-", "user@", "getty@", "dbus", "polkit", "rtkit",
-            "colord", "cups", "avahi", "bluetooth", "udisks2", "upower",
-            "wpa_supplicant", "NetworkManager", "ModemManager",
+            "systemd-",
+            "user@",
+            "getty@",
+            "dbus",
+            "polkit",
+            "rtkit",
+            "colord",
+            "cups",
+            "avahi",
+            "bluetooth",
+            "udisks2",
+            "upower",
+            "wpa_supplicant",
+            "NetworkManager",
+            "ModemManager",
         ];
 
         let excluded_names = vec![
-            "cron.service", "rsyslog.service", "snapd.service",
-            "ssh.service", "packagekit.service", "fwupd.service",
+            "cron.service",
+            "rsyslog.service",
+            "snapd.service",
+            "ssh.service",
+            "packagekit.service",
+            "fwupd.service",
         ];
 
-        services.into_iter()
+        services
+            .into_iter()
             .filter(|s| {
                 // Check excluded prefixes
                 !excluded_prefixes.iter().any(|prefix| s.name.starts_with(prefix)) &&

@@ -1,7 +1,6 @@
 /// Geth Prometheus metrics fetching and parsing
 ///
 /// Fetches metrics from Geth execution layer and parses key performance indicators
-
 use anyhow::Result;
 
 #[derive(Debug, Clone, Default)]
@@ -12,8 +11,8 @@ pub struct GethMetrics {
 
     // Network metrics
     pub peers_connected: Option<u64>,
-    pub network_ingress: Option<u64>,  // bytes
-    pub network_egress: Option<u64>,   // bytes
+    pub network_ingress: Option<u64>, // bytes
+    pub network_egress: Option<u64>,  // bytes
 
     // Transaction pool metrics
     pub txpool_pending: Option<u64>,
@@ -21,7 +20,7 @@ pub struct GethMetrics {
     pub txpool_local: Option<u64>,
 
     // Sync metrics
-    pub sync_progress: Option<f64>,  // 0.0 to 1.0
+    pub sync_progress: Option<f64>, // 0.0 to 1.0
 
     // System metrics
     pub cpu_percent: Option<f64>,

@@ -1,5 +1,4 @@
 /// Wallet management
-
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -36,8 +35,8 @@ pub struct UtxoInfo {
     pub amount_kas: f64,
     pub block_daa_score: u64,
     pub is_coinbase: bool,
-    pub timestamp_ms: u64,  // Estimated timestamp in milliseconds
-    pub source_addresses: Vec<String>,  // Source addresses for the transaction (empty for coinbase)
+    pub timestamp_ms: u64,             // Estimated timestamp in milliseconds
+    pub source_addresses: Vec<String>, // Source addresses for the transaction (empty for coinbase)
 }
 
 /// Persistent storage for wallet initial balances
@@ -90,7 +89,12 @@ impl WalletManager {
 
         // Try to get port mapping from docker inspect
         if let Ok(output) = Command::new("docker")
-            .args(&["inspect", &container_name, "--format", "{{json .NetworkSettings.Ports}}"])
+            .args(&[
+                "inspect",
+                &container_name,
+                "--format",
+                "{{json .NetworkSettings.Ports}}",
+            ])
             .output()
         {
             if output.status.success() {
@@ -98,8 +102,12 @@ impl WalletManager {
                 // Parse JSON to find the host port mapping for 8082/tcp
                 if let Ok(ports_map) = serde_json::from_str::<Value>(&ports_json) {
                     if let Some(port_bindings) = ports_map.get("8082/tcp") {
-                        if let Some(first_binding) = port_bindings.as_array().and_then(|a| a.first()) {
-                            if let Some(host_port) = first_binding.get("HostPort").and_then(|p| p.as_str()) {
+                        if let Some(first_binding) =
+                            port_bindings.as_array().and_then(|a| a.first())
+                        {
+                            if let Some(host_port) =
+                                first_binding.get("HostPort").and_then(|p| p.as_str())
+                            {
                                 return format!("http://127.0.0.1:{}", host_port);
                             }
                         }
@@ -120,11 +128,15 @@ impl WalletManager {
         // Create gRPC client with timeout
         let mut client = WalletClient::connect(endpoint.clone())
             .await
-            .context(format!("Failed to connect to kaswallet-daemon at {}", endpoint))?;
+            .context(format!(
+                "Failed to connect to kaswallet-daemon at {}",
+                endpoint
+            ))?;
 
         // Call GetBalance RPC
         let request = tonic::Request::new(kaswallet_proto::GetBalanceRequest {});
-        let response = client.get_balance(request)
+        let response = client
+            .get_balance(request)
             .await
             .context("Failed to get balance from kaswallet-daemon")?;
 
@@ -142,10 +154,14 @@ impl WalletManager {
 
         let mut client = WalletClient::connect(endpoint.clone())
             .await
-            .context(format!("Failed to connect to kaswallet-daemon at {}", endpoint))?;
+            .context(format!(
+                "Failed to connect to kaswallet-daemon at {}",
+                endpoint
+            ))?;
 
         let request = tonic::Request::new(kaswallet_proto::GetBalanceRequest {});
-        let response = client.get_balance(request)
+        let response = client
+            .get_balance(request)
             .await
             .context("Failed to get balance from kaswallet-daemon")?;
 
@@ -172,18 +188,23 @@ impl WalletManager {
         // Create gRPC client
         let mut client = WalletClient::connect(endpoint.clone())
             .await
-            .context(format!("Failed to connect to kaswallet-daemon at {}", endpoint))?;
+            .context(format!(
+                "Failed to connect to kaswallet-daemon at {}",
+                endpoint
+            ))?;
 
         // Call GetAddresses RPC
         let request = tonic::Request::new(kaswallet_proto::GetAddressesRequest {});
-        let response = client.get_addresses(request)
+        let response = client
+            .get_addresses(request)
             .await
             .context("Failed to get addresses from kaswallet-daemon")?;
 
         let addresses_response = response.into_inner();
 
         // Return the first address, or error if no addresses
-        addresses_response.address
+        addresses_response
+            .address
             .first()
             .cloned()
             .ok_or_else(|| anyhow!("No addresses found in wallet"))
@@ -191,12 +212,12 @@ impl WalletManager {
 
     /// Get UTXOs (Unspent Transaction Outputs) for wallet addresses via kaspad
     pub async fn get_utxos(&self, worker_id: usize) -> Result<Vec<UtxoInfo>> {
+        use kaspa_rpc_core::api::rpc::RpcApi;
         use kaspa_wrpc_client::{
             client::{ConnectOptions, ConnectStrategy},
             prelude::NetworkType,
             KaspaRpcClient, WrpcEncoding,
         };
-        use kaspa_rpc_core::api::rpc::RpcApi;
         use std::time::Duration;
 
         // Get wallet addresses first
@@ -229,16 +250,20 @@ impl WalletManager {
         let url = Some("ws://localhost:17210");
         let resolver = None;
         // For testnet, we need to specify the network suffix (testnet-11 is the recommended testnet)
-        let network = Some(kaspa_wrpc_client::prelude::NetworkId::with_suffix(NetworkType::Testnet, 11));
+        let network = Some(kaspa_wrpc_client::prelude::NetworkId::with_suffix(
+            NetworkType::Testnet,
+            11,
+        ));
         let subscription_context = None;
 
-        let client = match KaspaRpcClient::new(encoding, url, resolver, network, subscription_context) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Warning: Failed to create kaspad RPC client: {}", e);
-                return Ok(Vec::new());
-            }
-        };
+        let client =
+            match KaspaRpcClient::new(encoding, url, resolver, network, subscription_context) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Warning: Failed to create kaspad RPC client: {}", e);
+                    return Ok(Vec::new());
+                }
+            };
 
         let options = ConnectOptions {
             block_async_connect: true,
@@ -282,7 +307,8 @@ impl WalletManager {
             let utxo = entry.utxo_entry;
             let amount_kas = utxo.amount as f64 / 100_000_000.0;
 
-            let address_str = entry.address
+            let address_str = entry
+                .address
                 .map(|a| a.to_string())
                 .unwrap_or_else(|| "Unknown".to_string());
 
@@ -298,10 +324,16 @@ impl WalletManager {
             let source_addresses = if !utxo.is_coinbase {
                 // Use get_utxo_return_address to get the source address
                 let tx_id_rpc: kaspa_rpc_core::RpcHash = entry.outpoint.transaction_id.into();
-                match client.get_utxo_return_address(tx_id_rpc, utxo.block_daa_score).await {
+                match client
+                    .get_utxo_return_address(tx_id_rpc, utxo.block_daa_score)
+                    .await
+                {
                     Ok(return_addr) => vec![return_addr.to_string()],
                     Err(e) => {
-                        eprintln!("Failed to get source address for tx {}: {}", entry.outpoint.transaction_id, e);
+                        eprintln!(
+                            "Failed to get source address for tx {}: {}",
+                            entry.outpoint.transaction_id, e
+                        );
                         Vec::new()
                     }
                 }
@@ -339,7 +371,13 @@ impl WalletManager {
 
             // Check if container is running
             let container_running = Command::new("docker")
-                .args(&["ps", "--filter", &format!("name={}", container_name), "--format", "{{.Names}}"])
+                .args(&[
+                    "ps",
+                    "--filter",
+                    &format!("name={}", container_name),
+                    "--format",
+                    "{{.Names}}",
+                ])
                 .output()
                 .ok()
                 .and_then(|output| {
@@ -407,7 +445,9 @@ impl WalletManager {
     /// Generate a new wallet
     /// This checks if a keys file exists, if not returns an error
     pub async fn generate_wallet(&self, worker_id: usize, _password: &str) -> Result<String> {
-        let keys_file = self.project_root.join(format!("keys/keys.kaswallet-{}.json", worker_id));
+        let keys_file = self
+            .project_root
+            .join(format!("keys/keys.kaswallet-{}.json", worker_id));
 
         if keys_file.exists() {
             // Wallet already exists, return its address
@@ -424,13 +464,22 @@ impl WalletManager {
     }
 
     /// Send KAS from wallet to address via gRPC
-    pub async fn send_transaction(&self, worker_id: usize, to_address: &str, amount: f64, password: &str) -> Result<String> {
+    pub async fn send_transaction(
+        &self,
+        worker_id: usize,
+        to_address: &str,
+        amount: f64,
+        password: &str,
+    ) -> Result<String> {
         let endpoint = self.get_wallet_endpoint(worker_id);
 
         // Create gRPC client
         let mut client = WalletClient::connect(endpoint.clone())
             .await
-            .context(format!("Failed to connect to kaswallet-daemon at {}", endpoint))?;
+            .context(format!(
+                "Failed to connect to kaswallet-daemon at {}",
+                endpoint
+            ))?;
 
         // Convert KAS to sompi (1 KAS = 10^8 sompi)
         let amount_sompi = (amount * 100_000_000.0) as u64;
@@ -447,15 +496,23 @@ impl WalletManager {
             transaction_description: String::new(), // Empty description
         });
 
-        let response = client.send(request)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to send transaction: {} (status: {:?})", e.message(), e.code()))?;
+        let response = client.send(request).await.map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to send transaction: {} (status: {:?})",
+                e.message(),
+                e.code()
+            )
+        })?;
 
         let send_response = response.into_inner();
 
         // Return transaction IDs
         let tx_ids = send_response.tx_i_ds.join(", ");
-        Ok(format!("Transaction sent!\nTxIDs: {}\nSigned {} transactions", tx_ids, send_response.signed_transactions.len()))
+        Ok(format!(
+            "Transaction sent!\nTxIDs: {}\nSigned {} transactions",
+            tx_ids,
+            send_response.signed_transactions.len()
+        ))
     }
 }
 
@@ -475,7 +532,10 @@ mod tests {
                 assert!(balance >= 0.0);
             }
             Err(e) => {
-                println!("Failed to get balance (this is expected if kaswallet-0 is not running): {}", e);
+                println!(
+                    "Failed to get balance (this is expected if kaswallet-0 is not running): {}",
+                    e
+                );
             }
         }
     }
@@ -492,9 +552,11 @@ mod tests {
                 assert!(address.starts_with("kaspatest:") || address.starts_with("kaspa:"));
             }
             Err(e) => {
-                println!("Failed to get address (this is expected if kaswallet-0 is not running): {}", e);
+                println!(
+                    "Failed to get address (this is expected if kaswallet-0 is not running): {}",
+                    e
+                );
             }
         }
     }
 }
-

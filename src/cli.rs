@@ -1,15 +1,13 @@
 /// CLI argument parsing and command handling
-
 use clap::{Parser, Subcommand};
 
 // Build timestamp injected at compile time
-pub const BUILD_TIMESTAMP: &str = env!("BUILD_TIMESTAMP");
-pub const VERSION_WITH_BUILD: &str = concat!(env!("CARGO_PKG_VERSION"), " (built: ", env!("BUILD_TIMESTAMP"), ")");
-
-// Get version with timestamp
-pub fn get_version() -> &'static str {
-    VERSION_WITH_BUILD
-}
+pub const VERSION_WITH_BUILD: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (built: ",
+    env!("BUILD_TIMESTAMP"),
+    ")"
+);
 
 #[derive(Parser)]
 #[command(name = "igra-cli")]

@@ -1,7 +1,6 @@
 /// Reth Prometheus metrics fetching and parsing
 ///
 /// Fetches metrics from Reth execution layer and parses key performance indicators
-
 use anyhow::Result;
 
 #[derive(Debug, Clone, Default)]
@@ -87,6 +86,9 @@ fn parse_prometheus_metrics(text: &str) -> RethMetrics {
                     "reth_payloads_resolved_block" => {
                         metrics.blocks_processed = Some(value as u64);
                     }
+                    "reth_sync_block_number" => {
+                        metrics.blocks_processed = Some(value as u64);
+                    }
                     "reth_blockchain_tree_canonical_chain_height" => {
                         metrics.canonical_chain_height = Some(value as u64);
                     }
@@ -114,6 +116,9 @@ fn parse_prometheus_metrics(text: &str) -> RethMetrics {
                     // Transaction metrics
                     "reth_transaction_pool_pending_pool_transactions" => {
                         metrics.transactions_pending = Some(value as u64);
+                    }
+                    "reth_transaction_pool_transactions" => {
+                        metrics.transactions_inserted = Some(value as u64);
                     }
                     "reth_transaction_pool_blob_pool_transactions" => {
                         metrics.transactions_blob = Some(value as u64);

@@ -1,9 +1,8 @@
+use super::MetricFetcher;
 /// Logs-based metrics fetcher
 ///
 /// Parses metrics from container logs using regex patterns
-
-use anyhow::{Result, Context};
-use super::MetricFetcher;
+use anyhow::{Context, Result};
 use regex::Regex;
 
 #[derive(Debug, Clone)]
@@ -14,12 +13,18 @@ pub struct LogsFetcher {
 
 impl LogsFetcher {
     pub fn new(pattern: String, lines: usize) -> Self {
-        Self { lines, pattern: Some(pattern) }
+        Self {
+            lines,
+            pattern: Some(pattern),
+        }
     }
 
     /// Create a fetcher without a global pattern (for per-metric patterns)
     pub fn new_without_pattern(lines: usize) -> Self {
-        Self { lines, pattern: None }
+        Self {
+            lines,
+            pattern: None,
+        }
     }
 
     /// Parse a metric value using regex from logs
@@ -31,7 +36,8 @@ impl LogsFetcher {
         for line in text.lines().rev() {
             if let Some(captures) = re.captures(line) {
                 // Try to find first capture group, or use entire match
-                let value_str = captures.get(1)
+                let value_str = captures
+                    .get(1)
                     .or_else(|| captures.get(0))
                     .map(|m| m.as_str())?;
 
@@ -48,12 +54,7 @@ impl LogsFetcher {
 impl MetricFetcher for LogsFetcher {
     async fn fetch_raw(&self, container_name: &str) -> Result<String> {
         let output = tokio::process::Command::new("docker")
-            .args(&[
-                "logs",
-                "--tail",
-                &self.lines.to_string(),
-                container_name,
-            ])
+            .args(&["logs", "--tail", &self.lines.to_string(), container_name])
             .output()
             .await
             .context("Failed to execute docker logs command")?;

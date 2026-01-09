@@ -1,7 +1,6 @@
 /// Docker image version checking
 ///
 /// Queries Docker Hub and GitHub to check for latest versions
-
 use anyhow::Result;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -30,23 +29,30 @@ struct GitHubRelease {
 
 /// Check latest version from Docker Hub
 async fn get_docker_hub_latest(image_name: &str) -> Result<String> {
-    let url = format!("https://hub.docker.com/v2/repositories/{}/tags?page_size=100", image_name);
+    let url = format!(
+        "https://hub.docker.com/v2/repositories/{}/tags?page_size=100",
+        image_name
+    );
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()?;
 
-    let response: DockerHubResponse = client
-        .get(&url)
-        .send()
-        .await?
-        .json()
-        .await?;
+    let response: DockerHubResponse = client.get(&url).send().await?.json().await?;
 
     // Find the latest semantic version tag (ignore 'latest', 'main', etc.)
-    let latest = response.results
+    let latest = response
+        .results
         .iter()
-        .find(|tag| tag.name.starts_with('v') && tag.name.chars().nth(1).map(|c| c.is_numeric()).unwrap_or(false))
+        .find(|tag| {
+            tag.name.starts_with('v')
+                && tag
+                    .name
+                    .chars()
+                    .nth(1)
+                    .map(|c| c.is_numeric())
+                    .unwrap_or(false)
+        })
         .map(|tag| tag.name.clone())
         .unwrap_or_else(|| "latest".to_string());
 
@@ -62,18 +68,15 @@ async fn get_github_latest(repo: &str) -> Result<String> {
         .user_agent("igra-cli")
         .build()?;
 
-    let response: GitHubRelease = client
-        .get(&url)
-        .send()
-        .await?
-        .json()
-        .await?;
+    let response: GitHubRelease = client.get(&url).send().await?.json().await?;
 
     Ok(response.tag_name)
 }
 
 /// Check versions for all known IGRA images
-pub async fn check_versions(current_images: HashMap<String, String>) -> HashMap<String, ImageVersion> {
+pub async fn check_versions(
+    current_images: HashMap<String, String>,
+) -> HashMap<String, ImageVersion> {
     let mut versions = HashMap::new();
 
     for (image_full, current_tag) in current_images {
@@ -98,17 +101,13 @@ pub async fn check_versions(current_images: HashMap<String, String>) -> HashMap<
             }
             "block-builder" => {
                 // IgraLabs image - check Docker Hub
-                get_docker_hub_latest("igranetwork/block-builder").await.ok()
+                get_docker_hub_latest("igranetwork/block-builder")
+                    .await
+                    .ok()
             }
-            "viaduct" => {
-                get_docker_hub_latest("igranetwork/viaduct").await.ok()
-            }
-            "rpc-provider" => {
-                get_docker_hub_latest("igranetwork/rpc-provider").await.ok()
-            }
-            "kaswallet" => {
-                get_docker_hub_latest("igranetwork/kaswallet").await.ok()
-            }
+            "viaduct" => get_docker_hub_latest("igranetwork/viaduct").await.ok(),
+            "rpc-provider" => get_docker_hub_latest("igranetwork/rpc-provider").await.ok(),
+            "kaswallet" => get_docker_hub_latest("igranetwork/kaswallet").await.ok(),
             _ => None,
         };
 

@@ -21,7 +21,7 @@ pub struct NginxSite {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NginxUpstream {
     pub name: String,
-    pub servers: Vec<String>,  // host:port
+    pub servers: Vec<String>, // host:port
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -269,7 +269,8 @@ impl NginxParser {
                         .push(proxy_pass.clone());
                 } else if let Some(ref upstream_name) = location.upstream_name {
                     // Find upstream definition
-                    if let Some(upstream) = site.upstreams.iter().find(|u| &u.name == upstream_name) {
+                    if let Some(upstream) = site.upstreams.iter().find(|u| &u.name == upstream_name)
+                    {
                         for server in &upstream.servers {
                             targets
                                 .entry(site.name.clone())

@@ -1,7 +1,5 @@
 /// Authentication middleware for IGRA Web UI
-
 use axum::{
-    body::Body,
     extract::Request,
     http::{HeaderMap, StatusCode},
     middleware::Next,
@@ -17,9 +15,7 @@ pub async fn auth_middleware(
     next: Next,
 ) -> Result<Response, Response> {
     // Get token from Authorization header
-    let auth_header = headers
-        .get("Authorization")
-        .and_then(|v| v.to_str().ok());
+    let auth_header = headers.get("Authorization").and_then(|v| v.to_str().ok());
 
     let token = match auth_header {
         Some(header) => {

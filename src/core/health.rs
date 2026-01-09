@@ -10,7 +10,6 @@
 ///
 /// This module is not currently used as health checks are implemented
 /// in docker-compose.yml and retrieved via the Docker API in docker.rs
-
 use anyhow::Result;
 
 #[allow(dead_code)]

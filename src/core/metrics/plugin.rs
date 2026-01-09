@@ -1,9 +1,8 @@
+use anyhow::{Context, Result};
 /// Plugin configuration parsing from TOML files
 ///
 /// Defines the structure of metric plugins and provides parsing functionality.
-
 use serde::{Deserialize, Serialize};
-use anyhow::{Result, Context};
 use std::path::Path;
 
 /// Complete plugin configuration loaded from TOML file
@@ -65,8 +64,8 @@ pub enum FetcherType {
     Http,
     Logs,
     // System service fetchers
-    Systemd,      // Fetch metrics from systemctl status/show
-    SystemLogs,   // Fetch metrics from journalctl logs
+    Systemd,    // Fetch metrics from systemctl status/show
+    SystemLogs, // Fetch metrics from journalctl logs
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -105,16 +104,17 @@ fn default_refresh_interval() -> u64 {
 impl MetricDefinition {
     /// Get the effective cache duration (uses refresh_interval if cache_duration not set)
     pub fn cache_duration(&self) -> u64 {
-        self.cache_duration_secs.unwrap_or(self.refresh_interval_secs)
+        self.cache_duration_secs
+            .unwrap_or(self.refresh_interval_secs)
     }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum DisplayPriority {
-    Primary,    // Shown in condensed view (services list) as primary metric
-    Secondary,  // Shown in condensed view (services list) as secondary metric
-    Detail,     // Only shown in detail view
+    Primary,   // Shown in condensed view (services list) as primary metric
+    Secondary, // Shown in condensed view (services list) as secondary metric
+    Detail,    // Only shown in detail view
 }
 
 impl PluginConfig {
@@ -228,12 +228,10 @@ mod tests {
                 name: "test".to_string(),
                 description: "Test".to_string(),
             },
-            matchers: vec![
-                ContainerMatcher {
-                    match_type: MatchType::ImageContains,
-                    value: "RETH".to_string(),
-                },
-            ],
+            matchers: vec![ContainerMatcher {
+                match_type: MatchType::ImageContains,
+                value: "RETH".to_string(),
+            }],
             fetcher: FetcherConfig {
                 fetcher_type: FetcherType::Prometheus,
                 method: None,

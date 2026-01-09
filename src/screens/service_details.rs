@@ -1,7 +1,6 @@
 /// Service Details TUI Screen
 ///
 /// Displays comprehensive service information in a tabbed interface
-
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -83,12 +82,7 @@ impl ServiceDetailsScreen {
         self.scroll_offset = self.scroll_offset.saturating_sub(1);
     }
 
-    pub fn render(
-        &self,
-        f: &mut Frame,
-        area: Rect,
-        details: &ServiceDetails,
-    ) {
+    pub fn render(&self, f: &mut Frame, area: Rect, details: &ServiceDetails) {
         // Main layout: title + tabs + content
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -102,7 +96,11 @@ impl ServiceDetailsScreen {
 
         // Title
         let title = Paragraph::new(format!("Service Details: {}", details.name))
-            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+            .style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )
             .alignment(Alignment::Center)
             .block(Block::default().borders(Borders::ALL));
         f.render_widget(title, chunks[0]);
@@ -174,7 +172,9 @@ impl ServiceDetailsScreen {
         // Note
         lines.push(Line::from(Span::styled(
             "Description:",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         )));
         lines.push(Line::from(details.note.as_str()));
 
@@ -183,7 +183,9 @@ impl ServiceDetailsScreen {
         // Resource usage
         lines.push(Line::from(Span::styled(
             "Resource Usage:",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         )));
 
         lines.push(Line::from(vec![
@@ -201,7 +203,8 @@ impl ServiceDetailsScreen {
                 Style::default().fg(Color::Cyan),
             ),
             Span::raw(" ("),
-            Span::raw(format!("{} / {}",
+            Span::raw(format!(
+                "{} / {}",
                 format_bytes(details.memory_stats.usage),
                 format_bytes(details.memory_stats.limit)
             )),
@@ -247,7 +250,9 @@ impl ServiceDetailsScreen {
         // Environment variables
         lines.push(Line::from(Span::styled(
             "Environment Variables:",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         )));
 
         for (key, value) in &details.env_vars {
@@ -264,7 +269,9 @@ impl ServiceDetailsScreen {
         if let Some(cmd) = &details.command {
             lines.push(Line::from(Span::styled(
                 "Command:",
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             )));
             lines.push(Line::from(cmd.as_str()));
             lines.push(Line::from(""));
@@ -273,14 +280,20 @@ impl ServiceDetailsScreen {
         if let Some(entrypoint) = &details.entrypoint {
             lines.push(Line::from(Span::styled(
                 "Entrypoint:",
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             )));
             lines.push(Line::from(entrypoint.as_str()));
             lines.push(Line::from(""));
         }
 
         let paragraph = Paragraph::new(lines)
-            .block(Block::default().borders(Borders::ALL).title("Configuration"))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Configuration"),
+            )
             .wrap(Wrap { trim: false })
             .scroll((self.scroll_offset as u16, 0));
 
@@ -316,7 +329,9 @@ impl ServiceDetailsScreen {
         // Networks
         lines.push(Line::from(Span::styled(
             "Networks:",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         )));
 
         for net in &details.networks {
@@ -334,17 +349,20 @@ impl ServiceDetailsScreen {
         // Ports
         lines.push(Line::from(Span::styled(
             "Port Mappings:",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         )));
 
         for port in &details.ports {
-            let host_port_str = port.host_port.map(|p| p.to_string()).unwrap_or_else(|| "N/A".to_string());
+            let host_port_str = port
+                .host_port
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| "N/A".to_string());
             let container_port_str = port.container_port.to_string();
             lines.push(Line::from(format!(
                 "{} → {}/{}",
-                host_port_str,
-                container_port_str,
-                port.protocol
+                host_port_str, container_port_str, port.protocol
             )));
         }
 
@@ -357,10 +375,12 @@ impl ServiceDetailsScreen {
     }
 
     fn render_logs(&self, f: &mut Frame, area: Rect, _details: &ServiceDetails) {
-        let placeholder = Paragraph::new("Log viewing not implemented yet.\nUse 'docker logs' command or the Logs screen.")
-            .style(Style::default().fg(Color::DarkGray))
-            .alignment(Alignment::Center)
-            .block(Block::default().borders(Borders::ALL).title("Logs"));
+        let placeholder = Paragraph::new(
+            "Log viewing not implemented yet.\nUse 'docker logs' command or the Logs screen.",
+        )
+        .style(Style::default().fg(Color::DarkGray))
+        .alignment(Alignment::Center)
+        .block(Block::default().borders(Borders::ALL).title("Logs"));
 
         f.render_widget(placeholder, area);
     }

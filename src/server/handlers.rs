@@ -1,6 +1,5 @@
 /// API Request Handlers
 /// Reuses core business logic from existing modules
-
 use axum::{
     extract::{Path, Query},
     http::StatusCode,
@@ -10,11 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::core::{
-    ConfigManager, DockerManager,
-    wallet::WalletManager,
-    storage,
-    log_parser,
-    updater,
+    log_parser, storage, updater, wallet::WalletManager, ConfigManager, DockerManager,
 };
 
 // ============================================================================
@@ -34,14 +29,6 @@ impl<T> ApiResponse<T> {
             success: true,
             data: Some(data),
             error: None,
-        }
-    }
-
-    fn error(msg: String) -> Self {
-        Self {
-            success: false,
-            data: None,
-            error: Some(msg),
         }
     }
 }
@@ -75,9 +62,9 @@ pub struct ServiceInfo {
     secondary_metric: Option<String>,
     is_healthy_metric: bool,
     // Project identification
-    project_name: Option<String>,  // Docker Compose project name
+    project_name: Option<String>, // Docker Compose project name
     // Metrics availability
-    has_metrics: bool,  // Whether a plugin is available for this service
+    has_metrics: bool, // Whether a plugin is available for this service
 }
 
 // WalletInfo is now imported from crate::core::wallet module
@@ -85,19 +72,19 @@ pub struct ServiceInfo {
 #[derive(Deserialize)]
 pub struct ServicesQuery {
     #[serde(default)]
-    show_all: bool,  // Show all containers (not just IGRA)
+    show_all: bool, // Show all containers (not just IGRA)
 
     #[serde(default)]
-    profiles: Option<String>,  // Comma-separated list of profiles to filter by
+    profiles: Option<String>, // Comma-separated list of profiles to filter by
 
     #[serde(default)]
-    statuses: Option<String>,  // Comma-separated list of statuses to filter by (healthy, running, stopped, unhealthy)
+    statuses: Option<String>, // Comma-separated list of statuses to filter by (healthy, running, stopped, unhealthy)
 
     #[serde(default)]
-    project: Option<String>,  // Filter by project name
+    project: Option<String>, // Filter by project name
 
     #[serde(default)]
-    name: Option<String>,  // Filter by container name (partial match, case-insensitive)
+    name: Option<String>, // Filter by container name (partial match, case-insensitive)
 }
 
 #[derive(Deserialize)]
@@ -125,7 +112,7 @@ pub struct ParsedLogsQuery {
     #[serde(default = "default_tail")]
     tail: usize,
     #[serde(default)]
-    level: Option<String>,  // Filter: ERROR, WARN, INFO, DEBUG, TRACE
+    level: Option<String>, // Filter: ERROR, WARN, INFO, DEBUG, TRACE
     #[serde(default)]
     module: Option<String>, // Filter by module name
 }
@@ -144,23 +131,23 @@ pub struct NetworkTopology {
 pub struct NetworkNode {
     pub id: String,
     pub label: String,
-    pub node_type: String,  // "container" | "service" | "network" | "domain" | "gateway" | "firewall_rule"
-    pub status: String,     // "running" | "stopped" | "active" | "inactive"
+    pub node_type: String, // "container" | "service" | "network" | "domain" | "gateway" | "firewall_rule"
+    pub status: String,    // "running" | "stopped" | "active" | "inactive"
     pub ports: Vec<String>,
     pub ip_address: Option<String>,
-    pub layer: String,      // "internet" | "firewall" | "gateway" | "docker" | "systemd" | "management"
+    pub layer: String, // "internet" | "firewall" | "gateway" | "docker" | "systemd" | "management"
     pub metadata: HashMap<String, String>,
-    pub warnings: Vec<String>,  // Security warnings or issues
-    pub domains: Vec<String>,   // Domain names (for internet layer)
+    pub warnings: Vec<String>, // Security warnings or issues
+    pub domains: Vec<String>,  // Domain names (for internet layer)
 }
 
 #[derive(Serialize, Clone)]
 pub struct NetworkEdge {
     pub source: String,
     pub target: String,
-    pub edge_type: String,  // "port_mapping" | "network" | "dependency" | "http" | "websocket" | "ipc"
+    pub edge_type: String, // "port_mapping" | "network" | "dependency" | "http" | "websocket" | "ipc"
     pub label: Option<String>,
-    pub protocol: Option<String>,  // "http" | "ws" | "tcp" | "ipc"
+    pub protocol: Option<String>, // "http" | "ws" | "tcp" | "ipc"
     pub metadata: HashMap<String, String>,
 }
 
@@ -182,86 +169,114 @@ struct DetectedConnection {
 pub async fn get_services(
     Query(params): Query<ServicesQuery>,
 ) -> Result<Json<ApiResponse<Vec<ServiceInfo>>>, StatusCode> {
-    let docker = DockerManager::new().await
+    let docker = DockerManager::new()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let containers = docker.list_containers_filtered(params.show_all).await
+    let containers = docker
+        .list_containers_filtered(params.show_all)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Process all containers in parallel for speed
-    let tasks: Vec<_> = containers.into_iter().map(|c| {
-        tokio::spawn(async move {
-            let docker = DockerManager::new().await.ok()?;
+    let tasks: Vec<_> = containers
+        .into_iter()
+        .map(|c| {
+            tokio::spawn(async move {
+                let docker = DockerManager::new().await.ok()?;
 
-            // Get stats for resource metrics
-            let stats = docker.get_container_stats(&c.name).await.ok().flatten();
+                // Get stats for resource metrics
+                let stats = docker.get_container_stats(&c.name).await.ok().flatten();
 
-            let (cpu_percent, memory_mb, network_rx_mb, network_tx_mb, container_size_mb, volume_size_mb) = if let Some(s) = stats {
-                (
-                    s.cpu_percent,
-                    s.memory_usage as f64 / 1024.0 / 1024.0,
-                    s.network_rx as f64 / 1024.0 / 1024.0,
-                    s.network_tx as f64 / 1024.0 / 1024.0,
-                    s.container_size as f64 / 1024.0 / 1024.0,
-                    s.volume_size as f64 / 1024.0 / 1024.0,
-                )
-            } else {
-                (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-            };
+                let (
+                    cpu_percent,
+                    memory_mb,
+                    network_rx_mb,
+                    network_tx_mb,
+                    container_size_mb,
+                    volume_size_mb,
+                ) = if let Some(s) = stats {
+                    (
+                        s.cpu_percent,
+                        s.memory_usage as f64 / 1024.0 / 1024.0,
+                        s.network_rx as f64 / 1024.0 / 1024.0,
+                        s.network_tx as f64 / 1024.0 / 1024.0,
+                        s.container_size as f64 / 1024.0 / 1024.0,
+                        s.volume_size as f64 / 1024.0 / 1024.0,
+                    )
+                } else {
+                    (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+                };
 
-            // Parse ports into structured format
-            let ports: Vec<PortMapping> = c.ports.iter().filter_map(|p| {
-                if p.contains("->") {
-                    if let Some((left, right)) = p.split_once("->") {
-                        let host_port = left.rsplit_once(':').map(|(_, port)| port).unwrap_or("");
-                        let container_port = right.split_once('/').map(|(port, _)| port).unwrap_or(right);
+                // Parse ports into structured format
+                let ports: Vec<PortMapping> = c
+                    .ports
+                    .iter()
+                    .filter_map(|p| {
+                        if p.contains("->") {
+                            if let Some((left, right)) = p.split_once("->") {
+                                let host_port =
+                                    left.rsplit_once(':').map(|(_, port)| port).unwrap_or("");
+                                let container_port =
+                                    right.split_once('/').map(|(port, _)| port).unwrap_or(right);
 
-                        if !host_port.is_empty() && !host_port.starts_with(':') {
-                            return Some(PortMapping {
-                                host_port: host_port.to_string(),
-                                container_port: container_port.to_string(),
-                                protocol: "tcp".to_string(),
-                            });
+                                if !host_port.is_empty() && !host_port.starts_with(':') {
+                                    return Some(PortMapping {
+                                        host_port: host_port.to_string(),
+                                        container_port: container_port.to_string(),
+                                        protocol: "tcp".to_string(),
+                                    });
+                                }
+                            }
                         }
-                    }
-                }
-                None
-            }).collect();
+                        None
+                    })
+                    .collect();
 
-            // Fetch last 30 lines of logs and parse metrics (fast - only for key services)
-            let (status_text, primary_metric, secondary_metric, is_healthy_metric) = if c.status.contains("Up") {
-                let logs = docker.get_logs(&c.name, Some(30)).await.unwrap_or_default();
-                let metrics = log_parser::parse_service_logs(&c.name, &logs);
-                (metrics.status_text, metrics.primary_metric, metrics.secondary_metric, metrics.is_healthy)
-            } else {
-                (None, None, None, true)
-            };
+                // Fetch last 30 lines of logs and parse metrics (fast - only for key services)
+                let (status_text, primary_metric, secondary_metric, is_healthy_metric) =
+                    if c.status.contains("Up") {
+                        let logs = docker.get_logs(&c.name, Some(30)).await.unwrap_or_default();
+                        let metrics = log_parser::parse_service_logs(&c.name, &logs);
+                        (
+                            metrics.status_text,
+                            metrics.primary_metric,
+                            metrics.secondary_metric,
+                            metrics.is_healthy,
+                        )
+                    } else {
+                        (None, None, None, true)
+                    };
 
-            // Check if a metrics plugin is available for this service
-            let has_metrics = docker.metrics_registry.find_plugin(&c.name, &c.image).is_some();
+                // Check if a metrics plugin is available for this service
+                let has_metrics = docker
+                    .metrics_registry
+                    .find_plugin(&c.name, &c.image)
+                    .is_some();
 
-            Some(ServiceInfo {
-                name: c.name,
-                status: c.status,
-                health: c.health,
-                cpu_percent,
-                memory_mb,
-                network_rx_mb,
-                network_tx_mb,
-                uptime: None,
-                image: c.image,
-                ports,
-                container_size_mb,
-                volume_size_mb,
-                status_text,
-                primary_metric,
-                secondary_metric,
-                is_healthy_metric,
-                project_name: c.project_name,
-                has_metrics,
+                Some(ServiceInfo {
+                    name: c.name,
+                    status: c.status,
+                    health: c.health,
+                    cpu_percent,
+                    memory_mb,
+                    network_rx_mb,
+                    network_tx_mb,
+                    uptime: None,
+                    image: c.image,
+                    ports,
+                    container_size_mb,
+                    volume_size_mb,
+                    status_text,
+                    primary_metric,
+                    secondary_metric,
+                    is_healthy_metric,
+                    project_name: c.project_name,
+                    has_metrics,
+                })
             })
         })
-    }).collect();
+        .collect();
 
     // Wait for all parallel tasks
     let mut services = Vec::new();
@@ -272,68 +287,148 @@ pub async fn get_services(
     }
 
     // Apply filters
-    if params.profiles.is_some() || params.statuses.is_some() || params.project.is_some() || params.name.is_some() {
-        services = services.into_iter().filter(|service| {
-            // Filter by profiles (requires checking docker-compose labels)
-            if let Some(ref profiles_str) = params.profiles {
-                let requested_profiles: Vec<&str> = profiles_str.split(',').collect();
-                // TODO: This requires getting profile information from docker labels
-                // For now, we skip profile filtering in backend and rely on frontend filtering
-                // A full implementation would query docker labels: com.docker.compose.profile
-            }
+    if params.profiles.is_some()
+        || params.statuses.is_some()
+        || params.project.is_some()
+        || params.name.is_some()
+    {
+        services = services
+            .into_iter()
+            .filter(|service| {
+                // Filter by profiles (requires checking docker-compose labels)
+                if let Some(ref profiles_str) = params.profiles {
+                    let requested_profiles: Vec<&str> = profiles_str
+                        .split(',')
+                        .map(|s| s.trim())
+                        .filter(|s| !s.is_empty())
+                        .collect();
 
-            // Filter by status
-            if let Some(ref statuses_str) = params.statuses {
-                let requested_statuses: Vec<&str> = statuses_str.split(',').collect();
-                let mut status_match = false;
+                    if !requested_profiles.is_empty() {
+                        let is_in_requested_profile = requested_profiles.iter().any(|p| match *p {
+                            "kaspad" => matches!(service.name.as_str(), "kaspad" | "kaspa-miner"),
+                            "backend" => matches!(
+                                service.name.as_str(),
+                                "execution-layer" | "block-builder" | "viaduct"
+                            ),
+                            "frontend-w1" => matches!(
+                                service.name.as_str(),
+                                "traefik" | "rpc-provider-0" | "kaswallet-0"
+                            ),
+                            "frontend-w2" => matches!(
+                                service.name.as_str(),
+                                "traefik"
+                                    | "rpc-provider-0"
+                                    | "rpc-provider-1"
+                                    | "kaswallet-0"
+                                    | "kaswallet-1"
+                            ),
+                            "frontend-w3" => matches!(
+                                service.name.as_str(),
+                                "traefik"
+                                    | "rpc-provider-0"
+                                    | "rpc-provider-1"
+                                    | "rpc-provider-2"
+                                    | "kaswallet-0"
+                                    | "kaswallet-1"
+                                    | "kaswallet-2"
+                            ),
+                            "frontend-w4" => matches!(
+                                service.name.as_str(),
+                                "traefik"
+                                    | "rpc-provider-0"
+                                    | "rpc-provider-1"
+                                    | "rpc-provider-2"
+                                    | "rpc-provider-3"
+                                    | "kaswallet-0"
+                                    | "kaswallet-1"
+                                    | "kaswallet-2"
+                                    | "kaswallet-3"
+                            ),
+                            "frontend-w5" => matches!(
+                                service.name.as_str(),
+                                "traefik"
+                                    | "rpc-provider-0"
+                                    | "rpc-provider-1"
+                                    | "rpc-provider-2"
+                                    | "rpc-provider-3"
+                                    | "rpc-provider-4"
+                                    | "kaswallet-0"
+                                    | "kaswallet-1"
+                                    | "kaswallet-2"
+                                    | "kaswallet-3"
+                                    | "kaswallet-4"
+                            ),
+                            "kaswallets" => service.name.starts_with("kaswallet-"),
+                            "rpc-providers" => service.name.starts_with("rpc-provider-"),
+                            _ => false,
+                        });
 
-                for status in &requested_statuses {
-                    match *status {
-                        "healthy" => {
-                            if service.status.contains("Up") && service.status.contains("healthy") {
-                                status_match = true;
-                            }
-                        },
-                        "running" => {
-                            if service.status.contains("Up") && !service.status.contains("healthy") {
-                                status_match = true;
-                            }
-                        },
-                        "stopped" => {
-                            if service.status.contains("Exited") {
-                                status_match = true;
-                            }
-                        },
-                        "unhealthy" => {
-                            if service.status.contains("Up") && !service.status.contains("healthy") && !service.is_healthy_metric {
-                                status_match = true;
-                            }
-                        },
-                        _ => {}
+                        if !is_in_requested_profile {
+                            return false;
+                        }
                     }
                 }
 
-                if !status_match {
-                    return false;
-                }
-            }
+                // Filter by status
+                if let Some(ref statuses_str) = params.statuses {
+                    let requested_statuses: Vec<&str> = statuses_str.split(',').collect();
+                    let mut status_match = false;
 
-            // Filter by project name
-            if let Some(ref project) = params.project {
-                if service.project_name.as_ref() != Some(project) {
-                    return false;
-                }
-            }
+                    for status in &requested_statuses {
+                        match *status {
+                            "healthy" => {
+                                if service.status.contains("Up")
+                                    && service.status.contains("healthy")
+                                {
+                                    status_match = true;
+                                }
+                            }
+                            "running" => {
+                                if service.status.contains("Up")
+                                    && !service.status.contains("healthy")
+                                {
+                                    status_match = true;
+                                }
+                            }
+                            "stopped" => {
+                                if service.status.contains("Exited") {
+                                    status_match = true;
+                                }
+                            }
+                            "unhealthy" => {
+                                if service.status.contains("Up")
+                                    && !service.status.contains("healthy")
+                                    && !service.is_healthy_metric
+                                {
+                                    status_match = true;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
 
-            // Filter by container name (partial match, case-insensitive)
-            if let Some(ref name) = params.name {
-                if !service.name.to_lowercase().contains(&name.to_lowercase()) {
-                    return false;
+                    if !status_match {
+                        return false;
+                    }
                 }
-            }
 
-            true
-        }).collect();
+                // Filter by project name
+                if let Some(ref project) = params.project {
+                    if service.project_name.as_ref() != Some(project) {
+                        return false;
+                    }
+                }
+
+                // Filter by container name (partial match, case-insensitive)
+                if let Some(ref name) = params.name {
+                    if !service.name.to_lowercase().contains(&name.to_lowercase()) {
+                        return false;
+                    }
+                }
+
+                true
+            })
+            .collect();
     }
 
     Ok(Json(ApiResponse::ok(services)))
@@ -342,10 +437,13 @@ pub async fn get_services(
 pub async fn start_service(
     Path(name): Path<String>,
 ) -> Result<Json<ApiResponse<String>>, StatusCode> {
-    let docker = DockerManager::new().await
+    let docker = DockerManager::new()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    docker.start_service(&name).await
+    docker
+        .start_service(&name)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ApiResponse::ok(format!("Service {} started", name))))
@@ -354,10 +452,13 @@ pub async fn start_service(
 pub async fn stop_service(
     Path(name): Path<String>,
 ) -> Result<Json<ApiResponse<String>>, StatusCode> {
-    let docker = DockerManager::new().await
+    let docker = DockerManager::new()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    docker.stop_service(&name).await
+    docker
+        .stop_service(&name)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ApiResponse::ok(format!("Service {} stopped", name))))
@@ -366,10 +467,13 @@ pub async fn stop_service(
 pub async fn restart_service(
     Path(name): Path<String>,
 ) -> Result<Json<ApiResponse<String>>, StatusCode> {
-    let docker = DockerManager::new().await
+    let docker = DockerManager::new()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    docker.restart_service(&name).await
+    docker
+        .restart_service(&name)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ApiResponse::ok(format!("Service {} restarted", name))))
@@ -379,10 +483,18 @@ pub async fn get_logs(
     Path(name): Path<String>,
     Query(params): Query<LogsQuery>,
 ) -> Result<Json<ApiResponse<String>>, StatusCode> {
-    let docker = DockerManager::new().await
+    if params.follow {
+        // Real-time log streaming is provided via WebSocket endpoint.
+        return Err(StatusCode::NOT_IMPLEMENTED);
+    }
+
+    let docker = DockerManager::new()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let logs = docker.get_logs(&name, Some(params.tail)).await
+    let logs = docker
+        .get_logs(&name, Some(params.tail))
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ApiResponse::ok(logs)))
@@ -392,10 +504,13 @@ pub async fn get_logs_parsed(
     Path(name): Path<String>,
     Query(params): Query<ParsedLogsQuery>,
 ) -> Result<Json<ApiResponse<Vec<ParsedLogLine>>>, StatusCode> {
-    let docker = DockerManager::new().await
+    let docker = DockerManager::new()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let logs = docker.get_logs(&name, Some(params.tail)).await
+    let logs = docker
+        .get_logs(&name, Some(params.tail))
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Parse each log line
@@ -431,11 +546,13 @@ pub async fn get_logs_parsed(
 // Wallet Handlers
 // ============================================================================
 
-pub async fn get_wallets() -> Result<Json<ApiResponse<Vec<crate::core::wallet::WalletInfo>>>, StatusCode> {
-    let wallet_manager = WalletManager::new()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+pub async fn get_wallets(
+) -> Result<Json<ApiResponse<Vec<crate::core::wallet::WalletInfo>>>, StatusCode> {
+    let wallet_manager = WalletManager::new().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let wallets = wallet_manager.list_wallets().await
+    let wallets = wallet_manager
+        .list_wallets()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ApiResponse::ok(wallets)))
@@ -444,10 +561,11 @@ pub async fn get_wallets() -> Result<Json<ApiResponse<Vec<crate::core::wallet::W
 pub async fn get_wallet_balance(
     Path(id): Path<usize>,
 ) -> Result<Json<ApiResponse<String>>, StatusCode> {
-    let wallet_manager = WalletManager::new()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let wallet_manager = WalletManager::new().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let balance = wallet_manager.get_balance(id).await
+    let balance = wallet_manager
+        .get_balance(id)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ApiResponse::ok(format!("{:.2} KAS", balance))))
@@ -456,10 +574,11 @@ pub async fn get_wallet_balance(
 pub async fn get_wallet_detail(
     Path(id): Path<usize>,
 ) -> Result<Json<ApiResponse<Vec<crate::core::wallet::UtxoInfo>>>, StatusCode> {
-    let wallet_manager = WalletManager::new()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let wallet_manager = WalletManager::new().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let utxos = wallet_manager.get_utxos(id).await
+    let utxos = wallet_manager
+        .get_utxos(id)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ApiResponse::ok(utxos)))
@@ -470,15 +589,16 @@ pub async fn get_wallet_detail(
 // ============================================================================
 
 pub async fn get_storage() -> Result<Json<ApiResponse<storage::StorageAnalysis>>, StatusCode> {
-    let analysis = storage::analyze_storage().await
+    let analysis = storage::analyze_storage()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ApiResponse::ok(analysis)))
 }
 
-pub async fn get_storage_history() -> Result<Json<ApiResponse<Vec<storage::StorageMeasurement>>>, StatusCode> {
-    let history = storage::StorageHistory::load()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+pub async fn get_storage_history(
+) -> Result<Json<ApiResponse<Vec<storage::StorageMeasurement>>>, StatusCode> {
+    let history = storage::StorageHistory::load().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ApiResponse::ok(history.measurements)))
 }
@@ -493,7 +613,10 @@ pub async fn prune_storage() -> Result<Json<ApiResponse<String>>, StatusCode> {
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
-        Ok(Json(ApiResponse::ok(format!("Prune completed: {}", stdout))))
+        Ok(Json(ApiResponse::ok(format!(
+            "Prune completed: {}",
+            stdout
+        ))))
     } else {
         Err(StatusCode::INTERNAL_SERVER_ERROR)
     }
@@ -512,9 +635,10 @@ pub async fn truncate_container_log(
     ))))
 }
 
-pub async fn get_log_rotation_config() -> Result<Json<ApiResponse<storage::LogRotationConfig>>, StatusCode> {
-    let config = storage::get_log_rotation_config()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+pub async fn get_log_rotation_config(
+) -> Result<Json<ApiResponse<storage::LogRotationConfig>>, StatusCode> {
+    let config =
+        storage::get_log_rotation_config().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ApiResponse::ok(config)))
 }
@@ -526,7 +650,7 @@ pub async fn update_global_log_rotation(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ApiResponse::ok(
-        "Global log rotation settings updated. Restart containers to apply changes.".to_string()
+        "Global log rotation settings updated. Restart containers to apply changes.".to_string(),
     )))
 }
 
@@ -546,9 +670,10 @@ pub async fn update_container_log_rotation(
     storage::update_container_log_rotation(&container_name, Some(&settings))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(ApiResponse::ok(
-        format!("Log rotation settings updated for '{}'. Restart container to apply changes.", container_name)
-    )))
+    Ok(Json(ApiResponse::ok(format!(
+        "Log rotation settings updated for '{}'. Restart container to apply changes.",
+        container_name
+    ))))
 }
 
 pub async fn delete_container_log_rotation(
@@ -557,9 +682,10 @@ pub async fn delete_container_log_rotation(
     storage::update_container_log_rotation(&container_name, None)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(ApiResponse::ok(
-        format!("'{}' will now use global log rotation settings. Restart container to apply changes.", container_name)
-    )))
+    Ok(Json(ApiResponse::ok(format!(
+        "'{}' will now use global log rotation settings. Restart container to apply changes.",
+        container_name
+    ))))
 }
 
 // ============================================================================
@@ -567,16 +693,17 @@ pub async fn delete_container_log_rotation(
 // ============================================================================
 
 pub async fn get_config() -> Result<Json<ApiResponse<HashMap<String, String>>>, StatusCode> {
-    let config_manager = ConfigManager::load_from_project()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let config_manager =
+        ConfigManager::load_from_project().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let config = config_manager.to_map();
 
     Ok(Json(ApiResponse::ok(config)))
 }
 
-pub async fn get_system_info() -> Result<Json<ApiResponse<crate::app::SystemResources>>, StatusCode> {
-    let system_resources = crate::app::App::collect_system_resources();
+pub async fn get_system_info(
+) -> Result<Json<ApiResponse<crate::server::SystemResources>>, StatusCode> {
+    let system_resources = crate::server::collect_system_resources();
     Ok(Json(ApiResponse::ok(system_resources)))
 }
 
@@ -587,10 +714,11 @@ pub struct RpcToken {
 }
 
 pub async fn get_rpc_tokens() -> Result<Json<ApiResponse<Vec<RpcToken>>>, StatusCode> {
-    let config = ConfigManager::load_from_project()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let config =
+        ConfigManager::load_from_project().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let tokens: Vec<RpcToken> = config.get_rpc_tokens()
+    let tokens: Vec<RpcToken> = config
+        .get_rpc_tokens()
         .into_iter()
         .map(|(index, token)| RpcToken { index, token })
         .collect();
@@ -605,8 +733,8 @@ pub struct SslInfo {
 }
 
 pub async fn get_ssl_info() -> Result<Json<ApiResponse<SslInfo>>, StatusCode> {
-    let config = ConfigManager::load_from_project()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let config =
+        ConfigManager::load_from_project().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let domain_config = config.get_domain_config();
     let info = SslInfo {
@@ -635,20 +763,23 @@ pub struct MetricsInfo {
 }
 
 pub async fn get_metrics() -> Result<Json<ApiResponse<MetricsInfo>>, StatusCode> {
-    use sysinfo::{System, Disks, CpuRefreshKind, MemoryRefreshKind, RefreshKind};
+    use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, RefreshKind, System};
 
-    let docker = DockerManager::new().await
+    let docker = DockerManager::new()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Get Docker container count
-    let containers = docker.list_containers().await
+    let containers = docker
+        .list_containers()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Initialize system info with CPU refresh
     let mut sys = System::new_with_specifics(
         RefreshKind::new()
             .with_cpu(CpuRefreshKind::everything())
-            .with_memory(MemoryRefreshKind::everything())
+            .with_memory(MemoryRefreshKind::everything()),
     );
 
     // Refresh to get accurate metrics
@@ -706,10 +837,13 @@ pub struct ProfileInfo {
 }
 
 pub async fn get_profiles() -> Result<Json<ApiResponse<Vec<ProfileInfo>>>, StatusCode> {
-    let docker = DockerManager::new().await
+    let docker = DockerManager::new()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let containers = docker.list_containers().await
+    let containers = docker
+        .list_containers()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let active_profiles = DockerManager::get_active_profiles_from_list(&containers);
@@ -717,14 +851,38 @@ pub async fn get_profiles() -> Result<Json<ApiResponse<Vec<ProfileInfo>>>, Statu
     // Define all available profiles and their services
     let all_profiles = vec![
         ("kaspad", vec!["kaspad", "kaspa-miner"]),
-        ("backend", vec!["execution-layer", "block-builder", "viaduct"]),
-        ("frontend-w1", vec!["traefik", "rpc-provider-0", "kaswallet-0"]),
+        (
+            "backend",
+            vec!["execution-layer", "block-builder", "viaduct"],
+        ),
+        (
+            "frontend-w1",
+            vec!["traefik", "rpc-provider-0", "kaswallet-0"],
+        ),
         ("frontend-w2", vec!["rpc-provider-1", "kaswallet-1"]),
         ("frontend-w3", vec!["rpc-provider-2", "kaswallet-2"]),
         ("frontend-w4", vec!["rpc-provider-3", "kaswallet-3"]),
         ("frontend-w5", vec!["rpc-provider-4", "kaswallet-4"]),
-        ("kaswallets", vec!["kaswallet-0", "kaswallet-1", "kaswallet-2", "kaswallet-3", "kaswallet-4"]),
-        ("rpc-providers", vec!["rpc-provider-0", "rpc-provider-1", "rpc-provider-2", "rpc-provider-3", "rpc-provider-4"]),
+        (
+            "kaswallets",
+            vec![
+                "kaswallet-0",
+                "kaswallet-1",
+                "kaswallet-2",
+                "kaswallet-3",
+                "kaswallet-4",
+            ],
+        ),
+        (
+            "rpc-providers",
+            vec![
+                "rpc-provider-0",
+                "rpc-provider-1",
+                "rpc-provider-2",
+                "rpc-provider-3",
+                "rpc-provider-4",
+            ],
+        ),
     ];
 
     let profiles: Vec<ProfileInfo> = all_profiles
@@ -742,10 +900,13 @@ pub async fn get_profiles() -> Result<Json<ApiResponse<Vec<ProfileInfo>>>, Statu
 pub async fn start_profile(
     Path(name): Path<String>,
 ) -> Result<Json<ApiResponse<String>>, StatusCode> {
-    let docker = DockerManager::new().await
+    let docker = DockerManager::new()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    docker.start_profile(&name).await
+    docker
+        .start_profile(&name)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ApiResponse::ok(format!("Profile {} started", name))))
@@ -754,10 +915,13 @@ pub async fn start_profile(
 pub async fn stop_profile(
     Path(name): Path<String>,
 ) -> Result<Json<ApiResponse<String>>, StatusCode> {
-    let docker = DockerManager::new().await
+    let docker = DockerManager::new()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    docker.stop_profile(&name).await
+    docker
+        .stop_profile(&name)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ApiResponse::ok(format!("Profile {} stopped", name))))
@@ -767,7 +931,9 @@ pub async fn stop_profile(
 // Transaction Monitoring Handlers
 // ============================================================================
 
-use crate::core::l2_monitor::{TransactionMonitor, TransactionInfo as L2TransactionInfo, Statistics};
+use crate::core::l2_monitor::{
+    Statistics, TransactionInfo as L2TransactionInfo, TransactionMonitor,
+};
 
 #[derive(Serialize)]
 pub struct TransactionInfo {
@@ -845,17 +1011,18 @@ fn default_tx_limit() -> usize {
 pub async fn get_transactions(
     Query(params): Query<TransactionsQuery>,
 ) -> Result<Json<ApiResponse<Vec<TransactionInfo>>>, StatusCode> {
-    let monitor = TransactionMonitor::new().await
+    let monitor = TransactionMonitor::new()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let transactions = monitor.poll_new_transactions().await
+    let transactions = monitor
+        .poll_new_transactions()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Convert and filter
-    let mut converted: Vec<TransactionInfo> = transactions
-        .into_iter()
-        .map(|tx| tx.into())
-        .collect();
+    let mut converted: Vec<TransactionInfo> =
+        transactions.into_iter().map(|tx| tx.into()).collect();
 
     // Apply filter if specified
     if let Some(filter) = params.filter {
@@ -872,7 +1039,8 @@ pub async fn get_transactions(
 }
 
 pub async fn get_transaction_stats() -> Result<Json<ApiResponse<TransactionStats>>, StatusCode> {
-    let monitor = TransactionMonitor::new().await
+    let monitor = TransactionMonitor::new()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let stats = monitor.get_statistics().await;
@@ -887,7 +1055,8 @@ pub async fn get_transaction_stats() -> Result<Json<ApiResponse<TransactionStats
 /// Check for updates from GitHub releases
 /// Uses core::updater module - same business logic as TUI and CLI
 pub async fn get_version_info() -> Result<Json<ApiResponse<updater::VersionInfo>>, StatusCode> {
-    let version_info = updater::check_for_updates().await
+    let version_info = updater::check_for_updates()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ApiResponse::ok(version_info)))
@@ -903,9 +1072,9 @@ pub struct UpdateStatus {
 /// Trigger automatic update
 /// Downloads latest release, installs it, and restarts the service
 pub async fn trigger_update() -> Result<Json<ApiResponse<UpdateStatus>>, StatusCode> {
-    use std::process::Command;
-    use std::path::Path;
     use std::fs;
+    use std::path::Path;
+    use std::process::Command;
 
     // Download latest release to /tmp
     let download_path = Path::new("/tmp/igra-cli-update");
@@ -981,7 +1150,12 @@ systemctl start igra-web-ui 2>/dev/null || sudo systemctl start igra-web-ui
                 // Use systemd-run to execute the script detached from the service
                 // This ensures the script continues after the service stops
                 let _ = Command::new("systemd-run")
-                    .args(&["--scope", "--unit=igra-cli-update", "bash", "/tmp/igra-update.sh"])
+                    .args(&[
+                        "--scope",
+                        "--unit=igra-cli-update",
+                        "bash",
+                        "/tmp/igra-update.sh",
+                    ])
                     .spawn();
             });
 
@@ -991,13 +1165,11 @@ systemctl start igra-web-ui 2>/dev/null || sudo systemctl start igra-web-ui
                 success: true,
             })))
         }
-        Err(e) => {
-            Ok(Json(ApiResponse::ok(UpdateStatus {
-                message: format!("Failed to download update: {}", e),
-                step: "download_failed".to_string(),
-                success: false,
-            })))
-        }
+        Err(e) => Ok(Json(ApiResponse::ok(UpdateStatus {
+            message: format!("Failed to download update: {}", e),
+            step: "download_failed".to_string(),
+            success: false,
+        }))),
     }
 }
 
@@ -1021,7 +1193,8 @@ pub async fn restart_igra_service() -> Result<Json<ApiResponse<UpdateStatus>>, S
     });
 
     Ok(Json(ApiResponse::ok(UpdateStatus {
-        message: "Service will restart in 2 seconds... Please refresh this page in a few seconds.".to_string(),
+        message: "Service will restart in 2 seconds... Please refresh this page in a few seconds."
+            .to_string(),
         step: "restarting".to_string(),
         success: true,
     })))
@@ -1040,10 +1213,13 @@ pub struct UpdateNoteRequest {
 pub async fn get_service_details(
     Path(service_name): Path<String>,
 ) -> Result<Json<crate::core::docker::ServiceDetails>, StatusCode> {
-    let docker = DockerManager::new().await
+    let docker = DockerManager::new()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let details = docker.get_service_details(&service_name).await
+    let details = docker
+        .get_service_details(&service_name)
+        .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
 
     Ok(Json(details))
@@ -1053,19 +1229,22 @@ pub async fn get_service_details(
 pub async fn get_service_note(
     Path(service_name): Path<String>,
 ) -> Result<Json<ApiResponse<String>>, StatusCode> {
-    let docker = DockerManager::new().await
+    let docker = DockerManager::new()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Get container to determine image
-    let containers = docker.list_containers().await
+    let containers = docker
+        .list_containers()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let container = containers.iter()
+    let container = containers
+        .iter()
         .find(|c| c.name == service_name || c.name.trim_start_matches('/') == service_name)
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let notes = crate::core::service_notes::ServiceNotes::load()
-        .unwrap_or_default();
+    let notes = crate::core::service_notes::ServiceNotes::load().unwrap_or_default();
 
     let note = notes.get_note(&service_name, &container.image);
 
@@ -1077,26 +1256,28 @@ pub async fn update_service_note(
     Path(service_name): Path<String>,
     Json(payload): Json<UpdateNoteRequest>,
 ) -> Result<Json<ApiResponse<String>>, StatusCode> {
-    let mut notes = crate::core::service_notes::ServiceNotes::load()
-        .unwrap_or_default();
+    let mut notes = crate::core::service_notes::ServiceNotes::load().unwrap_or_default();
 
     notes.set_note(service_name.clone(), payload.note.clone());
 
-    notes.save()
+    notes
+        .save()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(ApiResponse::ok("Note updated successfully".to_string())))
+    Ok(Json(ApiResponse::ok(
+        "Note updated successfully".to_string(),
+    )))
 }
 
 // ============================================================================
 // User Management Endpoints (Admin Only)
 // ============================================================================
 
-use crate::server::auth_handlers::{require_auth, require_admin};
+use crate::server::auth_handlers::{require_admin, require_auth};
 
+use crate::server::auth_backend::FileAuthBackend;
 #[cfg(feature = "server")]
 use axum_login::AuthSession;
-use crate::server::auth_backend::FileAuthBackend;
 
 #[derive(Serialize)]
 pub struct UserInfo {
@@ -1133,18 +1314,22 @@ pub async fn get_users(
     let config_dir = dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("igra-cli");
-    
-    let user_mgr = crate::core::UserManager::new(config_dir)
+
+    let user_mgr =
+        crate::core::UserManager::new(config_dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let users = user_mgr
+        .load_users()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
-    let users = user_mgr.load_users()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
-    let user_infos: Vec<UserInfo> = users.into_iter().map(|u| UserInfo {
-        username: u.username,
-        roles: u.roles.iter().map(|r| r.to_string()).collect(),
-        enabled: u.enabled,
-    }).collect();
+
+    let user_infos: Vec<UserInfo> = users
+        .into_iter()
+        .map(|u| UserInfo {
+            username: u.username,
+            roles: u.roles.iter().map(|r| r.to_string()).collect(),
+            enabled: u.enabled,
+        })
+        .collect();
 
     Ok(Json(ApiResponse::ok(user_infos)))
 }
@@ -1161,12 +1346,14 @@ pub async fn add_user(
     let config_dir = dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("igra-cli");
-    
-    let user_mgr = crate::core::UserManager::new(config_dir)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let user_mgr =
+        crate::core::UserManager::new(config_dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Parse roles
-    let role_set: std::collections::HashSet<_> = payload.roles.iter()
+    let role_set: std::collections::HashSet<_> = payload
+        .roles
+        .iter()
         .filter_map(|r| r.parse().ok())
         .collect();
 
@@ -1176,10 +1363,14 @@ pub async fn add_user(
 
     // Create user
     let new_user = crate::core::User::new(payload.username.clone(), password_hash, role_set);
-    user_mgr.add_user(new_user)
+    user_mgr
+        .add_user(new_user)
         .map_err(|_| StatusCode::CONFLICT)?;
 
-    Ok(Json(ApiResponse::ok(format!("User '{}' created successfully", payload.username))))
+    Ok(Json(ApiResponse::ok(format!(
+        "User '{}' created successfully",
+        payload.username
+    ))))
 }
 
 /// DELETE /api/users/:username - Remove a user (admin only)
@@ -1194,14 +1385,18 @@ pub async fn delete_user(
     let config_dir = dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("igra-cli");
-    
-    let user_mgr = crate::core::UserManager::new(config_dir)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    user_mgr.remove_user(&username)
+    let user_mgr =
+        crate::core::UserManager::new(config_dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    user_mgr
+        .remove_user(&username)
         .map_err(|_| StatusCode::NOT_FOUND)?;
 
-    Ok(Json(ApiResponse::ok(format!("User '{}' deleted successfully", username))))
+    Ok(Json(ApiResponse::ok(format!(
+        "User '{}' deleted successfully",
+        username
+    ))))
 }
 
 /// PUT /api/users/:username/password - Reset user password (admin only)
@@ -1218,15 +1413,16 @@ pub async fn reset_user_password(
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("igra-cli");
 
-    let user_mgr = crate::core::UserManager::new(config_dir)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let user_mgr =
+        crate::core::UserManager::new(config_dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Hash password
     let password_hash = crate::core::user_manager::hash_password(&payload.password)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Get existing user and update
-    let existing_user_opt = user_mgr.get_user(&username)
+    let existing_user_opt = user_mgr
+        .get_user(&username)
         .map_err(|_| StatusCode::NOT_FOUND)?;
 
     let mut existing_user = existing_user_opt.ok_or(StatusCode::NOT_FOUND)?;
@@ -1234,10 +1430,14 @@ pub async fn reset_user_password(
     existing_user.password_hash = password_hash;
     existing_user.force_password_change = false; // Clear flag after password change
 
-    user_mgr.update_user(&username, existing_user)
+    user_mgr
+        .update_user(&username, existing_user)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(ApiResponse::ok(format!("Password for '{}' reset successfully", username))))
+    Ok(Json(ApiResponse::ok(format!(
+        "Password for '{}' reset successfully",
+        username
+    ))))
 }
 
 /// PUT /api/users/:username/roles - Update user roles (admin only)
@@ -1254,17 +1454,20 @@ pub async fn update_user_roles(
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("igra-cli");
 
-    let user_mgr = crate::core::UserManager::new(config_dir)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let user_mgr =
+        crate::core::UserManager::new(config_dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Get existing user
-    let existing_user_opt = user_mgr.get_user(&username)
+    let existing_user_opt = user_mgr
+        .get_user(&username)
         .map_err(|_| StatusCode::NOT_FOUND)?;
 
     let existing_user = existing_user_opt.ok_or(StatusCode::NOT_FOUND)?;
 
     // Parse new roles
-    let role_set: std::collections::HashSet<_> = payload.roles.iter()
+    let role_set: std::collections::HashSet<_> = payload
+        .roles
+        .iter()
         .filter_map(|r| r.parse().ok())
         .collect();
 
@@ -1272,14 +1475,18 @@ pub async fn update_user_roles(
     let mut updated_user = crate::core::User::new(
         existing_user.username.clone(),
         existing_user.password_hash.clone(),
-        role_set
+        role_set,
     );
     updated_user.force_password_change = existing_user.force_password_change;
 
-    user_mgr.update_user(&username, updated_user)
+    user_mgr
+        .update_user(&username, updated_user)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(ApiResponse::ok(format!("Roles for '{}' updated successfully", username))))
+    Ok(Json(ApiResponse::ok(format!(
+        "Roles for '{}' updated successfully",
+        username
+    ))))
 }
 
 // ============================================================================
@@ -1302,11 +1509,12 @@ pub async fn get_security_config(
     let config_dir = dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("igra-cli");
-    
+
     let security_mgr = crate::core::SecurityManager::new(config_dir)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let config = security_mgr.load_config()
+    let config = security_mgr
+        .load_config()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ApiResponse::ok(config)))
@@ -1324,14 +1532,18 @@ pub async fn add_allowed_network(
     let config_dir = dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("igra-cli");
-    
+
     let security_mgr = crate::core::SecurityManager::new(config_dir)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    security_mgr.add_network(payload.network.clone())
+    security_mgr
+        .add_network(payload.network.clone())
         .map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    Ok(Json(ApiResponse::ok(format!("Added {} to allowlist", payload.network))))
+    Ok(Json(ApiResponse::ok(format!(
+        "Added {} to allowlist",
+        payload.network
+    ))))
 }
 
 /// DELETE /api/security/ips/:network - Remove IP network from allowlist (admin only)
@@ -1346,15 +1558,19 @@ pub async fn remove_allowed_network(
     let config_dir = dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("igra-cli");
-    
+
     let security_mgr = crate::core::SecurityManager::new(config_dir)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let removed = security_mgr.remove_network(&network)
+    let removed = security_mgr
+        .remove_network(&network)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if removed {
-        Ok(Json(ApiResponse::ok(format!("Removed {} from allowlist", network))))
+        Ok(Json(ApiResponse::ok(format!(
+            "Removed {} from allowlist",
+            network
+        ))))
     } else {
         Err(StatusCode::NOT_FOUND)
     }
@@ -1376,15 +1592,17 @@ pub async fn get_audit_logs(
     let config_dir = dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("igra-cli");
-    
-    let audit_logger = crate::core::AuditLogger::new(config_dir)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let limit = params.get("limit")
+    let audit_logger =
+        crate::core::AuditLogger::new(config_dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let limit = params
+        .get("limit")
         .and_then(|l| l.parse().ok())
         .unwrap_or(50);
 
-    let events = audit_logger.read_recent(limit)
+    let events = audit_logger
+        .read_recent(limit)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ApiResponse::ok(events)))
@@ -1402,10 +1620,11 @@ pub async fn export_audit_logs(
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("igra-cli");
 
-    let audit_logger = crate::core::AuditLogger::new(config_dir)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let audit_logger =
+        crate::core::AuditLogger::new(config_dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let events = audit_logger.export_all()
+    let events = audit_logger
+        .export_all()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ApiResponse::ok(events)))
@@ -1458,7 +1677,10 @@ fn extract_nginx_proxy_pass(content: &str) -> Vec<DetectedConnection> {
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("proxy_pass") {
-            if let Some(url_part) = trimmed.strip_prefix("proxy_pass").and_then(|s| s.trim().strip_suffix(';')) {
+            if let Some(url_part) = trimmed
+                .strip_prefix("proxy_pass")
+                .and_then(|s| s.trim().strip_suffix(';'))
+            {
                 let url = url_part.trim();
                 if let Some((host, port, protocol)) = parse_url_value(url) {
                     connections.push(DetectedConnection {
@@ -1478,7 +1700,10 @@ fn extract_nginx_proxy_pass(content: &str) -> Vec<DetectedConnection> {
 }
 
 /// Parse environment variables for connection URLs and hostnames
-fn parse_env_connections(container_name: &str, env_vars: &HashMap<String, String>) -> Vec<DetectedConnection> {
+fn parse_env_connections(
+    container_name: &str,
+    env_vars: &HashMap<String, String>,
+) -> Vec<DetectedConnection> {
     let mut connections = Vec::new();
 
     for (key, value) in env_vars {
@@ -1495,7 +1720,11 @@ fn parse_env_connections(container_name: &str, env_vars: &HashMap<String, String
                     target: conn.0,
                     port: conn.1,
                     protocol: conn.2.clone(),
-                    connection_type: if conn.2 == "ws" || conn.2 == "wss" { "websocket".to_string() } else { "http".to_string() },
+                    connection_type: if conn.2 == "ws" || conn.2 == "wss" {
+                        "websocket".to_string()
+                    } else {
+                        "http".to_string()
+                    },
                     label: Some(key.clone()),
                 });
             }
@@ -1526,7 +1755,10 @@ fn parse_url_value(value: &str) -> Option<(String, Option<u16>, String)> {
 }
 
 /// Parse command arguments for connection strings
-fn parse_arg_connections(container_name: &str, command: &Option<String>) -> Vec<DetectedConnection> {
+fn parse_arg_connections(
+    container_name: &str,
+    command: &Option<String>,
+) -> Vec<DetectedConnection> {
     let mut connections = Vec::new();
 
     if let Some(cmd) = command {
@@ -1545,7 +1777,11 @@ fn parse_arg_connections(container_name: &str, command: &Option<String>) -> Vec<
                             target: conn.0,
                             port: conn.1,
                             protocol: conn.2.clone(),
-                            connection_type: if conn.2 == "ws" { "websocket".to_string() } else { "tcp".to_string() },
+                            connection_type: if conn.2 == "ws" {
+                                "websocket".to_string()
+                            } else {
+                                "tcp".to_string()
+                            },
                             label: Some(arg.split('=').next().unwrap().to_string()),
                         });
                     }
@@ -1559,7 +1795,11 @@ fn parse_arg_connections(container_name: &str, command: &Option<String>) -> Vec<
                         target: conn.0,
                         port: conn.1,
                         protocol: conn.2.clone(),
-                        connection_type: if conn.2 == "ws" { "websocket".to_string() } else { "tcp".to_string() },
+                        connection_type: if conn.2 == "ws" {
+                            "websocket".to_string()
+                        } else {
+                            "tcp".to_string()
+                        },
                         label: Some("--server".to_string()),
                     });
                 }
@@ -1574,7 +1814,9 @@ fn parse_arg_connections(container_name: &str, command: &Option<String>) -> Vec<
 }
 
 /// Detect IPC socket connections via shared volumes
-fn detect_ipc_connections(containers: &[(String, Vec<(String, String)>)]) -> Vec<DetectedConnection> {
+fn detect_ipc_connections(
+    containers: &[(String, Vec<(String, String)>)],
+) -> Vec<DetectedConnection> {
     let mut connections = Vec::new();
     let mut volume_map: HashMap<String, Vec<String>> = HashMap::new();
 
@@ -1583,7 +1825,8 @@ fn detect_ipc_connections(containers: &[(String, Vec<(String, String)>)]) -> Vec
         for (volume_name, _dest) in mounts {
             // Only consider named volumes or tmpfs mounts (like reth_ipc)
             if !volume_name.starts_with('/') {
-                volume_map.entry(volume_name.clone())
+                volume_map
+                    .entry(volume_name.clone())
                     .or_insert_with(Vec::new)
                     .push(container_name.clone());
             }
@@ -1592,10 +1835,12 @@ fn detect_ipc_connections(containers: &[(String, Vec<(String, String)>)]) -> Vec
 
     // Create IPC connections for shared volumes
     for (volume_name, container_names) in volume_map {
-        if container_names.len() >= 2 && (volume_name.contains("ipc") || volume_name.contains("sock")) {
+        if container_names.len() >= 2
+            && (volume_name.contains("ipc") || volume_name.contains("sock"))
+        {
             // Create bidirectional connections for IPC
             for i in 0..container_names.len() {
-                for j in (i+1)..container_names.len() {
+                for j in (i + 1)..container_names.len() {
                     connections.push(DetectedConnection {
                         source: container_names[i].clone(),
                         target: container_names[j].clone(),
@@ -1613,7 +1858,10 @@ fn detect_ipc_connections(containers: &[(String, Vec<(String, String)>)]) -> Vec
 }
 
 /// Parse Traefik labels for routing rules
-fn parse_traefik_labels(container_name: &str, labels: &HashMap<String, String>) -> Vec<DetectedConnection> {
+fn parse_traefik_labels(
+    container_name: &str,
+    labels: &HashMap<String, String>,
+) -> Vec<DetectedConnection> {
     let mut connections = Vec::new();
 
     // Check if traefik is enabled
@@ -1646,7 +1894,7 @@ fn parse_traefik_labels(container_name: &str, labels: &HashMap<String, String>) 
             // Extract Host() value
             if let Some(start) = rule.find("Host(") {
                 if let Some(end) = rule[start..].find(')') {
-                    let host_part = &rule[start+5..start+end];
+                    let host_part = &rule[start + 5..start + end];
                     // Remove quotes and backticks
                     let host = host_part.trim_matches(|c| c == '\'' || c == '`' || c == '"');
                     parts.push(host.to_string());
@@ -1656,7 +1904,7 @@ fn parse_traefik_labels(container_name: &str, labels: &HashMap<String, String>) 
             // Extract PathPrefix() value
             if let Some(start) = rule.find("PathPrefix(") {
                 if let Some(end) = rule[start..].find(')') {
-                    let path_part = &rule[start+11..start+end];
+                    let path_part = &rule[start + 11..start + end];
                     // Remove quotes and backticks
                     let path = path_part.trim_matches(|c| c == '\'' || c == '`' || c == '"');
 
@@ -1707,7 +1955,8 @@ fn parse_traefik_labels(container_name: &str, labels: &HashMap<String, String>) 
 
 /// GET /api/network-topology - Get network topology visualization data
 pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>, StatusCode> {
-    let docker = DockerManager::new().await
+    let docker = DockerManager::new()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let mut nodes = Vec::new();
@@ -1716,7 +1965,7 @@ pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>
     let mut container_mounts: Vec<(String, Vec<(String, String)>)> = Vec::new();
 
     // Initialize data source modules
-    use crate::core::{FirewallManager, NginxParser, NetworkInfoDetector, SecurityScanner};
+    use crate::core::{FirewallManager, NetworkInfoDetector, NginxParser, SecurityScanner};
 
     let firewall_mgr = FirewallManager::new();
     let nginx_parser = NginxParser::new();
@@ -1739,11 +1988,17 @@ pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>
         node_type: "gateway".to_string(),
         status: "active".to_string(),
         ports: vec![],
-        ip_address: network_info.public_ipv4.clone().or_else(|| Some("External Gateway".to_string())),
+        ip_address: network_info
+            .public_ipv4
+            .clone()
+            .or_else(|| Some("External Gateway".to_string())),
         layer: "internet".to_string(),
         metadata: {
             let mut m = HashMap::new();
-            m.insert("description".to_string(), "External router providing internet connectivity".to_string());
+            m.insert(
+                "description".to_string(),
+                "External router providing internet connectivity".to_string(),
+            );
             if let Some(ref ipv4) = network_info.public_ipv4 {
                 m.insert("public_ipv4".to_string(), ipv4.clone());
             }
@@ -1764,13 +2019,23 @@ pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>
         id: "firewall".to_string(),
         label: "Firewall (UFW)".to_string(),
         node_type: "gateway".to_string(),
-        status: if firewall_status.is_some() { "active".to_string() } else { "unknown".to_string() },
+        status: if firewall_status.is_some() {
+            "active".to_string()
+        } else {
+            "unknown".to_string()
+        },
         ports: vec![],
-        ip_address: network_info.lan_ip.clone().or_else(|| Some("LAN Gateway".to_string())),
+        ip_address: network_info
+            .lan_ip
+            .clone()
+            .or_else(|| Some("LAN Gateway".to_string())),
         layer: "firewall".to_string(),
         metadata: {
             let mut m = HashMap::new();
-            m.insert("description".to_string(), "Firewall protecting internal network".to_string());
+            m.insert(
+                "description".to_string(),
+                "Firewall protecting internal network".to_string(),
+            );
             if let Some(ref fw_status) = firewall_status {
                 m.insert("ufw_active".to_string(), fw_status.active.to_string());
                 m.insert("rule_count".to_string(), fw_status.rules.len().to_string());
@@ -1795,7 +2060,9 @@ pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>
     });
 
     // 2. Get all Docker containers with full details
-    let containers = docker.list_containers_filtered(true).await
+    let containers = docker
+        .list_containers_filtered(true)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     for container in &containers {
@@ -1808,16 +2075,17 @@ pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>
         // Get detailed service info
         let details = docker.get_service_details(&container.name).await.ok();
 
-        let ip_address = details.as_ref()
+        let ip_address = details
+            .as_ref()
             .and_then(|d| d.networks.first())
             .map(|n| n.ip_address.clone());
 
         // Determine layer for Docker containers
         // Containers with nginx/traefik go in gateway layer, others in docker layer
-        let is_gateway = container.name.contains("traefik") ||
-                        container.name.contains("nginx") ||
-                        container.image.contains("traefik") ||
-                        container.image.contains("nginx");
+        let is_gateway = container.name.contains("traefik")
+            || container.name.contains("nginx")
+            || container.image.contains("traefik")
+            || container.image.contains("nginx");
 
         let layer = if is_gateway {
             "gateway".to_string()
@@ -1834,7 +2102,9 @@ pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>
         }
 
         // Collect exposed ports for security scanning
-        let exposed_ports: Vec<(u16, String)> = container.ports.iter()
+        let exposed_ports: Vec<(u16, String)> = container
+            .ports
+            .iter()
             .filter_map(|p| {
                 if let Some(port_num) = p.split('/').next().and_then(|s| s.parse().ok()) {
                     Some((port_num, container.name.clone()))
@@ -1849,7 +2119,9 @@ pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>
         if !exposed_ports.is_empty() {
             let warnings = security_scanner.scan_public_ports(&exposed_ports);
             container_warnings.extend(
-                warnings.iter().map(|w| format!("{}: {}", w.severity, w.description))
+                warnings
+                    .iter()
+                    .map(|w| format!("{}: {}", w.severity, w.description)),
             );
         }
 
@@ -1878,7 +2150,9 @@ pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>
             all_connections.extend(parse_traefik_labels(&container.name, &d.labels));
 
             // Collect mounts for IPC detection
-            let mounts: Vec<(String, String)> = d.mounts.iter()
+            let mounts: Vec<(String, String)> = d
+                .mounts
+                .iter()
                 .map(|m| (m.source.clone(), m.destination.clone()))
                 .collect();
             container_mounts.push((container.name.clone(), mounts));
@@ -1892,7 +2166,8 @@ pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>
                 // Add network node if not present
                 if !nodes.iter().any(|n| n.id == network_id) {
                     // Find CIDR for this network
-                    let cidr = docker_networks.iter()
+                    let cidr = docker_networks
+                        .iter()
                         .find(|n| n.name == network.name)
                         .and_then(|n| n.cidr.clone());
 
@@ -1908,7 +2183,7 @@ pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>
                         status: "active".to_string(),
                         ports: vec![],
                         ip_address: Some(network.gateway.clone()),
-                        layer: "docker".to_string(),  // Networks are part of docker layer
+                        layer: "docker".to_string(), // Networks are part of docker layer
                         metadata: {
                             let mut m = HashMap::new();
                             m.insert("gateway".to_string(), network.gateway.clone());
@@ -1942,6 +2217,9 @@ pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>
     // 3. Detect IPC connections from shared volumes
     all_connections.extend(detect_ipc_connections(&container_mounts));
 
+    // 3a. Parse nginx proxy_pass directives from common config locations
+    all_connections.extend(parse_nginx_proxies());
+
     // 3b. Parse nginx proxy_pass connections
     for (site_name, proxy_targets) in &nginx_proxy_targets {
         for target in proxy_targets {
@@ -1958,11 +2236,17 @@ pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>
             let target_container = target_host.split(':').next().unwrap_or(target_host);
 
             // Check if target matches any container
-            if containers.iter().any(|c| c.name.contains(target_container) || target_container.contains(&c.name)) {
+            if containers
+                .iter()
+                .any(|c| c.name.contains(target_container) || target_container.contains(&c.name))
+            {
                 all_connections.push(DetectedConnection {
                     source: format!("nginx_{}", site_name),
-                    target: containers.iter()
-                        .find(|c| c.name.contains(target_container) || target_container.contains(&c.name))
+                    target: containers
+                        .iter()
+                        .find(|c| {
+                            c.name.contains(target_container) || target_container.contains(&c.name)
+                        })
                         .map(|c| c.name.clone())
                         .unwrap_or_else(|| target_container.to_string()),
                     port: target_host.split(':').nth(1).and_then(|p| p.parse().ok()),
@@ -2026,7 +2310,8 @@ pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>
                 if let Some((left, right)) = port_str.split_once("->") {
                     if left.starts_with("0.0.0.0:") {
                         let host_port = left.rsplit_once(':').map(|(_, port)| port).unwrap_or("");
-                        let container_port = right.split_once('/').map(|(port, _)| port).unwrap_or(right);
+                        let container_port =
+                            right.split_once('/').map(|(port, _)| port).unwrap_or(right);
 
                         if !host_port.is_empty() {
                             edges.push(NetworkEdge {
@@ -2038,7 +2323,10 @@ pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>
                                 metadata: {
                                     let mut m = HashMap::new();
                                     m.insert("host_port".to_string(), host_port.to_string());
-                                    m.insert("container_port".to_string(), container_port.to_string());
+                                    m.insert(
+                                        "container_port".to_string(),
+                                        container_port.to_string(),
+                                    );
                                     m
                                 },
                             });
@@ -2059,9 +2347,14 @@ pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>
             let filtered = sys_manager.filter_relevant_services(services);
 
             for service in filtered {
-                if service.name.contains("nginx") || (!service.ports.is_empty() && service.name.contains("kaspa")) {
+                if service.name.contains("nginx")
+                    || (!service.ports.is_empty() && service.name.contains("kaspa"))
+                {
                     let mut metadata = HashMap::new();
-                    metadata.insert("service_type".to_string(), format!("{:?}", service.service_type));
+                    metadata.insert(
+                        "service_type".to_string(),
+                        format!("{:?}", service.service_type),
+                    );
 
                     // Add category for grouping
                     if !service.category.is_empty() {
@@ -2086,9 +2379,12 @@ pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>
 
                     // Security scan for exposed ports
                     let mut service_warnings = Vec::new();
-                    let exposed_ports: Vec<(u16, String)> = service.ports.iter()
+                    let exposed_ports: Vec<(u16, String)> = service
+                        .ports
+                        .iter()
                         .filter_map(|p| {
-                            if let Some(port_num) = p.split('/').next().and_then(|s| s.parse().ok()) {
+                            if let Some(port_num) = p.split('/').next().and_then(|s| s.parse().ok())
+                            {
                                 Some((port_num, service.name.clone()))
                             } else {
                                 None
@@ -2099,7 +2395,9 @@ pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>
                     if !exposed_ports.is_empty() {
                         let warnings = security_scanner.scan_public_ports(&exposed_ports);
                         service_warnings.extend(
-                            warnings.iter().map(|w| format!("{}: {}", w.severity, w.description))
+                            warnings
+                                .iter()
+                                .map(|w| format!("{}: {}", w.severity, w.description)),
                         );
                     }
 
@@ -2135,7 +2433,8 @@ pub async fn get_network_topology() -> Result<Json<ApiResponse<NetworkTopology>>
     }
 
     // Create nodes for external services (IPs referenced in edges but not in nodes)
-    let existing_node_ids: std::collections::HashSet<String> = nodes.iter().map(|n| n.id.clone()).collect();
+    let existing_node_ids: std::collections::HashSet<String> =
+        nodes.iter().map(|n| n.id.clone()).collect();
     let mut external_ips_to_add = std::collections::HashSet::new();
 
     // Find all edge targets that don't have corresponding nodes

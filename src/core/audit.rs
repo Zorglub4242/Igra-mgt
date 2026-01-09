@@ -1,5 +1,4 @@
 /// Audit logging for security events and user actions
-
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -107,8 +106,7 @@ pub struct AuditLogger {
 impl AuditLogger {
     pub fn new(config_dir: PathBuf) -> Result<Self> {
         // Create config directory if it doesn't exist
-        std::fs::create_dir_all(&config_dir)
-            .context("Failed to create audit log directory")?;
+        std::fs::create_dir_all(&config_dir).context("Failed to create audit log directory")?;
 
         Ok(Self {
             log_path: config_dir.join("audit.log"),
@@ -130,8 +128,7 @@ impl AuditLogger {
         }
 
         // Serialize event to JSON
-        let mut json = serde_json::to_string(&event)
-            .context("Failed to serialize audit event")?;
+        let mut json = serde_json::to_string(&event).context("Failed to serialize audit event")?;
         json.push('\n');
 
         // Append to log file
@@ -145,7 +142,10 @@ impl AuditLogger {
             .context("Failed to write audit log")?;
 
         // Also log to stderr for systemd journal
-        eprintln!("AUDIT: {}", serde_json::to_string(&event).unwrap_or_default());
+        eprintln!(
+            "AUDIT: {}",
+            serde_json::to_string(&event).unwrap_or_default()
+        );
 
         Ok(())
     }
@@ -156,8 +156,8 @@ impl AuditLogger {
             return Ok(Vec::new());
         }
 
-        let content = std::fs::read_to_string(&self.log_path)
-            .context("Failed to read audit log")?;
+        let content =
+            std::fs::read_to_string(&self.log_path).context("Failed to read audit log")?;
 
         let events: Vec<AuditEvent> = content
             .lines()
@@ -175,8 +175,8 @@ impl AuditLogger {
             return Ok(Vec::new());
         }
 
-        let content = std::fs::read_to_string(&self.log_path)
-            .context("Failed to read audit log")?;
+        let content =
+            std::fs::read_to_string(&self.log_path).context("Failed to read audit log")?;
 
         let events: Vec<AuditEvent> = content
             .lines()
@@ -189,8 +189,7 @@ impl AuditLogger {
     /// Clear audit log
     pub fn clear(&self) -> Result<()> {
         if self.log_path.exists() {
-            std::fs::remove_file(&self.log_path)
-                .context("Failed to clear audit log")?;
+            std::fs::remove_file(&self.log_path).context("Failed to clear audit log")?;
         }
         Ok(())
     }
